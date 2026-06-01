@@ -64,7 +64,7 @@ const Dashboard = () => {
       <main className="container mx-auto px-4 py-8">
         <div className="mb-8">
           <h2 className="text-3xl font-bold mb-2" style={{ color: '#1a2332' }}>
-            Environmental Monitoring Portal
+            Envirolytics Monitor
           </h2>
           <p className="text-gray-600">Welcome back, {user.fullName}! Monitor your environmental compliance in real-time.</p>
         </div>

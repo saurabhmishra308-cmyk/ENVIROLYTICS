@@ -37,7 +37,7 @@ const Policies = () => {
             <section>
               <h3 className="text-xl font-semibold mb-3" style={{ color: '#1a2332' }}>Privacy Policy</h3>
               <p className="mb-2">
-                At Envirolytics Sustainability Private Limited, we are committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our Environmental Monitoring Portal.
+                At Envirolytics Sustainability Private Limited, we are committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our Envirolytics Monitor.
               </p>
               <p>
                 We collect information that you provide directly to us, including personal information such as your name, email address, and account credentials. We use this information to provide, maintain, and improve our environmental monitoring and sustainability services.
@@ -58,7 +58,7 @@ const Policies = () => {
             <section>
               <h3 className="text-xl font-semibold mb-3" style={{ color: '#1a2332' }}>Terms of Service</h3>
               <p className="mb-2">
-                By accessing and using the Envirolytics Environmental Monitoring Portal, you accept and agree to be bound by the terms and provision of this agreement.
+                By accessing and using the Envirolytics Monitor, you accept and agree to be bound by the terms and provision of this agreement.
               </p>
               <p className="mb-2">
                 You are responsible for maintaining the confidentiality of your account and password. You agree to accept responsibility for all activities that occur under your account.
