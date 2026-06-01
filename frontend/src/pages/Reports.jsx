@@ -3,17 +3,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Download, FileSpreadsheet, FileText, Upload, Loader2, RefreshCw } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '../components/ui/popover';
+import { Calendar } from '../components/ui/calendar';
+import { Download, FileSpreadsheet, FileText, Upload, Loader2, RefreshCw, CalendarIcon } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin, getToken } from '../mockData';
 import { toast } from 'sonner';
+
+const formatDate = (d) => (d ? d.toISOString().split('T')[0] : '');
 
 const Reports = () => {
   const [readings, setReadings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hardwareId, setHardwareId] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
   const admin = isAdmin();
@@ -23,8 +27,8 @@ const Reports = () => {
     try {
       const params = {};
       if (hardwareId) params.hardware_id = hardwareId;
-      if (startDate) params.start_date = startDate;
-      if (endDate) params.end_date = endDate;
+      if (startDate) params.start_date = formatDate(startDate);
+      if (endDate) params.end_date = formatDate(endDate);
       // Use the public history endpoint for client view; admin can also see full data via export
       let url = '/api/flowmeter/latest';
       const { data } = await api.get(url);
@@ -48,8 +52,8 @@ const Reports = () => {
     try {
       const params = new URLSearchParams({ format });
       if (hardwareId) params.append('hardware_id', hardwareId);
-      if (startDate) params.append('start_date', startDate);
-      if (endDate) params.append('end_date', endDate);
+      if (startDate) params.append('start_date', formatDate(startDate));
+      if (endDate) params.append('end_date', formatDate(endDate));
       const url = `${process.env.REACT_APP_BACKEND_URL}/api/admin/data/export?${params.toString()}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
       if (!res.ok) {
@@ -129,11 +133,31 @@ const Reports = () => {
             </div>
             <div>
               <Label>Start Date</Label>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} data-testid="filter-start-date" />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="filter-start-date">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {startDate ? startDate.toLocaleDateString() : <span className="text-gray-400">Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
+                </PopoverContent>
+              </Popover>
             </div>
             <div>
               <Label>End Date</Label>
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} data-testid="filter-end-date" />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="filter-end-date">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {endDate ? endDate.toLocaleDateString() : <span className="text-gray-400">Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="flex items-end">
               <Button onClick={fetchReadings} className="w-full" data-testid="apply-filters-btn">

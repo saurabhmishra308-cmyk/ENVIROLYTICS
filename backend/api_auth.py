@@ -49,6 +49,19 @@ MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
 
 
+def _get_client_ip(request: Request) -> str:
+    """Resolve real client IP behind k8s/cloudflare proxies."""
+    # Cloudflare passes the real IP in cf-connecting-ip
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip.strip()
+    # Standard reverse-proxy header (left-most IP is the original client)
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 async def _is_locked_out(identifier: str) -> bool:
     record = await db.login_attempts.find_one({"identifier": identifier})
     if not record:
@@ -84,10 +97,11 @@ async def _clear_attempts(identifier: str):
 @router.post("/login")
 async def login(req: LoginRequest, request: Request):
     email = req.email.lower().strip()
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _get_client_ip(request)
     identifier = f"{client_ip}:{email}"
+    email_only_id = f"email:{email}"
 
-    if await _is_locked_out(identifier):
+    if await _is_locked_out(identifier) or await _is_locked_out(email_only_id):
         raise HTTPException(
             status_code=429,
             detail=f"Too many failed attempts. Try again in {LOCKOUT_MINUTES} minutes.",
@@ -96,12 +110,14 @@ async def login(req: LoginRequest, request: Request):
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(req.password, user.get("password_hash", "")):
         await _record_failed(identifier)
+        await _record_failed(email_only_id)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account is deactivated")
 
     await _clear_attempts(identifier)
+    await _clear_attempts(email_only_id)
 
     token = create_access_token(
         user_id=user["id"], email=user["email"], role=user.get("role", "client")

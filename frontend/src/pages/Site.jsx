@@ -18,13 +18,18 @@ const Site = () => {
   const admin = isAdmin();
 
   const refresh = useCallback(async () => {
+    if (!admin) {
+      // Non-admin clients can still see their own activations via the public status endpoint;
+      // skip the admin-only calls entirely to avoid 403 console noise.
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const promises = [api.get('/api/admin/site/activations')];
-      if (admin) promises.push(api.get('/api/admin/users/list'));
+      const promises = [api.get('/api/admin/site/activations'), api.get('/api/admin/users/list')];
       const results = await Promise.all(promises);
       setActivations(results[0].data.activations || []);
-      if (admin) setUsers(results[1].data.users || []);
+      setUsers(results[1].data.users || []);
     } catch (e) {
       toast.error(formatApiError(e?.response?.data?.detail));
     } finally {

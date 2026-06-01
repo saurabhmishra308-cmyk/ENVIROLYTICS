@@ -56,6 +56,7 @@ const Sidebar = () => {
             <Link
               key={item.path}
               to={item.path}
+              data-testid={`sidebar-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
               className={`flex items-center justify-between px-6 py-3 transition-all ${
                 active
                   ? 'bg-gray-700 border-l-4 border-lime-400 text-white'
