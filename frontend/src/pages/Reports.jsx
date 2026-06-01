@@ -1,111 +1,190 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { Download, FileText, Calendar } from 'lucide-react';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { Download, FileSpreadsheet, FileText, Upload, Loader2, RefreshCw } from 'lucide-react';
+import api, { formatApiError } from '../lib/api';
+import { isAdmin, getToken } from '../mockData';
+import { toast } from 'sonner';
 
 const Reports = () => {
-  const [selectedPeriod, setSelectedPeriod] = useState('monthly');
+  const [readings, setReadings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [hardwareId, setHardwareId] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+  const admin = isAdmin();
 
-  const reports = [
-    { id: 1, name: 'Monthly Flow Report', date: '2026-05-31', type: 'Flow Data', size: '2.4 MB' },
-    { id: 2, name: 'Water Quality Analysis', date: '2026-05-31', type: 'Quality', size: '1.8 MB' },
-    { id: 3, name: 'Compliance Report', date: '2026-05-31', type: 'Compliance', size: '3.2 MB' },
-    { id: 4, name: 'Equipment Status', date: '2026-05-30', type: 'Maintenance', size: '1.1 MB' },
-    { id: 5, name: 'Energy Consumption', date: '2026-05-29', type: 'Energy', size: '2.0 MB' },
-  ];
+  const fetchReadings = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = {};
+      if (hardwareId) params.hardware_id = hardwareId;
+      if (startDate) params.start_date = startDate;
+      if (endDate) params.end_date = endDate;
+      // Use the public history endpoint for client view; admin can also see full data via export
+      let url = '/api/flowmeter/latest';
+      const { data } = await api.get(url);
+      let rows = data.flowmeters || [];
+      if (hardwareId) {
+        const hist = await api.get(`/api/flowmeter/history/${hardwareId}?limit=200`);
+        rows = hist.data.readings || [];
+      }
+      setReadings(rows);
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+    } finally {
+      setLoading(false);
+    }
+  }, [hardwareId, startDate, endDate]);
+
+  useEffect(() => { fetchReadings(); }, [fetchReadings]);
+
+  const triggerDownload = async (format) => {
+    if (!admin) { toast.error('Admin only'); return; }
+    try {
+      const params = new URLSearchParams({ format });
+      if (hardwareId) params.append('hardware_id', hardwareId);
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
+      const url = `${process.env.REACT_APP_BACKEND_URL}/api/admin/data/export?${params.toString()}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || `Download failed: ${res.status}`);
+      }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = format === 'csv' ? 'flowmeter_data.csv' : 'flowmeter_report.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast.success(`${format.toUpperCase()} downloaded`);
+    } catch (e) {
+      toast.error(e.message || 'Download failed');
+    }
+  };
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const { data } = await api.post('/api/admin/data/import', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (data.success) {
+        toast.success(`Imported ${data.inserted_count} rows`);
+      } else {
+        toast.error(`Validation errors: ${data.error_count}`);
+      }
+      fetchReadings();
+    } catch (e2) {
+      toast.error(formatApiError(e2?.response?.data?.detail));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6" data-testid="reports-page">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-          <p className="text-gray-600 mt-1">Download and view system reports</p>
+          <h1 className="text-3xl font-bold text-gray-900">Reports & Historical Data</h1>
+          <p className="text-gray-600 mt-1">View, filter, export and edit instrument readings</p>
         </div>
-        <Button style={{ backgroundColor: '#4a9fd8' }}>
-          <FileText className="mr-2 h-4 w-4" />
-          Generate New Report
-        </Button>
+        <div className="flex gap-2">
+          {admin && (
+            <>
+              <Button variant="outline" onClick={() => triggerDownload('csv')} data-testid="download-csv-btn">
+                <Download className="h-4 w-4 mr-2" /> CSV
+              </Button>
+              <Button style={{ backgroundColor: '#4a9fd8' }} onClick={() => triggerDownload('pdf')} data-testid="download-pdf-btn">
+                <FileText className="h-4 w-4 mr-2" /> PDF
+              </Button>
+              <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleUpload} className="hidden" data-testid="upload-excel-input" />
+              <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={uploading} data-testid="upload-excel-btn">
+                {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                Upload Excel
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Period Selection */}
-      <div className="flex gap-2">
-        {['daily', 'weekly', 'monthly', 'yearly'].map((period) => (
-          <Button
-            key={period}
-            variant={selectedPeriod === period ? 'default' : 'outline'}
-            onClick={() => setSelectedPeriod(period)}
-            style={{ 
-              backgroundColor: selectedPeriod === period ? '#4a9fd8' : 'transparent',
-              color: selectedPeriod === period ? 'white' : '#4a9fd8'
-            }}
-          >
-            {period.charAt(0).toUpperCase() + period.slice(1)}
-          </Button>
-        ))}
-      </div>
-
-      {/* Reports Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {reports.map((report) => (
-          <Card key={report.id} className="hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <FileText className="h-8 w-8" style={{ color: '#4a9fd8' }} />
-                <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded">
-                  {report.type}
-                </span>
-              </div>
-              <CardTitle className="text-lg mt-2">{report.name}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex items-center text-sm text-gray-600">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  {report.date}
-                </div>
-                <div className="flex items-center justify-between mt-4">
-                  <span className="text-xs text-gray-500">{report.size}</span>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" style={{ borderColor: '#4a9fd8', color: '#4a9fd8' }}>
-                      <Download className="h-4 w-4 mr-1" />
-                      CSV
-                    </Button>
-                    <Button size="sm" style={{ backgroundColor: '#4a9fd8' }}>
-                      <Download className="h-4 w-4 mr-1" />
-                      PDF
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Quick Stats */}
       <Card>
-        <CardHeader>
-          <CardTitle>Report Statistics</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Filters</CardTitle></CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="text-center p-4 bg-blue-50 rounded-lg">
-              <p className="text-3xl font-bold text-blue-600">24</p>
-              <p className="text-sm text-gray-600">Reports Generated</p>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div>
+              <Label>Hardware ID</Label>
+              <Input value={hardwareId} onChange={(e) => setHardwareId(e.target.value)} placeholder="e.g. FM001" data-testid="filter-hardware-id" />
             </div>
-            <div className="text-center p-4 bg-green-50 rounded-lg">
-              <p className="text-3xl font-bold text-green-600">156</p>
-              <p className="text-sm text-gray-600">Total Downloads</p>
+            <div>
+              <Label>Start Date</Label>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} data-testid="filter-start-date" />
             </div>
-            <div className="text-center p-4 bg-amber-50 rounded-lg">
-              <p className="text-3xl font-bold text-amber-600">12.4 MB</p>
-              <p className="text-sm text-gray-600">Total Size</p>
+            <div>
+              <Label>End Date</Label>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} data-testid="filter-end-date" />
             </div>
-            <div className="text-center p-4 bg-purple-50 rounded-lg">
-              <p className="text-3xl font-bold text-purple-600">98%</p>
-              <p className="text-sm text-gray-600">Compliance Rate</p>
+            <div className="flex items-end">
+              <Button onClick={fetchReadings} className="w-full" data-testid="apply-filters-btn">
+                <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+              </Button>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileSpreadsheet className="h-5 w-5" /> Data ({readings.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-center py-8 text-gray-500">Loading…</p>
+          ) : readings.length === 0 ? (
+            <p className="text-center py-8 text-gray-500">No readings yet. Filter by Hardware ID to fetch history.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="readings-table">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-2">Time</th>
+                    <th className="text-left p-2">Hardware ID</th>
+                    <th className="text-right p-2">Flow (L/min)</th>
+                    <th className="text-right p-2">Forward Tot.</th>
+                    <th className="text-right p-2">Reverse Tot.</th>
+                    <th className="text-right p-2">Temp (°C)</th>
+                    <th className="text-right p-2">Signal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {readings.slice(0, 200).map((r, i) => (
+                    <tr key={r._id || i} className="border-b hover:bg-gray-50">
+                      <td className="p-2">{new Date(r.timestamp || r.received_at || Date.now()).toLocaleString()}</td>
+                      <td className="p-2 font-mono text-xs">{r.hardware_id}</td>
+                      <td className="p-2 text-right">{Number(r.flow_rate_lpm || 0).toFixed(2)}</td>
+                      <td className="p-2 text-right">{Number(r.forward_totalizer || 0).toFixed(2)}</td>
+                      <td className="p-2 text-right">{Number(r.reverse_totalizer || 0).toFixed(2)}</td>
+                      <td className="p-2 text-right">{Number(r.temperature || 0).toFixed(1)}</td>
+                      <td className="p-2 text-right">{r.signal_strength || 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

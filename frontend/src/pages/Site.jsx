@@ -1,114 +1,149 @@
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { MapPin, Activity, AlertTriangle } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend } from 'recharts';
+import { Label } from '../components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { MapPin, ShieldCheck, Calendar, Clock } from 'lucide-react';
+import api, { formatApiError } from '../lib/api';
+import { isAdmin } from '../mockData';
+import { toast } from 'sonner';
 
 const Site = () => {
-  const sites = [
-    { id: 1, name: 'ETP Plant A', location: 'Lucknow', status: 'Online', devices: 5, lastUpdate: '2 mins ago' },
-    { id: 2, name: 'WTP Facility B', location: 'Kanpur', status: 'Online', devices: 3, lastUpdate: '5 mins ago' },
-    { id: 3, name: 'Treatment Center C', location: 'Noida', status: 'Online', devices: 4, lastUpdate: '1 min ago' },
-    { id: 4, name: 'Processing Unit D', location: 'Ghaziabad', status: 'Offline', devices: 2, lastUpdate: '2 hours ago' },
-    { id: 5, name: 'Monitoring Station E', location: 'Agra', status: 'Offline', devices: 3, lastUpdate: '3 hours ago' },
-  ];
+  const [users, setUsers] = useState([]);
+  const [activations, setActivations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activateOpen, setActivateOpen] = useState(false);
+  const [form, setForm] = useState({ user_id: '', subscription_type: 'monthly' });
+  const admin = isAdmin();
 
-  const statusData = [
-    { name: 'Online', value: 3, color: '#a3b744' },
-    { name: 'Offline', value: 2, color: '#6b7280' },
-  ];
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const promises = [api.get('/api/admin/site/activations')];
+      if (admin) promises.push(api.get('/api/admin/users/list'));
+      const results = await Promise.all(promises);
+      setActivations(results[0].data.activations || []);
+      if (admin) setUsers(results[1].data.users || []);
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+    } finally {
+      setLoading(false);
+    }
+  }, [admin]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const handleActivate = async () => {
+    if (!form.user_id) { toast.error('Pick a user'); return; }
+    try {
+      await api.post('/api/admin/site/activate', form);
+      toast.success('Site activated');
+      setActivateOpen(false);
+      setForm({ user_id: '', subscription_type: 'monthly' });
+      refresh();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+    }
+  };
+
+  const userById = (id) => users.find((u) => u.id === id);
+  const isExpired = (endIso) => endIso && new Date(endIso) < new Date();
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Site Management</h1>
-        <p className="text-gray-600 mt-1">Monitor and manage all site locations</p>
-      </div>
-
-      {/* Site Status Overview */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>All Sites</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {sites.map((site) => (
-                <div key={site.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <MapPin className="h-5 w-5 text-blue-600" />
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{site.name}</h3>
-                      <p className="text-sm text-gray-600">{site.location}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="text-sm font-medium">{site.devices} Devices</p>
-                      <p className="text-xs text-gray-500">{site.lastUpdate}</p>
-                    </div>
-                    <Badge className={site.status === 'Online' ? 'bg-green-500' : 'bg-gray-500'}>
-                      {site.status}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Site Status</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie
-                    data={statusData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {statusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="text-center mt-4">
-                <p className="text-3xl font-bold">3/5</p>
-                <p className="text-sm text-gray-600">Sites Online</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Quick Stats</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Total Sites</span>
-                <span className="text-lg font-bold">5</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Total Devices</span>
-                <span className="text-lg font-bold">17</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Active Monitoring</span>
-                <span className="text-lg font-bold text-green-600">15</span>
-              </div>
-            </CardContent>
-          </Card>
+    <div className="p-6 space-y-6" data-testid="site-management-page">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Site Activation</h1>
+          <p className="text-gray-600 mt-1">Manage monthly / quarterly / yearly site licenses</p>
         </div>
+        {admin && (
+          <Button style={{ backgroundColor: '#4a9fd8' }} onClick={() => setActivateOpen(true)} data-testid="activate-site-btn">
+            <ShieldCheck className="h-4 w-4 mr-2" /> Activate Site
+          </Button>
+        )}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>All Activations</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-center text-gray-500 py-8">Loading…</p>
+          ) : activations.length === 0 ? (
+            <div className="text-center py-12">
+              <MapPin className="h-10 w-10 mx-auto mb-3 text-gray-400" />
+              <p className="text-gray-600">No site activations yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-3" data-testid="activations-list">
+              {activations.map((a) => {
+                const user = userById(a.user_id);
+                const expired = isExpired(a.end_date);
+                return (
+                  <div key={a.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-4">
+                      <MapPin className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <p className="font-semibold">{user?.full_name || user?.email || a.user_id}</p>
+                        <p className="text-sm text-gray-600 flex items-center gap-2">
+                          <Calendar className="h-3 w-3" /> {new Date(a.start_date).toLocaleDateString()} → {new Date(a.end_date).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Badge className="bg-blue-500 capitalize">{a.subscription_type}</Badge>
+                      <Badge className={expired ? 'bg-gray-500' : 'bg-green-500'}>
+                        {expired ? 'Expired' : 'Active'}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={activateOpen} onOpenChange={setActivateOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Activate Site License</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>User</Label>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={form.user_id}
+                onChange={(e) => setForm({ ...form, user_id: e.target.value })}
+                data-testid="activate-user-select"
+              >
+                <option value="">-- Select user --</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.email} ({u.role})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Subscription Period</Label>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={form.subscription_type}
+                onChange={(e) => setForm({ ...form, subscription_type: e.target.value })}
+                data-testid="activate-period-select"
+              >
+                <option value="monthly">Monthly (30 days)</option>
+                <option value="quarterly">Quarterly (90 days)</option>
+                <option value="yearly">Yearly (365 days)</option>
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setActivateOpen(false)}>Cancel</Button>
+            <Button onClick={handleActivate} data-testid="activate-submit">Activate</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

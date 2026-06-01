@@ -1,0 +1,49 @@
+{
+  "summary": "Full backend + frontend regression for Envirolytics Monitor. Backend: 33/34 pytest tests pass (97% — login, /me, change-password, admin change-user-password, user CRUD, site activate monthly/quarterly/yearly, status, data export csv/pdf, excel import validation, public flowmeter endpoints, admin guard all work). Frontend: login -> /dashboard works for both admin and client; sidebar shows all 8 nav items; admin sees Add User/Reset PW/Deactivate/Delete/Activate Site/CSV/PDF/Upload Excel; client correctly gated to 'Admin access required' + Change My Password / no Activate Site / no export-upload buttons. Dashboard renders weather data, instruments grid (8 INACTIVE), MQTT OFFLINE badge, ADMIN role badge, clean empty-state 'Awaiting Live Instrument Data' as expected (MQTT broker auth issue acknowledged by E1).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/auth/login",
+        "issue": "Brute-force lockout never triggers in K8s deployment — after 6 consecutive failed logins all returned 401 (expected 429 on the 6th). Root cause: identifier is built from request.client.host which behind the ingress proxy may not be stable across requests (or the load balancer round-robins between ingress pods producing different IPs). Recommend: use X-Forwarded-For (with trust list) or use email-only as identifier, and/or trust the ProxyHeadersMiddleware. The lockout logic itself in api_auth.py is correct; this is an infra-bound bug only visible through the public URL."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Reports & Historical Data", "issues": ["Start Date / End Date use the browser-default mm/dd/yyyy date input instead of a shadcn Calendar/Popover date picker — inconsistent with the rest of the design system."]},
+      {"screen": "Client side console", "issues": ["2x 403 Failed-to-load-resource console errors when client visits User page (auto-call to /api/admin/users/list before the role check renders). UI still gracefully shows 'Admin access required' so it's cosmetic, but the call should be guarded by role check before firing to keep console clean."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix brute-force lockout identifier: read X-Forwarded-For (first IP) or fall back to email-only so MAX_FAILED_ATTEMPTS works behind the K8s ingress.",
+    "Replace native <input type=\"date\"> on Reports page with shadcn Calendar + Popover for visual consistency.",
+    "Gate the /api/admin/users/list call in User.jsx behind isAdmin() to avoid stray 403s in the client console.",
+    "Optional: MQTT broker still rejects (rc=5 Not Authorized) on HiveMQ Cloud — UI empty-state is correct, but the live data path remains untested end-to-end until creds are valid."
+  ],
+  "critical_code_review_comments": [
+    "auth.py: bcrypt usage is correct ($2b$ format), JWT uses PyJWT with HS256 and 24h expiry, get_current_user strips password_hash and _id — clean.",
+    "api_auth.py: seed_admin is idempotent and resyncs password on .env change — matches playbook.",
+    "api_admin.py: all admin endpoints depend on require_admin and respond 403 for non-admin (verified). list_users excludes password_hash and _id.",
+    "Brute-force counter relies on (client_ip, email) tuple — fragile behind proxies; consider middleware to resolve real client IP.",
+    "Reports.jsx uses fetch directly with Authorization header for blob downloads — works, but consider centralising via the axios instance + responseType='blob' for consistency with the rest of the app.",
+    "EnhancedDashboard.jsx polls /api/flowmeter/latest every 5s — fine for now; consider exponential back-off if MQTT remains offline to reduce traffic.",
+    "No data-testid on sidebar nav links or User/Site/Reports action buttons — adding them would harden future automation."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "97% (33/34)", "frontend": "100% on tested flows"},
+  "test_credentials": "admin@envirolytics.com / Admin@Envirolytics2026 (admin); client@envirolytics.com / Client@123456 (client) — both verified to log in successfully.",
+  "seed_data_creation": "Created 1 throwaway TEST_user_<uuid>@envirolytics.com via /api/admin/users/create during the run; auto-deleted in fixture teardown. Several site_activations created against the test user (monthly/quarterly/yearly) remain in DB — they belong to the deleted TEST user and are harmless. Also visible on Site page: 'Demo Client' Monthly activation pre-seeded.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression file at /app/backend/tests/backend_test.py covers auth/admin/site/export/flowmeter/guard/brute-force. Re-run with: pytest /app/backend/tests/backend_test.py -v. Frontend testid attributes only exist on login form (login-email-input / login-password-input / login-submit-button); main app sidebar/buttons use text selectors only. MQTT remains OFFLINE — empty-state UI is the expected screen, not a bug.",
+  "rca of the issue": "Brute-force lockout RCA: api_auth.py builds identifier = f'{request.client.host}:{email}'. When the app is fronted by a Kubernetes ingress/load-balancer, request.client.host is the proxy's IP, which can change between requests if multiple ingress replicas serve traffic, so $inc never reaches 5 on the same identifier. Reproduction: 6 consecutive POST /api/auth/login with bad password from the public URL — all return 401. Mitigation: parse X-Forwarded-For (left-most IP) for the client IP, or use email-only as identifier (broader but reliable), or add Uvicorn's ProxyHeadersMiddleware to populate request.client.host correctly."
+}

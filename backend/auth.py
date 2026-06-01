@@ -1,38 +1,87 @@
-from passlib.context import CryptContext
-from jose import JWTError, jwt
-from datetime import datetime, timedelta
-from typing import Optional
+"""JWT authentication utilities for Envirolytics Monitor."""
 import os
+import bcrypt
+import jwt
+from datetime import datetime, timezone, timedelta
+from typing import Optional, Dict
+from fastapi import HTTPException, Request, Depends
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+JWT_ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+def get_jwt_secret() -> str:
+    return os.environ["JWT_SECRET"]
+
+
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password: str) -> str:
-    """Hash a password."""
-    return pwd_context.hash(password)
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    """Create a JWT access token."""
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-def verify_token(token: str) -> Optional[dict]:
-    """Verify and decode a JWT token."""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def create_access_token(user_id: str, email: str, role: str) -> str:
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "role": role,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        "type": "access",
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+
+def decode_token(token: str) -> Optional[Dict]:
+    try:
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            return None
         return payload
-    except JWTError:
+    except jwt.ExpiredSignatureError:
         return None
+    except jwt.InvalidTokenError:
+        return None
+
+
+# Global db reference (set from server.py)
+db = None
+
+
+def set_db(database):
+    global db
+    db = database
+
+
+def _extract_token(request: Request) -> Optional[str]:
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    return request.cookies.get("access_token")
+
+
+async def get_current_user(request: Request) -> Dict:
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user = await db.users.find_one({"id": payload["sub"]})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    user.pop("password_hash", None)
+    user.pop("_id", None)
+    return user
+
+
+async def require_admin(request: Request) -> Dict:
+    user = await get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user

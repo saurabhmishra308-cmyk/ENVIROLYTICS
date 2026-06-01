@@ -2,7 +2,6 @@ import "./App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Login from "./pages/Login";
-import Register from "./pages/Register";
 import Policies from "./pages/Policies";
 import EnhancedDashboard from "./pages/EnhancedDashboard";
 import Flowmeter from "./pages/Flowmeter";
@@ -15,6 +14,7 @@ import User from "./pages/User";
 import Zone from "./pages/Zone";
 import Maintenance from "./pages/Maintenance";
 import Sidebar from "./components/Sidebar";
+import { Toaster } from "./components/ui/sonner";
 
 // Layout component with sidebar
 const DashboardLayout = ({ children }) => {
@@ -35,7 +35,6 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Login />} />
-            <Route path="/register" element={<Register />} />
             <Route path="/policies" element={<Policies />} />
             
             {/* Dashboard routes with sidebar */}
@@ -52,6 +51,7 @@ function App() {
             <Route path="/flowmeter" element={<Flowmeter />} />
             <Route path="/water-level-recorder" element={<WaterLevelRecorder />} />
           </Routes>
+          <Toaster richColors position="top-right" />
         </BrowserRouter>
       </div>
     </ThemeProvider>

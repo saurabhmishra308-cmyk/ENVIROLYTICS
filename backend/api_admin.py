@@ -1,293 +1,272 @@
+"""Admin API endpoints: user management, site activation, data export, certificates."""
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
-from typing import Optional, List
-from datetime import datetime, timedelta
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+from datetime import datetime, timezone, timedelta
 import io
-from models import UserRole, UserCreate, UserLogin, SiteStatus, SubscriptionType
-from auth import get_password_hash, verify_password, create_access_token, verify_token
+import uuid
+
+from models import UserRole, SiteStatus, SubscriptionType
+from auth import hash_password, require_admin, get_current_user
 from data_export_service import DataExportService, ExcelImportService
 from certificate_service import CertificateGenerator
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-# Global references (set from server.py)
+# Global db (set from server.py)
 db = None
 
-async def get_current_user(token: str):
-    """Get current user from token."""
-    payload = verify_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    user = await db.users.find_one({"id": payload.get("sub")})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
 
-async def require_admin(token: str):
-    """Require admin role."""
-    user = await get_current_user(token)
-    if user.get("role") != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return user
+# ============================
+# Models
+# ============================
+class AdminCreateUserRequest(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    role: str = "client"
+    company_name: Optional[str] = None
+    phone: Optional[str] = None
 
+
+class ActivateSiteRequest(BaseModel):
+    user_id: str
+    subscription_type: SubscriptionType
+
+
+# ============================
 # User Management
+# ============================
 @router.post("/users/create")
-async def create_user(user_data: UserCreate, admin_token: str = Query(...)):
-    """Admin only: Create new user."""
-    admin = await require_admin(admin_token)
-    
-    # Check if username exists
-    existing = await db.users.find_one({"username": user_data.username})
-    if existing:
-        raise HTTPException(status_code=400, detail="Username already exists")
-    
-    # Create user
-    user_doc = {
-        "id": f"user_{datetime.now().timestamp()}",
-        "username": user_data.username,
-        "email": user_data.email,
-        "password_hash": get_password_hash(user_data.password),
-        "full_name": user_data.full_name,
-        "company_name": user_data.company_name,
-        "phone": user_data.phone,
-        "role": UserRole.CLIENT,
-        "is_active": True,
-        "created_at": datetime.utcnow(),
-        "created_by": admin["id"]
-    }
-    
-    await db.users.insert_one(user_doc)
-    return {"success": True, "message": "User created successfully", "user_id": user_doc["id"]}
+async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require_admin)):
+    email = req.email.lower().strip()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="Email already exists")
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
-@router.put("/users/{user_id}/password")
-async def reset_user_password(user_id: str, new_password: str, admin_token: str = Query(...)):
-    """Admin only: Reset user password."""
-    admin = await require_admin(admin_token)
-    
-    result = await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"password_hash": get_password_hash(new_password)}}
-    )
-    
-    if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    return {"success": True, "message": "Password reset successfully"}
+    user_doc = {
+        "id": f"user_{uuid.uuid4().hex[:12]}",
+        "email": email,
+        "username": email.split("@")[0],
+        "password_hash": hash_password(req.password),
+        "full_name": req.full_name,
+        "company_name": req.company_name,
+        "phone": req.phone,
+        "role": req.role if req.role in ("admin", "client") else "client",
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": admin["id"],
+    }
+    await db.users.insert_one(user_doc)
+    user_doc.pop("password_hash", None)
+    user_doc.pop("_id", None)
+    return {"success": True, "user": user_doc}
+
+
+@router.get("/users/list")
+async def list_users(admin: dict = Depends(require_admin)):
+    cursor = db.users.find({}, {"password_hash": 0, "_id": 0})
+    users = await cursor.to_list(length=500)
+    return {"users": users, "count": len(users)}
+
 
 @router.put("/users/{user_id}/status")
-async def toggle_user_status(user_id: str, is_active: bool, admin_token: str = Query(...)):
-    """Admin only: Activate/deactivate user."""
-    admin = await require_admin(admin_token)
-    
-    result = await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"is_active": is_active}}
-    )
-    
-    if result.modified_count == 0:
+async def toggle_user_status(user_id: str, is_active: bool, admin: dict = Depends(require_admin)):
+    result = await db.users.update_one({"id": user_id}, {"$set": {"is_active": is_active}})
+    if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    return {"success": True, "message": f"User {'activated' if is_active else 'deactivated'}"}
+    return {"success": True, "is_active": is_active}
 
-# Site Activation Management
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete self")
+    result = await db.users.delete_one({"id": user_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"success": True}
+
+
+# ============================
+# Site Activation
+# ============================
 @router.post("/site/activate")
-async def activate_site(
-    user_id: str,
-    subscription_type: SubscriptionType,
-    admin_token: str = Query(...)
-):
-    """Admin only: Activate site access for a user."""
-    admin = await require_admin(admin_token)
-    
-    # Calculate dates
-    start_date = datetime.utcnow()
-    if subscription_type == SubscriptionType.MONTHLY:
-        end_date = start_date + timedelta(days=30)
-    elif subscription_type == SubscriptionType.QUARTERLY:
-        end_date = start_date + timedelta(days=90)
-    else:  # YEARLY
-        end_date = start_date + timedelta(days=365)
-    
-    activation_doc = {
-        "user_id": user_id,
-        "subscription_type": subscription_type,
-        "start_date": start_date,
-        "end_date": end_date,
-        "status": SiteStatus.ACTIVE,
+async def activate_site(req: ActivateSiteRequest, admin: dict = Depends(require_admin)):
+    start = datetime.now(timezone.utc)
+    days = {"monthly": 30, "quarterly": 90, "yearly": 365}[req.subscription_type.value]
+    end = start + timedelta(days=days)
+
+    doc = {
+        "id": f"sub_{uuid.uuid4().hex[:12]}",
+        "user_id": req.user_id,
+        "subscription_type": req.subscription_type.value,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "status": SiteStatus.ACTIVE.value,
         "created_by": admin["id"],
-        "created_at": datetime.utcnow()
+        "created_at": start.isoformat(),
     }
-    
-    await db.site_activations.insert_one(activation_doc)
-    
-    return {
-        "success": True,
-        "message": "Site activated",
-        "end_date": end_date.isoformat()
-    }
+    await db.site_activations.insert_one(doc)
+    doc.pop("_id", None)
+    return {"success": True, "activation": doc}
+
 
 @router.get("/site/status/{user_id}")
 async def check_site_status(user_id: str):
-    """Check if user's site access is active."""
     activation = await db.site_activations.find_one(
-        {"user_id": user_id},
-        sort=[("created_at", -1)]
+        {"user_id": user_id}, sort=[("created_at", -1)]
     )
-    
     if not activation:
-        return {"status": SiteStatus.INACTIVE, "message": "No active subscription"}
-    
-    now = datetime.utcnow()
-    if now > activation["end_date"]:
-        return {"status": SiteStatus.EXPIRED, "message": "Subscription expired", "expired_on": activation["end_date"]}
-    
+        return {"status": SiteStatus.INACTIVE.value, "message": "No active subscription"}
+
+    end_date = activation["end_date"]
+    if isinstance(end_date, str):
+        end_date = datetime.fromisoformat(end_date)
+    now = datetime.now(timezone.utc)
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
+
+    if now > end_date:
+        return {
+            "status": SiteStatus.EXPIRED.value,
+            "expired_on": end_date.isoformat(),
+        }
     return {
-        "status": SiteStatus.ACTIVE,
+        "status": SiteStatus.ACTIVE.value,
         "subscription_type": activation["subscription_type"],
-        "expires_on": activation["end_date"]
+        "expires_on": end_date.isoformat(),
     }
 
+
+@router.get("/site/activations")
+async def list_activations(admin: dict = Depends(require_admin)):
+    cursor = db.site_activations.find({}, {"_id": 0}).sort("created_at", -1)
+    items = await cursor.to_list(length=500)
+    return {"activations": items, "count": len(items)}
+
+
+# ============================
 # Data Export
+# ============================
 @router.get("/data/export")
 async def export_data(
     format: str = Query(..., regex="^(csv|pdf)$"),
     hardware_id: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    admin_token: str = Query(...)
+    admin: dict = Depends(require_admin),
 ):
-    """Export flowmeter data to CSV or PDF."""
-    await require_admin(admin_token)
-    
-    # Build query
     query = {}
     if hardware_id:
         query["hardware_id"] = hardware_id
     if start_date or end_date:
         query["timestamp"] = {}
         if start_date:
-            query["timestamp"]["$gte"] = datetime.fromisoformat(start_date)
+            query["timestamp"]["$gte"] = start_date
         if end_date:
-            query["timestamp"]["$lte"] = datetime.fromisoformat(end_date)
-    
-    # Fetch data
+            query["timestamp"]["$lte"] = end_date
+
     cursor = db.flowmeter_readings.find(query).sort("timestamp", -1).limit(1000)
     readings = await cursor.to_list(length=1000)
-    
-    # Remove MongoDB _id
-    for reading in readings:
-        reading.pop("_id", None)
-        reading.pop("raw_data", None)
-    
+
+    for r in readings:
+        r.pop("_id", None)
+        r.pop("raw_data", None)
+
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
     if format == "csv":
         csv_data = DataExportService.to_csv(readings)
         return StreamingResponse(
             io.BytesIO(csv_data),
             media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=flowmeter_data_{datetime.now().strftime('%Y%m%d')}.csv"}
+            headers={"Content-Disposition": f"attachment; filename=flowmeter_data_{today}.csv"},
         )
-    else:  # PDF
+    else:
         pdf_data = DataExportService.to_pdf(readings, "Flowmeter Readings Report")
         return StreamingResponse(
             io.BytesIO(pdf_data),
             media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename=flowmeter_report_{datetime.now().strftime('%Y%m%d')}.pdf"}
+            headers={"Content-Disposition": f"attachment; filename=flowmeter_report_{today}.pdf"},
         )
 
-# Data Import
+
+# ============================
+# Excel Import (Edit Historical Data)
+# ============================
 @router.post("/data/import")
-async def import_data(file: UploadFile = File(...), admin_token: str = Query(...)):
-    """Import data from Excel file."""
-    await require_admin(admin_token)
-    
-    if not file.filename.endswith(('.xlsx', '.xls')):
+async def import_data(file: UploadFile = File(...), admin: dict = Depends(require_admin)):
+    if not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="Only Excel files are supported")
-    
-    # Read file
+
     content = await file.read()
-    
-    # Parse Excel
     data = ExcelImportService.parse_excel(content)
-    
-    # Validate
     valid_data, errors = ExcelImportService.validate_flowmeter_data(data)
-    
-    if errors:
+
+    if errors and not valid_data:
         return {
             "success": False,
-            "message": "Validation errors found",
+            "message": "Validation errors",
             "errors": errors,
-            "valid_count": len(valid_data),
-            "error_count": len(errors)
+            "error_count": len(errors),
         }
-    
-    # Insert into database
+
     if valid_data:
-        # Convert timestamps to datetime
+        now_iso = datetime.now(timezone.utc).isoformat()
         for row in valid_data:
-            if 'received_at' not in row:
-                row['received_at'] = datetime.utcnow()
-        
-        result = await db.flowmeter_readings.insert_many(valid_data)
-        
-        return {
-            "success": True,
-            "message": "Data imported successfully",
-            "inserted_count": len(result.inserted_ids)
-        }
-    
-    return {"success": False, "message": "No valid data to import"}
+            row.setdefault("received_at", now_iso)
+            if isinstance(row.get("timestamp"), datetime):
+                row["timestamp"] = row["timestamp"].isoformat()
+        await db.flowmeter_readings.insert_many(valid_data)
 
-# Delete/Update Data
-@router.delete("/data/{reading_id}")
-async def delete_reading(reading_id: str, admin_token: str = Query(...)):
-    """Delete a specific reading."""
-    await require_admin(admin_token)
-    
-    result = await db.flowmeter_readings.delete_one({"_id": reading_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Reading not found")
-    
-    return {"success": True, "message": "Reading deleted"}
+    return {
+        "success": True,
+        "inserted_count": len(valid_data),
+        "error_count": len(errors),
+        "errors": errors[:10],
+    }
 
-# Certificate Generation
+
+# ============================
+# Certificates
+# ============================
 @router.post("/certificate/calibration")
 async def generate_calibration_cert(
     instrument_id: str,
     instrument_type: str,
     serial_number: str,
     calibrated_by: str = "Envirolytics Team",
-    admin_token: str = Query(...)
+    admin: dict = Depends(require_admin),
 ):
-    """Generate calibration certificate."""
-    await require_admin(admin_token)
-    
+    now = datetime.now(timezone.utc)
     cert_data = {
         "instrument_id": instrument_id,
         "instrument_type": instrument_type,
         "serial_number": serial_number,
-        "calibration_date": datetime.now(),
-        "next_calibration_date": datetime.now() + timedelta(days=365),
+        "calibration_date": now,
+        "next_calibration_date": now + timedelta(days=365),
         "calibrated_by": calibrated_by,
-        "certificate_number": f"CAL-{datetime.now().strftime('%Y%m%d')}-{instrument_id}",
+        "certificate_number": f"CAL-{now.strftime('%Y%m%d')}-{instrument_id}",
         "parameters": {
             "Flow Rate": {"standard": "100 L/min", "measured": "99.8 L/min", "deviation": "0.2%", "status": "Pass"},
-            "Accuracy": {"standard": "\u00b11%", "measured": "0.2%", "deviation": "Within limits", "status": "Pass"},
+            "Accuracy": {"standard": "+/-1%", "measured": "0.2%", "deviation": "Within limits", "status": "Pass"},
             "Repeatability": {"standard": "<0.5%", "measured": "0.15%", "deviation": "Within limits", "status": "Pass"},
-        }
+        },
     }
-    
     pdf = CertificateGenerator.generate_calibration_certificate(cert_data)
-    
-    # Store certificate record
-    await db.certificates.insert_one({**cert_data, "type": "calibration"})
-    
+    rec = dict(cert_data)
+    rec["calibration_date"] = cert_data["calibration_date"].isoformat()
+    rec["next_calibration_date"] = cert_data["next_calibration_date"].isoformat()
+    rec["type"] = "calibration"
+    await db.certificates.insert_one(rec)
     return StreamingResponse(
         io.BytesIO(pdf),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=calibration_cert_{instrument_id}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=calibration_cert_{instrument_id}.pdf"},
     )
+
 
 @router.post("/certificate/installation")
 async def generate_installation_cert(
@@ -297,40 +276,26 @@ async def generate_installation_cert(
     client_name: str,
     location: str,
     installed_by: str = "Envirolytics Team",
-    admin_token: str = Query(...)
+    admin: dict = Depends(require_admin),
 ):
-    """Generate installation certificate."""
-    await require_admin(admin_token)
-    
+    now = datetime.now(timezone.utc)
     cert_data = {
         "instrument_id": instrument_id,
         "instrument_type": instrument_type,
         "serial_number": serial_number,
         "client_name": client_name,
         "location": location,
-        "installation_date": datetime.now(),
+        "installation_date": now,
         "installed_by": installed_by,
-        "certificate_number": f"INST-{datetime.now().strftime('%Y%m%d')}-{instrument_id}"
+        "certificate_number": f"INST-{now.strftime('%Y%m%d')}-{instrument_id}",
     }
-    
     pdf = CertificateGenerator.generate_installation_certificate(cert_data)
-    
-    # Store certificate record
-    await db.certificates.insert_one({**cert_data, "type": "installation"})
-    
+    rec = dict(cert_data)
+    rec["installation_date"] = cert_data["installation_date"].isoformat()
+    rec["type"] = "installation"
+    await db.certificates.insert_one(rec)
     return StreamingResponse(
         io.BytesIO(pdf),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=installation_cert_{instrument_id}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=installation_cert_{instrument_id}.pdf"},
     )
-
-@router.get("/users/list")
-async def list_users(admin_token: str = Query(...)):
-    """List all users."""
-    await require_admin(admin_token)
-    
-    users = await db.users.find({}, {"password_hash": 0}).to_list(length=100)
-    for user in users:
-        user["_id"] = str(user["_id"])
-    
-    return {"users": users, "count": len(users)}
