@@ -64,7 +64,11 @@ const Dashboard = () => {
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card className="border-l-4 hover:shadow-lg transition-shadow" style={{ borderLeftColor: '#4a9fd8' }}>
+          <Card 
+            className="border-l-4 hover:shadow-lg transition-shadow cursor-pointer" 
+            style={{ borderLeftColor: '#4a9fd8' }}
+            onClick={() => navigate('/water-level-recorder')}
+          >
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-gray-600">Water Quality</CardTitle>
               <Droplets className="h-5 w-5" style={{ color: '#4a9fd8' }} />
@@ -105,6 +109,65 @@ const Dashboard = () => {
             <CardContent>
               <div className="text-3xl font-bold" style={{ color: '#1a2332' }}>247</div>
               <p className="text-xs text-gray-500 mt-1">Real-time monitoring</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Quick Access Modules */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <Card 
+            className="hover:shadow-xl transition-all cursor-pointer border-2 hover:border-blue-400"
+            onClick={() => navigate('/flowmeter')}
+          >
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-lg" style={{ backgroundColor: '#4a9fd8' }}>
+                  <Droplets className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <CardTitle style={{ color: '#1a2332' }}>Flowmeter Monitoring</CardTitle>
+                  <CardDescription>Real-time water flow measurement system</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-2xl font-bold" style={{ color: '#4a9fd8' }}>6 Active</p>
+                  <p className="text-sm text-gray-600">Flowmeter locations</p>
+                </div>
+                <Button style={{ backgroundColor: '#4a9fd8' }}>
+                  View Details →
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card 
+            className="hover:shadow-xl transition-all cursor-pointer border-2 hover:border-green-400"
+            onClick={() => navigate('/water-level-recorder')}
+          >
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-lg" style={{ backgroundColor: '#27ae60' }}>
+                  <TrendingUp className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <CardTitle style={{ color: '#1a2332' }}>Water Level Recorder (DWLR)</CardTitle>
+                  <CardDescription>Groundwater monitoring and borewell management</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-2xl font-bold" style={{ color: '#27ae60' }}>4 Borewells</p>
+                  <p className="text-sm text-gray-600">Active monitoring sites</p>
+                </div>
+                <Button style={{ backgroundColor: '#27ae60' }}>
+                  View Details →
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
