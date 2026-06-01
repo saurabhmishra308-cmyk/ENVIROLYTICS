@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from mqtt_service import MQTTFlowmeterService
 from api_flowmeter import router as flowmeter_router
 import api_flowmeter
+from api_admin import router as admin_router
+import api_admin
 
 
 ROOT_DIR = Path(__file__).parent
@@ -27,6 +29,7 @@ db = client[os.environ['DB_NAME']]
 # Initialize MQTT Service
 mqtt_service = MQTTFlowmeterService(client, os.environ['DB_NAME'])
 api_flowmeter.mqtt_service = mqtt_service  # Make service available to routes
+api_admin.db = db  # Make database available to admin routes
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -80,6 +83,9 @@ app.include_router(api_router)
 
 # Include flowmeter MQTT routes
 app.include_router(flowmeter_router)
+
+# Include admin routes
+app.include_router(admin_router)
 
 app.add_middleware(
     CORSMiddleware,
