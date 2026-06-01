@@ -37,17 +37,26 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#e8e8e8' }}>
+    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#f5f5f5' }}>
       <div className="w-full max-w-md">
-        <div className="bg-[#5c5c5c] rounded-lg shadow-2xl p-8">
+        <div className="rounded-lg shadow-2xl p-8" style={{ backgroundColor: '#1a2332' }}>
           {/* Logo */}
           <div className="text-center mb-8">
-            <h1 className="text-white font-bold text-4xl tracking-wider mb-1">ASTER</h1>
-            <p className="text-white text-sm tracking-[0.3em] font-light">TECHNOLOGIES</p>
+            <div className="flex justify-center items-center gap-3 mb-4">
+              <img 
+                src="https://www.envirolytics.in/logo-icon.png" 
+                alt="Envirolytics Logo" 
+                className="w-12 h-12"
+              />
+              <div className="text-left">
+                <h1 className="text-white font-bold text-2xl tracking-wide" style={{ color: '#4a9fd8' }}>ENVIROLYTICS</h1>
+                <p className="text-white text-[10px] tracking-wider font-light" style={{ opacity: 0.8 }}>SUSTAINABILITY PRIVATE LIMITED</p>
+              </div>
+            </div>
           </div>
 
           {/* Title */}
-          <h2 className="text-white text-center text-lg mb-6">Sign in your account!</h2>
+          <h2 className="text-white text-center text-lg mb-6">Sign in to your account!</h2>
 
           {/* Error Message */}
           {error && (
@@ -90,7 +99,7 @@ const Login = () => {
               <Button
                 type="submit"
                 className="px-8 py-2 rounded-sm text-white font-medium hover:opacity-90 transition-opacity"
-                style={{ backgroundColor: '#a5b744' }}
+                style={{ backgroundColor: '#f5a623' }}
               >
                 Sign Me In
               </Button>
