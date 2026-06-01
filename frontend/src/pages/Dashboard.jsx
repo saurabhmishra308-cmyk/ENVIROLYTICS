@@ -31,16 +31,9 @@ const Dashboard = () => {
       {/* Header */}
       <header className="shadow-md" style={{ backgroundColor: '#1a2332' }}>
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <img 
-              src="https://www.envirolytics.in/logo-icon.png" 
-              alt="Envirolytics Logo" 
-              className="w-10 h-10"
-            />
-            <div>
-              <h1 className="text-white font-bold text-xl tracking-wide" style={{ color: '#4a9fd8' }}>ENVIROLYTICS</h1>
-              <p className="text-white text-[8px] tracking-wider" style={{ opacity: 0.7 }}>SUSTAINABILITY PRIVATE LIMITED</p>
-            </div>
+          <div>
+            <h1 className="text-white font-bold text-xl tracking-wide" style={{ color: '#4a9fd8' }}>ENVIROLYTICS</h1>
+            <p className="text-white text-[8px] tracking-wider" style={{ opacity: 0.7 }}>SUSTAINABILITY PRIVATE LIMITED</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-white text-sm">

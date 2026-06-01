@@ -17,16 +17,9 @@ const Policies = () => {
               </Button>
             </Link>
             <div className="text-center">
-              <div className="flex justify-center items-center gap-3 mb-4">
-                <img 
-                  src="https://www.envirolytics.in/logo-icon.png" 
-                  alt="Envirolytics Logo" 
-                  className="w-12 h-12"
-                />
-                <div className="text-left">
-                  <h1 className="font-bold text-2xl tracking-wide" style={{ color: '#1a2332' }}>ENVIROLYTICS</h1>
-                  <p className="text-xs tracking-wider font-light" style={{ color: '#1a2332', opacity: 0.7 }}>SUSTAINABILITY PRIVATE LIMITED</p>
-                </div>
+              <div className="mb-4">
+                <h1 className="font-bold text-2xl tracking-wide" style={{ color: '#1a2332' }}>ENVIROLYTICS</h1>
+                <p className="text-xs tracking-wider font-light" style={{ color: '#1a2332', opacity: 0.7 }}>SUSTAINABILITY PRIVATE LIMITED</p>
               </div>
               <h2 className="text-2xl font-semibold mb-4" style={{ color: '#f5a623' }}>Policies & Terms</h2>
             </div>

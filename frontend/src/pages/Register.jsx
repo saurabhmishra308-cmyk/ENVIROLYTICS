@@ -69,16 +69,9 @@ const Register = () => {
         <div className="rounded-lg shadow-2xl p-8" style={{ backgroundColor: '#1a2332' }}>
           {/* Logo */}
           <div className="text-center mb-8">
-            <div className="flex justify-center items-center gap-3 mb-4">
-              <img 
-                src="https://www.envirolytics.in/logo-icon.png" 
-                alt="Envirolytics Logo" 
-                className="w-12 h-12"
-              />
-              <div className="text-left">
-                <h1 className="text-white font-bold text-2xl tracking-wide" style={{ color: '#4a9fd8' }}>ENVIROLYTICS</h1>
-                <p className="text-white text-[10px] tracking-wider font-light" style={{ opacity: 0.8 }}>SUSTAINABILITY PRIVATE LIMITED</p>
-              </div>
+            <div className="mb-4">
+              <h1 className="text-white font-bold text-2xl tracking-wide" style={{ color: '#4a9fd8' }}>ENVIROLYTICS</h1>
+              <p className="text-white text-[10px] tracking-wider font-light" style={{ opacity: 0.8 }}>SUSTAINABILITY PRIVATE LIMITED</p>
             </div>
           </div>
 
