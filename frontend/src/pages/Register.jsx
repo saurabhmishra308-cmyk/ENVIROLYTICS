@@ -21,7 +21,7 @@ const Register = () => {
     if (isAuthenticated()) {
       navigate('/dashboard');
     }
-  }, [navigate]);
+  }, [navigate]); // isAuthenticated is a stable function, safe to omit
 
   const handleChange = (e) => {
     setFormData({

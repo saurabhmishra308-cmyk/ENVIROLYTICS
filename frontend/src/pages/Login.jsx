@@ -16,7 +16,7 @@ const Login = () => {
     if (isAuthenticated()) {
       navigate('/dashboard');
     }
-  }, [navigate]);
+  }, [navigate]); // isAuthenticated is a stable function, safe to omit
 
   const handleSubmit = (e) => {
     e.preventDefault();

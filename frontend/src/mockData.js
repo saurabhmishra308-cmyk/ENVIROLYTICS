@@ -1,23 +1,39 @@
-// Mock data for Asterflow clone
+// Mock authentication module
+// SECURITY WARNING: This is for DEMO/DEVELOPMENT ONLY!
+// 
+// For production, implement:
+// 1. Backend authentication server
+// 2. Secure HTTP-only cookies for tokens
+// 3. Password hashing (bcrypt/argon2)
+// 4. CSRF protection
+// 5. Rate limiting
+// 6. 2FA/MFA
 
+// NEVER hardcode credentials in production code
+// Use environment variables or secure vaults
 export const mockUsers = [
   {
-    id: 1,
-    username: 'demo',
-    password: 'demo123',
-    email: 'demo@asterflow.com',
+    id: 'user_1',
+    username: process.env.REACT_APP_DEMO_USER || 'demo',
+    password: process.env.REACT_APP_DEMO_PASS || 'demo123',
+    email: 'demo@envirolytics.com',
     fullName: 'Demo User'
   },
   {
-    id: 2,
+    id: 'user_2',
     username: 'admin',
-    password: 'admin123',
-    email: 'admin@asterflow.com',
+    password: 'admin123', // Demo only - use secure backend auth in production
+    email: 'admin@envirolytics.com',
     fullName: 'Admin User'
   }
 ];
 
-// Mock authentication functions
+// SECURITY: localStorage is vulnerable to XSS attacks
+// In production:
+// - Use secure, HTTP-only cookies
+// - Store tokens server-side
+// - Implement token refresh mechanisms
+// - Never store passwords
 export const mockLogin = (username, password) => {
   const user = mockUsers.find(
     u => u.username === username && u.password === password
@@ -25,13 +41,21 @@ export const mockLogin = (username, password) => {
   
   if (user) {
     const token = btoa(JSON.stringify({ id: user.id, username: user.username }));
-    localStorage.setItem('asterflow_token', token);
-    localStorage.setItem('asterflow_user', JSON.stringify({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      fullName: user.fullName
-    }));
+    
+    // INSECURE: Only for demo purposes
+    try {
+      localStorage.setItem('asterflow_token', token);
+      localStorage.setItem('asterflow_user', JSON.stringify({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        fullName: user.fullName
+      }));
+    } catch (error) {
+      // Handle quota exceeded or storage errors
+      return { success: false, message: 'Storage error' };
+    }
+    
     return { success: true, user };
   }
   
@@ -46,34 +70,52 @@ export const mockRegister = (userData) => {
   }
   
   const newUser = {
-    id: mockUsers.length + 1,
+    id: `user_${Date.now()}`, // Better unique ID
     ...userData
   };
   
   mockUsers.push(newUser);
   
   const token = btoa(JSON.stringify({ id: newUser.id, username: newUser.username }));
-  localStorage.setItem('asterflow_token', token);
-  localStorage.setItem('asterflow_user', JSON.stringify({
-    id: newUser.id,
-    username: newUser.username,
-    email: newUser.email,
-    fullName: newUser.fullName
-  }));
+  
+  // INSECURE: Only for demo purposes
+  try {
+    localStorage.setItem('asterflow_token', token);
+    localStorage.setItem('asterflow_user', JSON.stringify({
+      id: newUser.id,
+      username: newUser.username,
+      email: newUser.email,
+      fullName: newUser.fullName
+    }));
+  } catch (error) {
+    return { success: false, message: 'Storage error' };
+  }
   
   return { success: true, user: newUser };
 };
 
 export const mockLogout = () => {
-  localStorage.removeItem('asterflow_token');
-  localStorage.removeItem('asterflow_user');
+  try {
+    localStorage.removeItem('asterflow_token');
+    localStorage.removeItem('asterflow_user');
+  } catch (error) {
+    // Silently fail if storage is unavailable
+  }
 };
 
 export const isAuthenticated = () => {
-  return localStorage.getItem('asterflow_token') !== null;
+  try {
+    return localStorage.getItem('asterflow_token') !== null;
+  } catch {
+    return false;
+  }
 };
 
 export const getCurrentUser = () => {
-  const userStr = localStorage.getItem('asterflow_user');
-  return userStr ? JSON.parse(userStr) : null;
+  try {
+    const userStr = localStorage.getItem('asterflow_user');
+    return userStr ? JSON.parse(userStr) : null;
+  } catch {
+    return null;
+  }
 };

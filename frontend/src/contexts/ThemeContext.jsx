@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useMemo } from 'react';
 
 const ThemeContext = createContext();
 
@@ -12,16 +12,25 @@ export const useTheme = () => {
 
 export const ThemeProvider = ({ children }) => {
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('envirolytics-theme');
-    return saved === 'dark';
+    // Safe localStorage access
+    try {
+      const saved = localStorage.getItem('envirolytics-theme');
+      return saved === 'dark';
+    } catch {
+      return false;
+    }
   });
 
   useEffect(() => {
-    localStorage.setItem('envirolytics-theme', isDarkMode ? 'dark' : 'light');
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    try {
+      localStorage.setItem('envirolytics-theme', isDarkMode ? 'dark' : 'light');
+      if (isDarkMode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    } catch (error) {
+      console.error('Failed to save theme preference:', error);
     }
   }, [isDarkMode]);
 
@@ -29,8 +38,14 @@ export const ThemeProvider = ({ children }) => {
     setIsDarkMode(prev => !prev);
   };
 
+  // Memoize the context value to prevent unnecessary re-renders
+  const value = useMemo(() => ({
+    isDarkMode,
+    toggleTheme
+  }), [isDarkMode]);
+
   return (
-    <ThemeContext.Provider value={{ isDarkMode, toggleTheme }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );
