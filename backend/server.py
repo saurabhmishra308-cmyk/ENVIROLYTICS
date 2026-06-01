@@ -10,6 +10,11 @@ from typing import List
 import uuid
 from datetime import datetime, timezone
 
+# Import MQTT service and flowmeter API
+from mqtt_service import MQTTFlowmeterService
+from api_flowmeter import router as flowmeter_router
+import api_flowmeter
+
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -18,6 +23,10 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# Initialize MQTT Service
+mqtt_service = MQTTFlowmeterService(client, os.environ['DB_NAME'])
+api_flowmeter.mqtt_service = mqtt_service  # Make service available to routes
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -69,6 +78,9 @@ async def get_status_checks():
 # Include the router in the main app
 app.include_router(api_router)
 
+# Include flowmeter MQTT routes
+app.include_router(flowmeter_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -84,6 +96,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
+    logger.info("Starting up...")
+    # Connect to MQTT broker
+    mqtt_service.connect()
+    logger.info("MQTT service initialized")
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    """Cleanup on shutdown."""
+    mqtt_service.disconnect()
     client.close()
+    logger.info("Services shut down")
