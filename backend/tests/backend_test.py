@@ -339,3 +339,228 @@ class TestBruteForce:
             codes.append(r.status_code)
         # After 5 failures, at least one 429 is expected
         assert 429 in codes, f"Expected 429 after 5 failures, got {codes}"
+
+
+
+# ============================
+# Instruments API (generic — dwlr / ph / tds / conductivity only, no bod/cod/tss)
+# ============================
+class TestInstruments:
+    def test_types_only_supported(self, session):
+        r = session.get(f"{API}/instruments/types")
+        assert r.status_code == 200
+        types = r.json()["types"]
+        assert sorted(types) == ["conductivity", "dwlr", "ph", "tds"]
+        for forbidden in ("bod", "cod", "tss"):
+            assert forbidden not in types
+
+    def test_all_latest_no_auth(self, session):
+        r = session.get(f"{API}/instruments/all/latest")
+        assert r.status_code == 200
+        body = r.json()
+        assert "by_type" in body and "total" in body
+        assert isinstance(body["by_type"], dict)
+
+    def test_ingest_dwlr_and_visible(self, session, admin_headers):
+        hw = f"TEST_DWLR_{uuid.uuid4().hex[:6]}"
+        payload = {"hardware_id": hw, "values": {"LEVEL": 15.8, "TEMPER": 24.1, "BATTERY": 87}, "location": "TestSite"}
+        r = session.post(f"{API}/instruments/ingest?instrument_type=dwlr", headers=admin_headers, json=payload)
+        assert r.status_code == 200, r.text
+        assert r.json()["success"] is True
+        # Should now appear in latest
+        r2 = session.get(f"{API}/instruments/dwlr/latest")
+        assert r2.status_code == 200
+        hws = [x["hardware_id"] for x in r2.json()["readings"]]
+        assert hw in hws
+
+    def test_ingest_unsupported_type_400(self, session, admin_headers):
+        payload = {"hardware_id": "X", "values": {"BOD": 5}}
+        r = session.post(f"{API}/instruments/ingest?instrument_type=bod", headers=admin_headers, json=payload)
+        assert r.status_code == 400
+
+    def test_ingest_requires_admin(self, session):
+        r = session.post(f"{API}/instruments/ingest?instrument_type=dwlr", json={"hardware_id": "X", "values": {}})
+        assert r.status_code in (401, 403)
+
+
+# ============================
+# Admin user location create + update
+# ============================
+class TestUserLocations:
+    def test_create_user_with_location(self, session, admin_headers):
+        email = f"TEST_loc_{uuid.uuid4().hex[:6]}@envirolytics.com"
+        payload = {
+            "email": email, "password": "ClientPass123", "full_name": "Loc User",
+            "role": "client", "company_name": "Acme", "phone": "9999",
+            "location_name": "Mumbai HQ", "latitude": 19.076, "longitude": 72.877,
+        }
+        r = session.post(f"{API}/admin/users/create", headers=admin_headers, json=payload)
+        assert r.status_code == 200, r.text
+        user = r.json()["user"]
+        assert user["latitude"] == 19.076
+        assert user["longitude"] == 72.877
+        assert user["location_name"] == "Mumbai HQ"
+        # Verify persistence via list
+        r2 = session.get(f"{API}/admin/users/list", headers=admin_headers)
+        assert r2.status_code == 200
+        match = [u for u in r2.json()["users"] if u["id"] == user["id"]]
+        assert len(match) == 1
+        assert match[0]["latitude"] == 19.076
+        # Cleanup
+        session.delete(f"{API}/admin/users/{user['id']}", headers=admin_headers)
+
+    def test_admin_seeded_with_lucknow(self, session, admin_headers):
+        r = session.get(f"{API}/admin/users/list", headers=admin_headers)
+        assert r.status_code == 200
+        admin = [u for u in r.json()["users"] if u["email"] == ADMIN_EMAIL]
+        assert len(admin) == 1
+        a = admin[0]
+        assert abs(a.get("latitude", 0) - 26.8467) < 0.01
+        assert abs(a.get("longitude", 0) - 80.9462) < 0.01
+        assert a.get("location_name") == "Lucknow HQ"
+
+    def test_locations_endpoint_admin(self, session, admin_headers):
+        r = session.get(f"{API}/admin/users/locations", headers=admin_headers)
+        assert r.status_code == 200
+        locs = r.json()["locations"]
+        # All returned items must have lat+long
+        for l in locs:
+            assert l.get("latitude") is not None
+            assert l.get("longitude") is not None
+
+    def test_locations_endpoint_client(self, session, admin_headers):
+        # Create a client and ensure it can see locations
+        email = f"TEST_locclient_{uuid.uuid4().hex[:6]}@envirolytics.com"
+        payload = {"email": email, "password": "ClientPass123", "full_name": "C", "role": "client",
+                   "latitude": 12.97, "longitude": 77.59, "location_name": "BLR"}
+        cr = session.post(f"{API}/admin/users/create", headers=admin_headers, json=payload)
+        assert cr.status_code == 200
+        uid = cr.json()["user"]["id"]
+        login = session.post(f"{API}/auth/login", json={"email": email, "password": "ClientPass123"})
+        assert login.status_code == 200
+        tok = login.json()["access_token"]
+        r = session.get(f"{API}/admin/users/locations", headers={"Authorization": f"Bearer {tok}"})
+        assert r.status_code == 200, r.text
+        assert r.json()["count"] >= 1
+        session.delete(f"{API}/admin/users/{uid}", headers=admin_headers)
+
+    def test_update_user_fields(self, session, admin_headers, test_user):
+        new_payload = {
+            "full_name": "Updated Name", "company_name": "NewCo", "phone": "1234",
+            "location_name": "Delhi", "latitude": 28.6, "longitude": 77.2, "role": "client"
+        }
+        r = session.put(f"{API}/admin/users/{test_user['id']}", headers=admin_headers, json=new_payload)
+        assert r.status_code == 200, r.text
+        # Verify via list
+        rl = session.get(f"{API}/admin/users/list", headers=admin_headers)
+        m = [u for u in rl.json()["users"] if u["id"] == test_user["id"]][0]
+        assert m["full_name"] == "Updated Name"
+        assert m["location_name"] == "Delhi"
+        assert m["latitude"] == 28.6
+        assert m["longitude"] == 77.2
+
+    def test_update_user_invalid_role(self, session, admin_headers, test_user):
+        r = session.put(f"{API}/admin/users/{test_user['id']}", headers=admin_headers, json={"role": "superuser"})
+        assert r.status_code == 400
+
+
+# ============================
+# Certificates API
+# ============================
+def _tiny_pdf_bytes():
+    # Minimal valid PDF
+    return (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+            b"2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n"
+            b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]>>endobj\n"
+            b"xref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n"
+            b"0000000050 00000 n\n0000000090 00000 n\ntrailer<</Size 4/Root 1 0 R>>\n"
+            b"startxref\n140\n%%EOF\n")
+
+
+class TestCertificates:
+    def test_types_endpoint(self, session, admin_headers):
+        r = session.get(f"{API}/certificates/types", headers=admin_headers)
+        assert r.status_code == 200
+        keys = [t["key"] for t in r.json()["types"]]
+        assert sorted(keys) == ["calibration", "installation", "water_post", "water_pre"]
+
+    def test_upload_requires_admin(self, session):
+        files = {"file": ("a.pdf", _tiny_pdf_bytes(), "application/pdf")}
+        data = {"cert_type": "installation", "year": 2026}
+        # No content-type header for multipart
+        s = requests.Session()
+        r = s.post(f"{API}/certificates/upload", files=files, data=data)
+        assert r.status_code in (401, 403)
+
+    def test_upload_and_list_and_download_and_delete(self, admin_token):
+        s = requests.Session()
+        hdr = {"Authorization": f"Bearer {admin_token}"}
+        files = {"file": ("install.pdf", _tiny_pdf_bytes(), "application/pdf")}
+        data = {"cert_type": "installation", "year": 2026, "notes": "test"}
+        r = s.post(f"{API}/certificates/upload", headers=hdr, files=files, data=data)
+        assert r.status_code == 200, r.text
+        cert = r.json()["certificate"]
+        cert_id = cert["id"]
+        assert cert["original_filename"] == "install.pdf"
+        assert cert["size_bytes"] > 0
+        # list filter
+        rl = s.get(f"{API}/certificates/list?cert_type=installation&year=2026", headers=hdr)
+        assert rl.status_code == 200
+        ids = [c["id"] for c in rl.json()["certificates"]]
+        assert cert_id in ids
+        # download
+        rd = s.get(f"{API}/certificates/download/{cert_id}", headers=hdr)
+        assert rd.status_code == 200
+        assert rd.content.startswith(b"%PDF")
+        # delete
+        rdel = s.delete(f"{API}/certificates/{cert_id}", headers=hdr)
+        assert rdel.status_code == 200
+        # confirm gone
+        rd2 = s.get(f"{API}/certificates/download/{cert_id}", headers=hdr)
+        assert rd2.status_code == 404
+
+    def test_upload_rejects_exe(self, admin_token):
+        s = requests.Session()
+        hdr = {"Authorization": f"Bearer {admin_token}"}
+        files = {"file": ("malware.exe", b"MZ\x00\x00", "application/octet-stream")}
+        data = {"cert_type": "installation", "year": 2026}
+        r = s.post(f"{API}/certificates/upload", headers=hdr, files=files, data=data)
+        assert r.status_code == 400
+
+    def test_upload_rejects_large_file(self, admin_token):
+        s = requests.Session()
+        hdr = {"Authorization": f"Bearer {admin_token}"}
+        big = b"%PDF-1.4\n" + b"A" * (10 * 1024 * 1024 + 100)
+        files = {"file": ("big.pdf", big, "application/pdf")}
+        data = {"cert_type": "installation", "year": 2026}
+        r = s.post(f"{API}/certificates/upload", headers=hdr, files=files, data=data)
+        assert r.status_code == 413
+
+    def test_client_only_sees_own(self, session, admin_headers, admin_token):
+        # Create client
+        email = f"TEST_cc_{uuid.uuid4().hex[:6]}@envirolytics.com"
+        cr = session.post(f"{API}/admin/users/create", headers=admin_headers,
+                          json={"email": email, "password": "ClientPass123", "full_name": "CC", "role": "client"})
+        client_id = cr.json()["user"]["id"]
+        # admin uploads with client_id
+        s = requests.Session()
+        adm_hdr = {"Authorization": f"Bearer {admin_token}"}
+        files = {"file": ("c.pdf", _tiny_pdf_bytes(), "application/pdf")}
+        data = {"cert_type": "calibration", "year": 2026, "client_id": client_id}
+        r = s.post(f"{API}/certificates/upload", headers=adm_hdr, files=files, data=data)
+        assert r.status_code == 200
+        cert_id = r.json()["certificate"]["id"]
+        # client logs in
+        login = session.post(f"{API}/auth/login", json={"email": email, "password": "ClientPass123"})
+        client_tok = login.json()["access_token"]
+        client_hdr = {"Authorization": f"Bearer {client_tok}"}
+        rl = s.get(f"{API}/certificates/list", headers=client_hdr)
+        assert rl.status_code == 200
+        ids = [c["id"] for c in rl.json()["certificates"]]
+        # All listed certs should belong to this client
+        for c in rl.json()["certificates"]:
+            assert c.get("client_id") == client_id
+        assert cert_id in ids
+        # cleanup
+        s.delete(f"{API}/certificates/{cert_id}", headers=adm_hdr)
+        session.delete(f"{API}/admin/users/{client_id}", headers=admin_headers)

@@ -28,6 +28,19 @@ class AdminCreateUserRequest(BaseModel):
     role: str = "client"
     company_name: Optional[str] = None
     phone: Optional[str] = None
+    location_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class AdminUpdateUserRequest(BaseModel):
+    full_name: Optional[str] = None
+    company_name: Optional[str] = None
+    phone: Optional[str] = None
+    location_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    role: Optional[str] = None
 
 
 class ActivateSiteRequest(BaseModel):
@@ -56,6 +69,9 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
         "phone": req.phone,
         "role": req.role if req.role in ("admin", "client") else "client",
         "is_active": True,
+        "location_name": req.location_name,
+        "latitude": req.latitude,
+        "longitude": req.longitude,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": admin["id"],
     }
@@ -72,12 +88,38 @@ async def list_users(admin: dict = Depends(require_admin)):
     return {"users": users, "count": len(users)}
 
 
+@router.get("/users/locations")
+async def list_locations(user: dict = Depends(get_current_user)):
+    """Any authenticated user can see the location map (lat/long + name only)."""
+    cursor = db.users.find(
+        {"latitude": {"$ne": None}, "longitude": {"$ne": None}},
+        {"_id": 0, "id": 1, "full_name": 1, "company_name": 1, "location_name": 1,
+         "latitude": 1, "longitude": 1, "role": 1, "is_active": 1},
+    )
+    items = await cursor.to_list(length=500)
+    return {"locations": items, "count": len(items)}
+
+
 @router.put("/users/{user_id}/status")
 async def toggle_user_status(user_id: str, is_active: bool, admin: dict = Depends(require_admin)):
     result = await db.users.update_one({"id": user_id}, {"$set": {"is_active": is_active}})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     return {"success": True, "is_active": is_active}
+
+
+@router.put("/users/{user_id}")
+async def update_user(user_id: str, req: AdminUpdateUserRequest, admin: dict = Depends(require_admin)):
+    """Admin — update user profile (location, contact info, role)."""
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if "role" in updates and updates["role"] not in ("admin", "client"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = await db.users.update_one({"id": user_id}, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"success": True, "updated_fields": list(updates.keys())}
 
 
 @router.delete("/users/{user_id}")

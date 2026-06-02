@@ -9,7 +9,7 @@ import {
   MapPin,
   Users,
   Map,
-  Wrench,
+  Award,
   ChevronRight
 } from 'lucide-react';
 
@@ -25,7 +25,7 @@ const Sidebar = () => {
     { path: '/site', icon: MapPin, label: 'Site' },
     { path: '/user', icon: Users, label: 'User' },
     { path: '/zone', icon: Map, label: 'Zone' },
-    { path: '/maintenance', icon: Wrench, label: 'Maintenance' },
+    { path: '/maintenance', icon: Award, label: 'Certificates' },
   ];
 
   const isActive = (path) => location.pathname === path;
@@ -75,7 +75,7 @@ const Sidebar = () => {
 
       {/* Footer */}
       <div className="p-4 border-t border-gray-600 text-center">
-        <p className="text-xs text-gray-400">Aster All Rights Reserved.</p>
+        <p className="text-xs text-gray-400">© Envirolytics Sustainability</p>
       </div>
     </div>
   );

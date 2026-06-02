@@ -18,7 +18,12 @@ const UserPage = () => {
 
   // Create user state
   const [createOpen, setCreateOpen] = useState(false);
-  const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', role: 'client', company_name: '', phone: '' });
+  const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', role: 'client', company_name: '', phone: '', location_name: '', latitude: '', longitude: '' });
+
+  // Edit user state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [editForm, setEditForm] = useState({ full_name: '', company_name: '', phone: '', location_name: '', latitude: '', longitude: '', role: 'client' });
 
   // Change password modal
   const [pwOpen, setPwOpen] = useState(false);
@@ -45,10 +50,53 @@ const UserPage = () => {
 
   const handleCreate = async () => {
     try {
-      await api.post('/api/admin/users/create', newUser);
+      const payload = { ...newUser };
+      if (payload.latitude === '' || payload.latitude == null) delete payload.latitude;
+      else payload.latitude = parseFloat(payload.latitude);
+      if (payload.longitude === '' || payload.longitude == null) delete payload.longitude;
+      else payload.longitude = parseFloat(payload.longitude);
+      await api.post('/api/admin/users/create', payload);
       toast.success('User created');
       setCreateOpen(false);
-      setNewUser({ email: '', password: '', full_name: '', role: 'client', company_name: '', phone: '' });
+      setNewUser({ email: '', password: '', full_name: '', role: 'client', company_name: '', phone: '', location_name: '', latitude: '', longitude: '' });
+      fetchUsers();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+    }
+  };
+
+  const openEdit = (u) => {
+    setEditTarget(u);
+    setEditForm({
+      full_name: u.full_name || '',
+      company_name: u.company_name || '',
+      phone: u.phone || '',
+      location_name: u.location_name || '',
+      latitude: u.latitude != null ? String(u.latitude) : '',
+      longitude: u.longitude != null ? String(u.longitude) : '',
+      role: u.role || 'client',
+    });
+    setEditOpen(true);
+  };
+
+  const handleEdit = async () => {
+    if (!editTarget) return;
+    try {
+      const payload = { ...editForm };
+      if (payload.latitude === '') payload.latitude = null;
+      else payload.latitude = parseFloat(payload.latitude);
+      if (payload.longitude === '') payload.longitude = null;
+      else payload.longitude = parseFloat(payload.longitude);
+      // Drop empties so we don't overwrite with null on string fields
+      Object.keys(payload).forEach((k) => {
+        if (k !== 'latitude' && k !== 'longitude' && (payload[k] === '' || payload[k] == null)) {
+          delete payload[k];
+        }
+      });
+      await api.put(`/api/admin/users/${editTarget.id}`, payload);
+      toast.success('User updated');
+      setEditOpen(false);
+      setEditTarget(null);
       fetchUsers();
     } catch (e) {
       toast.error(formatApiError(e?.response?.data?.detail));
@@ -192,7 +240,10 @@ const UserPage = () => {
                       <td className="p-3"><Badge className={u.role === 'admin' ? 'bg-purple-500' : 'bg-blue-500'}>{u.role}</Badge></td>
                       <td className="p-3"><Badge className={u.is_active ? 'bg-green-500' : 'bg-gray-500'}>{u.is_active ? 'Active' : 'Inactive'}</Badge></td>
                       <td className="p-3">
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
+                          <Button size="sm" variant="outline" onClick={() => openEdit(u)} data-testid={`edit-user-${u.id}`}>
+                            Edit
+                          </Button>
                           <Button size="sm" variant="outline" onClick={() => { setPwTarget(u); setPwOpen(true); }} data-testid={`reset-pw-${u.id}`}>
                             <KeyRound className="h-3 w-3 mr-1" /> Reset PW
                           </Button>
@@ -232,10 +283,47 @@ const UserPage = () => {
             </div>
             <div><Label>Company (optional)</Label><Input value={newUser.company_name} onChange={(e) => setNewUser({ ...newUser, company_name: e.target.value })} /></div>
             <div><Label>Phone (optional)</Label><Input value={newUser.phone} onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Location Name</Label><Input value={newUser.location_name} onChange={(e) => setNewUser({ ...newUser, location_name: e.target.value })} placeholder="e.g. Plant A" data-testid="new-user-location-name" /></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><Label>Latitude</Label><Input value={newUser.latitude} onChange={(e) => setNewUser({ ...newUser, latitude: e.target.value })} placeholder="26.8467" data-testid="new-user-latitude" /></div>
+                <div><Label>Longitude</Label><Input value={newUser.longitude} onChange={(e) => setNewUser({ ...newUser, longitude: e.target.value })} placeholder="80.9462" data-testid="new-user-longitude" /></div>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button onClick={handleCreate} data-testid="create-user-submit">Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit User Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit User — {editTarget?.email}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Full Name</Label><Input value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} data-testid="edit-user-name" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Role</Label>
+                <select className="w-full border rounded px-3 py-2" value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} data-testid="edit-user-role" disabled={editTarget?.id === me?.id}>
+                  <option value="client">Client</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div><Label>Phone</Label><Input value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} /></div>
+            </div>
+            <div><Label>Company</Label><Input value={editForm.company_name} onChange={(e) => setEditForm({ ...editForm, company_name: e.target.value })} /></div>
+            <div><Label>Location Name</Label><Input value={editForm.location_name} onChange={(e) => setEditForm({ ...editForm, location_name: e.target.value })} data-testid="edit-user-location-name" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Latitude</Label><Input value={editForm.latitude} onChange={(e) => setEditForm({ ...editForm, latitude: e.target.value })} placeholder="26.8467" data-testid="edit-user-latitude" /></div>
+              <div><Label>Longitude</Label><Input value={editForm.longitude} onChange={(e) => setEditForm({ ...editForm, longitude: e.target.value })} placeholder="80.9462" data-testid="edit-user-longitude" /></div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button onClick={handleEdit} data-testid="edit-user-submit">Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

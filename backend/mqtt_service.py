@@ -64,8 +64,24 @@ class MQTTFlowmeterService:
             payload = msg.payload.decode("utf-8")
             print(f"[mqtt] Received on {topic}: {payload[:200]}")
 
+            parts = topic.split("/")
+            # Generic instrument topic: {type}/{hardware_id}/data
+            if len(parts) >= 3 and parts[0].lower() in {"dwlr", "ph", "tds", "conductivity"}:
+                instrument_type = parts[0].lower()
+                hardware_id = parts[1]
+                try:
+                    data = json.loads(payload)
+                    if self.loop and self.loop.is_running():
+                        asyncio.run_coroutine_threadsafe(
+                            self.process_instrument_data(instrument_type, hardware_id, data), self.loop
+                        )
+                except json.JSONDecodeError:
+                    print(f"[mqtt] Invalid JSON for instrument {instrument_type}/{hardware_id}")
+                return
+
+            # Legacy flowmeter / gateway: {device_id}/0
             if "/" in topic:
-                device_id = topic.split("/")[0]
+                device_id = parts[0]
                 try:
                     data = json.loads(payload)
                     if self.loop and self.loop.is_running():
@@ -79,6 +95,27 @@ class MQTTFlowmeterService:
                         )
         except Exception as e:
             print(f"[mqtt] Error processing message: {e}")
+
+    async def process_instrument_data(self, instrument_type: str, hardware_id: str, data: Dict):
+        """Generic instrument reading handler."""
+        try:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            doc = {
+                "instrument_type": instrument_type,
+                "hardware_id": hardware_id,
+                "values": data,
+                "timestamp": data.get("TIME") or now_iso,
+                "received_at": now_iso,
+            }
+            await self.db.instrument_readings.insert_one(dict(doc))
+            await self.db.instrument_latest.update_one(
+                {"instrument_type": instrument_type, "hardware_id": hardware_id},
+                {"$set": doc},
+                upsert=True,
+            )
+            print(f"[mqtt] Stored {instrument_type} reading for {hardware_id}")
+        except Exception as e:
+            print(f"[mqtt] Error processing instrument data: {e}")
 
     async def process_flowmeter_data(self, hardware_id: str, data: Dict):
         try:
@@ -181,6 +218,20 @@ class MQTTFlowmeterService:
         self.client.subscribe(topic)
         self.subscribed_topics.add(topic)
         print(f"[mqtt] Subscribed to flowmeter: {topic}")
+
+    def subscribe_topic(self, topic: str, instrument_type: str = None):
+        """Generic subscription helper for any topic."""
+        self.client.subscribe(topic)
+        self.subscribed_topics.add(topic)
+        label = f" ({instrument_type})" if instrument_type else ""
+        print(f"[mqtt] Subscribed to topic{label}: {topic}")
+
+    def publish(self, topic: str, payload: str, qos: int = 0):
+        """Publish a payload to a topic (used by the test/ingest endpoint)."""
+        if not self.connected:
+            raise RuntimeError("MQTT not connected")
+        info = self.client.publish(topic, payload, qos=qos)
+        return {"rc": info.rc, "mid": info.mid}
 
     async def get_latest_reading(self, hardware_id: str) -> Optional[Dict]:
         reading = await self.db.flowmeter_latest.find_one({"hardware_id": hardware_id})

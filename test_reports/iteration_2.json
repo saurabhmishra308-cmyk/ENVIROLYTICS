@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 2 testing of Envirolytics — new instruments API (generic 4-types), certificates module with file storage, user location fields + edit dialog, segmented dashboard, and Leaflet map. Backend: 51/51 pytest tests passing (100%) including 17 new tests covering instruments, certificate upload/list/download/delete with 10MB & .exe rejection, role-filtered listing, admin user location create/update, and Lucknow-seed verification. Frontend: All UI flows verified — Dashboard renders 3 segmented sections (Water Abstraction / Water Level / Water Quality), zero BOD/COD/TSS references anywhere, Leaflet map renders with 2 pins (admin Lucknow + Mumbai client), sidebar shows 'Certificates' (no 'Maintenance'), Certificates page has all 4 tabs + working upload dialog, User page Create dialog has lat/long/location_name fields and persists, Edit dialog opens with role + full fields and saves changes (verified via backend list).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Certificates upload dialog & User dialogs", "issues": ["Radix DialogContent emits a11y warning: 'Missing Description or aria-describedby'. Non-blocking but should add DialogDescription for screen-reader compliance."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: Add <DialogDescription> to upload + create/edit user dialogs to silence Radix a11y warning.",
+    "Optional: Surface location_name column in users table so admins can visually confirm updates without re-opening the edit dialog."
+  ],
+  "critical_code_review_comments": [
+    "api_instruments.py SUPPORTED_TYPES correctly restricts to {conductivity,dwlr,ph,tds}; /ingest returns 400 for bod/cod/tss as required.",
+    "api_certificates.py enforces 10MB cap (413) and whitelists .pdf/.jpg/.jpeg/.png (400 for .exe) — verified.",
+    "Certificates non-admin client filter uses client_id correctly; DELETE removes both DB record and disk file.",
+    "Admin seed (api_auth.py) idempotently backfills Lucknow lat/long on existing admin record — confirmed via /admin/users/list.",
+    "/admin/users/locations is correctly accessible to both admin and client roles and only returns users with both lat & long set.",
+    "Frontend User page uses native <select> for role (not Radix) so playwright fill/click works; default 'client' is preserved.",
+    "Users table does NOT display location_name; consider adding a column for better UX (data is persisted correctly)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": { "backend": "100% (51/51)", "frontend": "100% (all targeted flows)" },
+  "test_credentials": "admin@envirolytics.com / Admin@Envirolytics2026 ; mumbai@envirolytics.com / Mumbai@2026 ; client@envirolytics.com / Client@123456",
+  "seed_data_creation": "Tests create TEST_-prefixed users and certificates with self-cleanup via DELETE in fixtures/test bodies. UI test created/cleaned 'test_ui_ba7af@envirolytics.com' and restored admin's Lucknow HQ location after edit verification.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend pytest file at /app/backend/tests/backend_test.py contains 51 tests in 11 classes: Health, Auth, AdminUsers, SiteActivation, DataExport, FlowmeterPublic, AdminGuard, BruteForce, Instruments, UserLocations, Certificates. MQTT broker still rc=5 from HiveMQ (broker-side, not code) — covered via /ingest path. When testing UI persistence of edited user fields, do NOT rely on the users-table text alone (location_name isn't rendered there); query /api/admin/users/list to verify."
+}

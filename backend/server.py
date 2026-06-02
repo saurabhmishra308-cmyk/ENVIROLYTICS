@@ -23,6 +23,10 @@ from api_admin import router as admin_router
 import api_admin
 from api_auth import router as auth_router, seed_admin
 import api_auth
+from api_instruments import router as instruments_router
+import api_instruments
+from api_certificates import router as certificates_router
+import api_certificates
 import auth as auth_module
 
 
@@ -36,6 +40,9 @@ mqtt_service = MQTTFlowmeterService(client, os.environ['DB_NAME'])
 api_flowmeter.mqtt_service = mqtt_service
 api_admin.db = db
 api_auth.set_db(db)
+api_instruments.set_db(db)
+api_instruments.set_mqtt(mqtt_service)
+api_certificates.set_db(db)
 auth_module.set_db(db)
 
 # Create the main app
@@ -85,6 +92,8 @@ app.include_router(api_router)
 app.include_router(auth_router)
 app.include_router(flowmeter_router)
 app.include_router(admin_router)
+app.include_router(instruments_router)
+app.include_router(certificates_router)
 
 app.add_middleware(
     CORSMiddleware,

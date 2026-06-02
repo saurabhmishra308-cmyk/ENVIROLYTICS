@@ -188,6 +188,7 @@ async def seed_admin(database):
     admin_name = os.environ.get("ADMIN_NAME", "Envirolytics Admin")
 
     existing = await database.users.find_one({"email": admin_email})
+    lucknow_loc = {"location_name": "Lucknow HQ", "latitude": 26.8467, "longitude": 80.9462}
     if existing is None:
         doc = {
             "id": f"user_{uuid.uuid4().hex[:12]}",
@@ -197,11 +198,13 @@ async def seed_admin(database):
             "full_name": admin_name,
             "role": "admin",
             "is_active": True,
+            **lucknow_loc,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         await database.users.insert_one(doc)
         print(f"[seed] Admin user created: {admin_email}")
     else:
+        # Sync password if changed
         if not verify_password(admin_password, existing.get("password_hash", "")):
             await database.users.update_one(
                 {"email": admin_email},
@@ -210,6 +213,10 @@ async def seed_admin(database):
             print(f"[seed] Admin password resynced from .env: {admin_email}")
         else:
             print(f"[seed] Admin user exists: {admin_email}")
+        # Backfill location if missing
+        if existing.get("latitude") is None or existing.get("longitude") is None:
+            await database.users.update_one({"email": admin_email}, {"$set": lucknow_loc})
+            print(f"[seed] Admin location backfilled (Lucknow)")
 
     # Indexes
     try:
