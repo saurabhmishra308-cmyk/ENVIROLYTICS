@@ -5,7 +5,8 @@ import api from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
-import { LogOut, ArrowLeft, Droplets, AlertCircle, Clock, Download, RefreshCw } from 'lucide-react';
+import { LogOut, ArrowLeft, Droplets, AlertCircle, Clock, Download, RefreshCw, BarChart3 } from 'lucide-react';
+import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import ReadingsTable from '../components/ReadingsTable';
 
 const POLL_MS = 5000;
@@ -16,6 +17,7 @@ const Flowmeter = () => {
   const [latest, setLatest] = useState([]); // all flowmeters latest readings
   const [selected, setSelected] = useState(null); // hardware_id
   const [history, setHistory] = useState([]);
+  const [hourly, setHourly] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mqttStatus, setMqttStatus] = useState({ connected: false });
 
@@ -42,10 +44,15 @@ const Flowmeter = () => {
   const fetchHistory = useCallback(async (hwId) => {
     if (!hwId) return;
     try {
-      const { data } = await api.get(`/api/flowmeter/history/${hwId}?limit=20`);
-      setHistory(data.readings || []);
+      const [histRes, hourlyRes] = await Promise.all([
+        api.get(`/api/flowmeter/history/${hwId}?limit=20`),
+        api.get(`/api/flowmeter-mgmt/${hwId}/hourly-buckets?hours=24`).catch(() => ({ data: { buckets: [] } })),
+      ]);
+      setHistory(histRes.data.readings || []);
+      setHourly((hourlyRes.data.buckets || []).map((b) => ({ time: b.hour_label, kl: b.abstraction_kl })));
     } catch {
       setHistory([]);
+      setHourly([]);
     }
   }, []);
 
@@ -235,6 +242,28 @@ const Flowmeter = () => {
                     );
                   })}
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle className="text-gray-900 flex items-center gap-2"><BarChart3 className="h-5 w-5" />Hourly Ground Water Abstraction — {selected}</CardTitle>
+                <CardDescription>Last 24 hours · kilolitres (KL) per hour</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {hourly.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No hourly data yet.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={hourly}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="time" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} label={{ value: 'KL', angle: -90, position: 'insideLeft', fontSize: 11 }} />
+                      <Tooltip formatter={(v) => [`${v} KL`, 'Abstraction']} />
+                      <Bar dataKey="kl" fill="#4a9fd8" name="Hourly KL" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 

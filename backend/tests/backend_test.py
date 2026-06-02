@@ -564,3 +564,258 @@ class TestCertificates:
         # cleanup
         s.delete(f"{API}/certificates/{cert_id}", headers=adm_hdr)
         session.delete(f"{API}/admin/users/{client_id}", headers=admin_headers)
+
+
+
+# ============================
+# Iteration 3 — Flowmeter mgmt (category, aggregation, hourly-buckets, ingest, monotonicity)
+# ============================
+class TestFlowmeterMgmt:
+    @pytest.fixture(scope="class")
+    def fm_hardware(self, admin_token):
+        """Create a fresh TEST_-prefixed flowmeter with 3 chronological readings."""
+        from datetime import datetime, timedelta, timezone
+        hw = f"TEST_FM_{uuid.uuid4().hex[:6]}"
+        s = requests.Session()
+        hdr = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+        now = datetime.now(timezone.utc)
+        # Three monotonically-increasing forward totaliser readings, 2 hours apart
+        readings = [
+            {"ts": (now - timedelta(hours=4)).isoformat(), "fwd": 1000.0, "lph": 500.0},
+            {"ts": (now - timedelta(hours=2)).isoformat(), "fwd": 2000.0, "lph": 600.0},
+            {"ts": now.isoformat(), "fwd": 3000.0, "lph": 700.0},
+        ]
+        for r in readings:
+            payload = {
+                "hardware_id": hw,
+                "flow_rate_lph": r["lph"],
+                "forward_totalizer": r["fwd"],
+                "reverse_totalizer": 0,
+                "temperature": 25.0,
+                "timestamp": r["ts"],
+            }
+            resp = s.post(f"{API}/flowmeter-mgmt/ingest", headers=hdr, json=payload)
+            assert resp.status_code == 200, resp.text
+        yield hw, hdr
+        # No bulk delete API for readings of one hw; rely on TEST_ prefix to identify.
+
+    def test_ingest_requires_admin(self, session):
+        r = session.post(f"{API}/flowmeter-mgmt/ingest", json={"hardware_id": "X", "flow_rate_lph": 1.0})
+        assert r.status_code in (401, 403)
+
+    def test_set_category_and_list(self, fm_hardware):
+        hw, hdr = fm_hardware
+        r = requests.put(f"{API}/flowmeter-mgmt/{hw}/category", headers=hdr,
+                         json={"category": "groundwater_abstraction", "label": "TEST GW"})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["category"] == "groundwater_abstraction"
+        assert body["label"] == "TEST GW"
+        # List
+        r2 = requests.get(f"{API}/flowmeter-mgmt/categories", headers=hdr)
+        assert r2.status_code == 200
+        cats = {c["hardware_id"]: c for c in r2.json()["categories"]}
+        assert hw in cats
+        assert cats[hw]["category"] == "groundwater_abstraction"
+        # cleanup
+        requests.delete(f"{API}/flowmeter-mgmt/{hw}/category", headers=hdr)
+
+    def test_set_category_invalid(self, fm_hardware):
+        hw, hdr = fm_hardware
+        r = requests.put(f"{API}/flowmeter-mgmt/{hw}/category", headers=hdr,
+                         json={"category": "rainwater", "label": "x"})
+        assert r.status_code == 400
+        assert "Invalid category" in r.json().get("detail", "")
+
+    def test_set_category_stp_inlet_and_outlet(self, fm_hardware):
+        hw, hdr = fm_hardware
+        for cat in ("stp_inlet", "stp_outlet"):
+            r = requests.put(f"{API}/flowmeter-mgmt/{hw}/category", headers=hdr,
+                             json={"category": cat, "label": f"TEST {cat}"})
+            assert r.status_code == 200
+            assert r.json()["category"] == cat
+
+    def test_aggregate_endpoint(self, fm_hardware):
+        hw, hdr = fm_hardware
+        r = requests.get(f"{API}/flowmeter-mgmt/{hw}/aggregate", headers=hdr)
+        assert r.status_code == 200
+        body = r.json()
+        # Required keys
+        for k in ("hardware_id", "flow_rate_m3h", "totaliser_forward_kl", "consumption_kl"):
+            assert k in body
+        c = body["consumption_kl"]
+        for k in ("hourly", "daily", "weekly", "monthly", "yearly"):
+            assert k in c
+        # flow_rate_m3h = 700 LPH / 1000 = 0.7
+        assert abs(body["flow_rate_m3h"] - 0.7) < 1e-3
+        # totaliser_forward_kl = 3000 L = 3 KL
+        assert abs(body["totaliser_forward_kl"] - 3.0) < 1e-3
+        # Daily consumption ~ (3000 - 1000) L = 2 KL (first reading 4h ago, last now)
+        assert c["daily"] >= 1.99
+
+    def test_hourly_buckets(self, fm_hardware):
+        hw, hdr = fm_hardware
+        r = requests.get(f"{API}/flowmeter-mgmt/{hw}/hourly-buckets?hours=24", headers=hdr)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] == 24
+        assert len(body["buckets"]) == 24
+        for b in body["buckets"]:
+            assert "hour_label" in b
+            assert "abstraction_kl" in b
+
+    def test_history_returns_string_ids(self, fm_hardware):
+        hw, _ = fm_hardware
+        r = requests.get(f"{API}/flowmeter/history/{hw}")
+        assert r.status_code == 200
+        readings = r.json()["readings"]
+        assert len(readings) >= 3
+        for rd in readings:
+            assert isinstance(rd.get("_id"), str)
+            assert len(rd["_id"]) == 24  # ObjectId hex string
+
+    def test_edit_flowmeter_valid_between_neighbours(self, fm_hardware, admin_token):
+        hw, hdr = fm_hardware
+        # Fetch readings sorted DESC; middle reading is index 1
+        r = requests.get(f"{API}/flowmeter/history/{hw}")
+        readings = r.json()["readings"]
+        mid = readings[1]
+        # neighbours: readings[0] is newer (3000), readings[2] is older (1000)
+        # Valid value: between 1000 and 3000 → e.g., 2500
+        new_val = 2500.0
+        rid = mid["_id"]
+        upd = requests.put(f"{API}/flowmeter-mgmt/readings/flowmeter/{rid}",
+                           headers=hdr,
+                           json={"forward_totalizer": new_val})
+        assert upd.status_code == 200, upd.text
+        assert upd.json()["success"] is True
+
+    def test_edit_flowmeter_less_than_previous_rejected(self, fm_hardware, admin_token):
+        hw, hdr = fm_hardware
+        r = requests.get(f"{API}/flowmeter/history/{hw}")
+        readings = r.json()["readings"]
+        mid = readings[1]
+        rid = mid["_id"]
+        # 0 < prev (1000) → expect 400 with "LESS than"
+        bad = requests.put(f"{API}/flowmeter-mgmt/readings/flowmeter/{rid}",
+                           headers=hdr,
+                           json={"forward_totalizer": 0.0})
+        assert bad.status_code == 400, bad.text
+        assert "LESS than" in bad.json().get("detail", "")
+
+    def test_edit_flowmeter_greater_than_next_rejected(self, fm_hardware, admin_token):
+        hw, hdr = fm_hardware
+        r = requests.get(f"{API}/flowmeter/history/{hw}")
+        readings = r.json()["readings"]
+        mid = readings[1]
+        rid = mid["_id"]
+        # 999_999_999 > next (3000) → expect 400 with "GREATER than"
+        bad = requests.put(f"{API}/flowmeter-mgmt/readings/flowmeter/{rid}",
+                           headers=hdr,
+                           json={"forward_totalizer": 999_999_999.0})
+        assert bad.status_code == 400, bad.text
+        assert "GREATER than" in bad.json().get("detail", "")
+
+    def test_edit_flowmeter_invalid_id(self, admin_token):
+        hdr = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+        r = requests.put(f"{API}/flowmeter-mgmt/readings/flowmeter/not_an_objid",
+                         headers=hdr, json={"forward_totalizer": 100.0})
+        assert r.status_code == 400
+
+    def test_delete_flowmeter_reading(self, fm_hardware):
+        hw, hdr = fm_hardware
+        r = requests.get(f"{API}/flowmeter/history/{hw}")
+        readings = r.json()["readings"]
+        # Delete the oldest (last in DESC list) so monotonicity not violated for remaining
+        target = readings[-1]
+        rid = target["_id"]
+        d = requests.delete(f"{API}/flowmeter-mgmt/readings/flowmeter/{rid}", headers=hdr)
+        assert d.status_code == 200
+        # Re-fetch
+        r2 = requests.get(f"{API}/flowmeter/history/{hw}")
+        new_ids = [x["_id"] for x in r2.json()["readings"]]
+        assert rid not in new_ids
+
+
+# ============================
+# Iteration 3 — Instrument edit/delete & history _id stringification
+# ============================
+class TestInstrumentEditDelete:
+    @pytest.fixture(scope="class")
+    def dwlr_reading(self, admin_token):
+        hw = f"TEST_DWLR_{uuid.uuid4().hex[:6]}"
+        s = requests.Session()
+        hdr = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+        payload = {"hardware_id": hw, "values": {"LEVEL": 10.0, "TEMPER": 22.0}, "location": "TEST"}
+        r = s.post(f"{API}/instruments/ingest?instrument_type=dwlr", headers=hdr, json=payload)
+        assert r.status_code == 200
+        # Fetch history
+        h = s.get(f"{API}/instruments/dwlr/{hw}/history")
+        assert h.status_code == 200
+        items = h.json()["readings"]
+        assert len(items) >= 1
+        assert isinstance(items[0]["_id"], str)
+        return {"hw": hw, "rid": items[0]["_id"], "hdr": hdr}
+
+    def test_history_returns_string_ids(self, dwlr_reading):
+        # Already asserted in fixture, this is explicit
+        assert isinstance(dwlr_reading["rid"], str)
+
+    def test_edit_instrument_merges_values(self, dwlr_reading):
+        d = dwlr_reading
+        r = requests.put(f"{API}/flowmeter-mgmt/readings/instrument/{d['rid']}",
+                         headers=d["hdr"], json={"values": {"LEVEL": 15.5}})
+        assert r.status_code == 200, r.text
+        # Re-fetch; values should have both LEVEL (updated) and TEMPER (preserved)
+        h = requests.get(f"{API}/instruments/dwlr/{d['hw']}/history")
+        item = [x for x in h.json()["readings"] if x["_id"] == d["rid"]][0]
+        assert item["values"]["LEVEL"] == 15.5
+        assert item["values"]["TEMPER"] == 22.0  # preserved
+
+    def test_edit_instrument_invalid_id(self, admin_token):
+        hdr = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+        r = requests.put(f"{API}/flowmeter-mgmt/readings/instrument/notvalid",
+                         headers=hdr, json={"values": {"X": 1}})
+        assert r.status_code == 400
+
+    def test_delete_instrument_reading(self, dwlr_reading):
+        d = dwlr_reading
+        r = requests.delete(f"{API}/flowmeter-mgmt/readings/instrument/{d['rid']}", headers=d["hdr"])
+        assert r.status_code == 200
+        # Now 404 on repeat delete
+        r2 = requests.delete(f"{API}/flowmeter-mgmt/readings/instrument/{d['rid']}", headers=d["hdr"])
+        assert r2.status_code == 404
+
+
+# ============================
+# Iteration 3 — Certificates month field
+# ============================
+class TestCertificateMonth:
+    def test_upload_with_valid_month(self, admin_token):
+        hdr = {"Authorization": f"Bearer {admin_token}"}
+        files = {"file": ("m.pdf", _tiny_pdf_bytes(), "application/pdf")}
+        data = {"cert_type": "installation", "year": 2026, "month": 6}
+        r = requests.post(f"{API}/certificates/upload", headers=hdr, files=files, data=data)
+        assert r.status_code == 200, r.text
+        cert = r.json()["certificate"]
+        assert cert.get("month") == 6
+        assert cert.get("year") == 2026
+        # cleanup
+        requests.delete(f"{API}/certificates/{cert['id']}", headers=hdr)
+
+    def test_upload_rejects_month_13(self, admin_token):
+        hdr = {"Authorization": f"Bearer {admin_token}"}
+        files = {"file": ("m13.pdf", _tiny_pdf_bytes(), "application/pdf")}
+        data = {"cert_type": "installation", "year": 2026, "month": 13}
+        r = requests.post(f"{API}/certificates/upload", headers=hdr, files=files, data=data)
+        assert r.status_code == 400
+
+    def test_upload_without_month_still_works(self, admin_token):
+        hdr = {"Authorization": f"Bearer {admin_token}"}
+        files = {"file": ("nm.pdf", _tiny_pdf_bytes(), "application/pdf")}
+        data = {"cert_type": "calibration", "year": 2026}
+        r = requests.post(f"{API}/certificates/upload", headers=hdr, files=files, data=data)
+        assert r.status_code == 200
+        cert = r.json()["certificate"]
+        assert cert.get("month") is None
+        requests.delete(f"{API}/certificates/{cert['id']}", headers=hdr)

@@ -8,7 +8,6 @@ import {
   TrendingUp,
   MapPin,
   Users,
-  Map,
   Award,
   ChevronRight
 } from 'lucide-react';
@@ -24,8 +23,7 @@ const Sidebar = () => {
     { path: '/graph-report', icon: TrendingUp, label: 'Graph Report' },
     { path: '/site', icon: MapPin, label: 'Site' },
     { path: '/user', icon: Users, label: 'User' },
-    { path: '/zone', icon: Map, label: 'Zone' },
-    { path: '/maintenance', icon: Award, label: 'Certificates' },
+    { path: '/certificates', icon: Award, label: 'Certificates' },
   ];
 
   const isActive = (path) => location.pathname === path;

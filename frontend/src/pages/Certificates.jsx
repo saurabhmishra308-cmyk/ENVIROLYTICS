@@ -20,6 +20,11 @@ const CERT_TYPES = [
 
 const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: 6 }, (_, i) => currentYear - i);
+const MONTHS = [
+  { v: 1, n: 'Jan' }, { v: 2, n: 'Feb' }, { v: 3, n: 'Mar' }, { v: 4, n: 'Apr' },
+  { v: 5, n: 'May' }, { v: 6, n: 'Jun' }, { v: 7, n: 'Jul' }, { v: 8, n: 'Aug' },
+  { v: 9, n: 'Sep' }, { v: 10, n: 'Oct' }, { v: 11, n: 'Nov' }, { v: 12, n: 'Dec' },
+];
 
 const Certificates = () => {
   const admin = isAdmin();
@@ -32,6 +37,7 @@ const Certificates = () => {
   const fileRef = useRef(null);
   const [form, setForm] = useState({
     year: currentYear,
+    month: '',
     instrument_id: '',
     instrument_type: '',
     notes: '',
@@ -54,7 +60,7 @@ const Certificates = () => {
   useEffect(() => { fetchCerts(); }, [fetchCerts]);
 
   const openUpload = () => {
-    setForm({ year: currentYear, instrument_id: '', instrument_type: '', notes: '' });
+    setForm({ year: currentYear, month: '', instrument_id: '', instrument_type: '', notes: '' });
     if (fileRef.current) fileRef.current.value = '';
     setUploadOpen(true);
   };
@@ -69,6 +75,7 @@ const Certificates = () => {
       fd.append('file', file);
       fd.append('cert_type', activeTab);
       fd.append('year', String(form.year));
+      if (form.month) fd.append('month', String(form.month));
       if (form.instrument_id) fd.append('instrument_id', form.instrument_id);
       if (form.instrument_type) fd.append('instrument_type', form.instrument_type);
       if (form.notes) fd.append('notes', form.notes);
@@ -194,14 +201,14 @@ const Certificates = () => {
                           <div className="min-w-0">
                             <p className="font-medium truncate">{c.original_filename}</p>
                             <p className="text-xs text-gray-500">
-                              {c.year} · {c.instrument_type || '—'} · {c.instrument_id || 'No device ID'}
+                              {c.month ? `${MONTHS.find((m) => m.v === c.month)?.n || c.month} ${c.year}` : c.year} · {c.instrument_type || '—'} · {c.instrument_id || 'No device ID'}
                               {c.notes ? ` · ${c.notes}` : ''}
                             </p>
                             <p className="text-xs text-gray-400">Uploaded {new Date(c.uploaded_at).toLocaleString()} · {Math.round((c.size_bytes || 0) / 1024)} KB</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <Badge variant="outline">{c.year}</Badge>
+                          <Badge variant="outline">{c.month ? `${MONTHS.find((m) => m.v === c.month)?.n || c.month} ${c.year}` : c.year}</Badge>
                           <Button size="sm" variant="outline" onClick={() => handleDownload(c)} data-testid={`cert-download-${c.id}`}>
                             <Download className="h-3 w-3 mr-1" /> Download
                           </Button>
@@ -245,6 +252,20 @@ const Certificates = () => {
                 </select>
               </div>
               <div>
+                <Label>Month (optional)</Label>
+                <select
+                  className="w-full border rounded px-3 py-2"
+                  value={form.month}
+                  onChange={(e) => setForm({ ...form, month: e.target.value })}
+                  data-testid="cert-upload-month"
+                >
+                  <option value="">—</option>
+                  {MONTHS.map((m) => <option key={m.v} value={m.v}>{m.n}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
                 <Label>Instrument Type (optional)</Label>
                 <select
                   className="w-full border rounded px-3 py-2"
@@ -260,10 +281,10 @@ const Certificates = () => {
                   <option value="tds">TDS</option>
                 </select>
               </div>
-            </div>
-            <div>
-              <Label>Instrument ID (optional)</Label>
-              <Input value={form.instrument_id} onChange={(e) => setForm({ ...form, instrument_id: e.target.value })} placeholder="e.g. FM001" data-testid="cert-upload-instr-id" />
+              <div>
+                <Label>Instrument ID (optional)</Label>
+                <Input value={form.instrument_id} onChange={(e) => setForm({ ...form, instrument_id: e.target.value })} placeholder="e.g. FM001" data-testid="cert-upload-instr-id" />
+              </div>
             </div>
             <div>
               <Label>Notes (optional)</Label>

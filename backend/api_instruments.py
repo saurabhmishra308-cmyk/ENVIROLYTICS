@@ -130,12 +130,14 @@ async def history_for_device(instrument_type: str, hardware_id: str, limit: int 
         raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
     cursor = (
         db.instrument_readings.find(
-            {"instrument_type": t, "hardware_id": hardware_id}, {"_id": 0}
+            {"instrument_type": t, "hardware_id": hardware_id}
         )
         .sort("timestamp", -1)
         .limit(limit)
     )
     items = await cursor.to_list(length=limit)
+    for r in items:
+        r["_id"] = str(r["_id"])
     return {"instrument_type": t, "hardware_id": hardware_id, "readings": items, "count": len(items)}
 
 

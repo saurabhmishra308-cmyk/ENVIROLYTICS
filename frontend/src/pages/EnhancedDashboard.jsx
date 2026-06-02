@@ -4,8 +4,9 @@ import { getCurrentUser, isAuthenticated, mockLogout, isAdmin } from '../mockDat
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
 import { useTheme } from '../contexts/ThemeContext';
-import { LogOut, Sun, Moon, Droplets, TrendingUp, Activity, MapPin, FlaskConical, AlertCircle } from 'lucide-react';
+import { LogOut, Sun, Moon, Droplets, TrendingUp, Activity, MapPin, FlaskConical, AlertCircle, Factory } from 'lucide-react';
 import axios from 'axios';
 
 import WeatherCard from '../components/WeatherCard';
@@ -13,20 +14,56 @@ import InstrumentSection from '../components/InstrumentSection';
 import LocationMap from '../components/LocationMap';
 
 const POLL_MS = 5000;
-const logError = (error, context) => {
-  if (process.env.NODE_ENV === 'development') {
-    // eslint-disable-next-line no-console
-    console.error(`Error in ${context}:`, error);
-  }
-};
+const logError = (e, c) => { if (process.env.NODE_ENV === 'development') console.error(`[${c}]`, e); };
 
-// Display helpers — pull common field names that any device might use.
 const pickValue = (values, keys, fallback = null) => {
   if (!values) return fallback;
-  for (const k of keys) {
-    if (values[k] != null) return values[k];
-  }
+  for (const k of keys) if (values[k] != null) return values[k];
   return fallback;
+};
+
+const fmtNumber = (n, digits = 2) => (n == null || isNaN(n) ? '—' : Number(n).toFixed(digits));
+
+const TotaliserCard = ({ label, value, isDarkMode, color = '#4a9fd8' }) => (
+  <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'} border`}>
+    <p className={`text-[11px] uppercase tracking-wide ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{label}</p>
+    <p className="text-xl font-bold mt-0.5" style={{ color }}>{fmtNumber(value, 2)}<span className="text-xs ml-1 text-gray-500">KL</span></p>
+  </div>
+);
+
+const FlowmeterTile = ({ agg, isDarkMode, color, onClick }) => {
+  const muted = isDarkMode ? 'text-gray-400' : 'text-gray-600';
+  const text = isDarkMode ? 'text-white' : 'text-gray-900';
+  const isLive = (agg.flow_rate_m3h || 0) > 0 || (agg.totaliser_forward_kl || 0) > 0;
+  return (
+    <div
+      onClick={onClick}
+      className={`p-4 rounded-lg border-2 ${isDarkMode ? 'bg-gray-800' : 'bg-white'} ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+      style={{ borderColor: isLive ? color : '#cbd5e1' }}
+      data-testid={`flowmeter-tile-${agg.hardware_id}`}
+    >
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <p className={`font-bold ${text}`}>{agg.label || agg.hardware_id}</p>
+          <p className={`text-xs ${muted}`}>{agg.hardware_id}</p>
+        </div>
+        <Badge className={isLive ? 'bg-green-500' : 'bg-gray-400'}>{isLive ? 'LIVE' : 'IDLE'}</Badge>
+      </div>
+      <div className="flex items-baseline gap-2 mb-3">
+        <span className="text-3xl font-bold" style={{ color }}>{fmtNumber(agg.flow_rate_m3h, 3)}</span>
+        <span className={`text-sm ${muted}`}>m³/hr</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <TotaliserCard label="Hourly" value={agg.consumption_kl?.hourly} isDarkMode={isDarkMode} color={color} />
+        <TotaliserCard label="Weekly" value={agg.consumption_kl?.weekly} isDarkMode={isDarkMode} color={color} />
+        <TotaliserCard label="Monthly" value={agg.consumption_kl?.monthly} isDarkMode={isDarkMode} color={color} />
+        <TotaliserCard label="Yearly" value={agg.consumption_kl?.yearly} isDarkMode={isDarkMode} color={color} />
+      </div>
+      {agg.totaliser_forward_kl > 0 && (
+        <p className={`text-xs mt-2 ${muted}`}>Cumulative totaliser: <strong>{fmtNumber(agg.totaliser_forward_kl, 2)} KL</strong></p>
+      )}
+    </div>
+  );
 };
 
 const EnhancedDashboard = () => {
@@ -36,7 +73,8 @@ const EnhancedDashboard = () => {
 
   const [weather, setWeather] = useState(null);
   const [loadingWeather, setLoadingWeather] = useState(true);
-  const [flowmeters, setFlowmeters] = useState([]);
+  const [aggregates, setAggregates] = useState({}); // hardware_id -> aggregate
+  const [categories, setCategories] = useState([]); // [{hardware_id, category, label}]
   const [byType, setByType] = useState({ dwlr: [], ph: [], tds: [], conductivity: [] });
   const [mqttStatus, setMqttStatus] = useState({ connected: false });
   const [locations, setLocations] = useState([]);
@@ -48,9 +86,7 @@ const EnhancedDashboard = () => {
   const fetchWeather = useCallback(async () => {
     if (!WEATHER_API_KEY) { setLoadingWeather(false); return; }
     try {
-      const r = await axios.get(
-        `https://api.openweathermap.org/data/2.5/weather?lat=${LATITUDE}&lon=${LONGITUDE}&appid=${WEATHER_API_KEY}&units=metric`
-      );
+      const r = await axios.get(`https://api.openweathermap.org/data/2.5/weather?lat=${LATITUDE}&lon=${LONGITUDE}&appid=${WEATHER_API_KEY}&units=metric`);
       setWeather(r.data);
     } catch (e) { logError(e, 'weather'); }
     finally { setLoadingWeather(false); }
@@ -58,12 +94,29 @@ const EnhancedDashboard = () => {
 
   const fetchLive = useCallback(async () => {
     try {
-      const [fmRes, instrRes, statusRes] = await Promise.all([
+      const [fmRes, instrRes, statusRes, catRes] = await Promise.all([
         api.get('/api/flowmeter/latest'),
         api.get('/api/instruments/all/latest'),
         api.get('/api/flowmeter/status'),
+        api.get('/api/flowmeter-mgmt/categories'),
       ]);
-      setFlowmeters(fmRes.data.flowmeters || []);
+      // Pull aggregate for each flowmeter (parallel)
+      const flowmeters = fmRes.data.flowmeters || [];
+      const cats = catRes.data.categories || [];
+      setCategories(cats);
+      const aggs = await Promise.all(
+        flowmeters.map((fm) => api.get(`/api/flowmeter-mgmt/${fm.hardware_id}/aggregate`).then((r) => r.data).catch(() => null))
+      );
+      // Also pull aggregates for any *registered* hardware that has a category but no readings yet
+      const knownIds = new Set(flowmeters.map((f) => f.hardware_id));
+      const extraIds = cats.map((c) => c.hardware_id).filter((id) => !knownIds.has(id));
+      const extraAggs = await Promise.all(
+        extraIds.map((id) => api.get(`/api/flowmeter-mgmt/${id}/aggregate`).then((r) => r.data).catch(() => null))
+      );
+      const aggMap = {};
+      [...aggs, ...extraAggs].forEach((a) => { if (a && a.hardware_id) aggMap[a.hardware_id] = a; });
+      setAggregates(aggMap);
+
       const grouped = instrRes.data.by_type || {};
       setByType({
         dwlr: grouped.dwlr || [],
@@ -72,18 +125,14 @@ const EnhancedDashboard = () => {
         conductivity: grouped.conductivity || [],
       });
       setMqttStatus(statusRes.data || { connected: false });
-    } catch (e) {
-      logError(e, 'fetchLive');
-    }
+    } catch (e) { logError(e, 'fetchLive'); }
   }, []);
 
   const fetchLocations = useCallback(async () => {
     try {
       const { data } = await api.get('/api/admin/users/locations');
       setLocations(data.locations || []);
-    } catch (e) {
-      logError(e, 'fetchLocations');
-    }
+    } catch (e) { logError(e, 'locations'); }
   }, []);
 
   useEffect(() => {
@@ -96,26 +145,26 @@ const EnhancedDashboard = () => {
     return () => clearInterval(t);
   }, [navigate, fetchWeather, fetchLive, fetchLocations]);
 
-  const handleLogout = useCallback(() => { mockLogout(); navigate('/'); }, [navigate]);
-
   if (!user) return null;
 
-  const bgColor = isDarkMode ? 'bg-gray-900' : 'bg-gray-50';
-  const textColor = isDarkMode ? 'text-white' : 'text-gray-900';
-  const textMuted = isDarkMode ? 'text-gray-400' : 'text-gray-600';
+  const bg = isDarkMode ? 'bg-gray-900' : 'bg-gray-50';
+  const text = isDarkMode ? 'text-white' : 'text-gray-900';
+  const muted = isDarkMode ? 'text-gray-400' : 'text-gray-600';
 
-  // ====== Build segmented tiles ======
-  const flowTiles = flowmeters.map((fm) => ({
-    hardware_id: fm.hardware_id,
-    label: 'Flowmeter',
-    value: Number(fm.flow_rate_lpm || 0).toFixed(2),
-    unit: 'L/min',
-    status: 'active',
-    meta: `${Number(fm.forward_totalizer || 0).toFixed(0)} ${fm.unit_name || 'L'} total`,
-  }));
-  if (flowTiles.length === 0) {
-    flowTiles.push({ hardware_id: '', label: 'Flowmeter', value: null, unit: 'L/min', status: 'inactive' });
-  }
+  // Group flowmeters by category
+  const aggList = Object.values(aggregates);
+  const groundwater = aggList.filter((a) => (a.category || 'groundwater_abstraction') === 'groundwater_abstraction');
+  const stpInlet = aggList.filter((a) => a.category === 'stp_inlet');
+  const stpOutlet = aggList.filter((a) => a.category === 'stp_outlet');
+
+  // Build water-quality tiles (pH, Conductivity, TDS)
+  const qualityTiles = [];
+  byType.ph.forEach((r) => qualityTiles.push({ hardware_id: r.hardware_id, label: 'pH', value: pickValue(r.values, ['PH', 'ph'], '—'), unit: '', status: 'active', meta: r.values?.TEMPER != null ? `${r.values.TEMPER}°C` : null }));
+  if (byType.ph.length === 0) qualityTiles.push({ hardware_id: '', label: 'pH', value: null, unit: '', status: 'inactive' });
+  byType.conductivity.forEach((r) => qualityTiles.push({ hardware_id: r.hardware_id, label: 'Conductivity', value: pickValue(r.values, ['CONDUCTIVITY', 'conductivity'], '—'), unit: 'µS/cm', status: 'active' }));
+  if (byType.conductivity.length === 0) qualityTiles.push({ hardware_id: '', label: 'Conductivity', value: null, unit: 'µS/cm', status: 'inactive' });
+  byType.tds.forEach((r) => qualityTiles.push({ hardware_id: r.hardware_id, label: 'TDS', value: pickValue(r.values, ['TDS', 'tds'], '—'), unit: 'ppm', status: 'active' }));
+  if (byType.tds.length === 0) qualityTiles.push({ hardware_id: '', label: 'TDS', value: null, unit: 'ppm', status: 'inactive' });
 
   const dwlrTiles = byType.dwlr.map((r) => ({
     hardware_id: r.hardware_id,
@@ -125,43 +174,11 @@ const EnhancedDashboard = () => {
     status: 'active',
     meta: r.values?.BATTERY ? `Battery ${r.values.BATTERY}%` : null,
   }));
-  if (dwlrTiles.length === 0) {
-    dwlrTiles.push({ hardware_id: '', label: 'DWLR', value: null, unit: 'm', status: 'inactive' });
-  }
-
-  const phTiles = byType.ph.map((r) => ({
-    hardware_id: r.hardware_id,
-    label: 'pH',
-    value: pickValue(r.values, ['PH', 'ph'], '—'),
-    unit: '',
-    status: 'active',
-    meta: r.values?.TEMPER != null ? `${r.values.TEMPER}°C` : null,
-  }));
-  if (phTiles.length === 0) phTiles.push({ hardware_id: '', label: 'pH', value: null, unit: '', status: 'inactive' });
-
-  const condTiles = byType.conductivity.map((r) => ({
-    hardware_id: r.hardware_id,
-    label: 'Conductivity',
-    value: pickValue(r.values, ['CONDUCTIVITY', 'conductivity'], '—'),
-    unit: 'µS/cm',
-    status: 'active',
-  }));
-  if (condTiles.length === 0) condTiles.push({ hardware_id: '', label: 'Conductivity', value: null, unit: 'µS/cm', status: 'inactive' });
-
-  const tdsTiles = byType.tds.map((r) => ({
-    hardware_id: r.hardware_id,
-    label: 'TDS',
-    value: pickValue(r.values, ['TDS', 'tds'], '—'),
-    unit: 'ppm',
-    status: 'active',
-  }));
-  if (tdsTiles.length === 0) tdsTiles.push({ hardware_id: '', label: 'TDS', value: null, unit: 'ppm', status: 'inactive' });
-
-  const qualityTiles = [...phTiles, ...condTiles, ...tdsTiles];
+  if (dwlrTiles.length === 0) dwlrTiles.push({ hardware_id: '', label: 'DWLR', value: null, unit: 'm', status: 'inactive' });
 
   return (
-    <div className={`min-h-screen ${bgColor} transition-colors duration-300`} data-testid="dashboard-page">
-      <header className={`shadow-md ${isDarkMode ? 'bg-gray-800' : 'bg-[#1a2332]'} transition-colors duration-300`}>
+    <div className={`min-h-screen ${bg} transition-colors duration-300`} data-testid="dashboard-page">
+      <header className={`shadow-md ${isDarkMode ? 'bg-gray-800' : 'bg-[#1a2332]'}`}>
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div>
             <h1 className="text-white font-bold text-xl tracking-wide" style={{ color: '#4a9fd8' }}>ENVIROLYTICS</h1>
@@ -180,7 +197,7 @@ const EnhancedDashboard = () => {
               <p className="font-medium">{user.fullName}</p>
               <p className="text-gray-300 text-xs">{user.username}</p>
             </div>
-            <Button onClick={handleLogout} variant="outline" className="border-white text-white hover:text-white transition-colors" style={{ backgroundColor: '#f5a623', borderColor: '#f5a623' }} data-testid="dashboard-logout-btn">
+            <Button onClick={() => { mockLogout(); navigate('/'); }} variant="outline" className="border-white text-white hover:text-white" style={{ backgroundColor: '#f5a623', borderColor: '#f5a623' }} data-testid="dashboard-logout-btn">
               <LogOut className="mr-2 h-4 w-4" />Logout
             </Button>
           </div>
@@ -189,41 +206,57 @@ const EnhancedDashboard = () => {
 
       <main className="container mx-auto px-4 py-8 space-y-6">
         <div>
-          <h2 className={`text-3xl font-bold mb-2 ${textColor}`}>Dashboard — Envirolytics Monitor</h2>
-          <p className={textMuted}>Real-time environmental monitoring driven by IoT devices</p>
+          <h2 className={`text-3xl font-bold mb-2 ${text}`}>Dashboard — Envirolytics Monitor</h2>
+          <p className={muted}>Real-time environmental monitoring driven by IoT devices</p>
         </div>
 
         <WeatherCard weather={weather} loading={loadingWeather} isDarkMode={isDarkMode} getWaterFlowDirection={() => '—'} />
 
-        {/* === LOCATION MAP === */}
+        {/* Client Location Map */}
         <Card className={isDarkMode ? 'bg-gray-800 border-gray-700' : ''} data-testid="dashboard-map-card">
           <CardHeader>
-            <CardTitle className={`flex items-center gap-2 ${textColor}`}>
+            <CardTitle className={`flex items-center gap-2 ${text}`}>
               <MapPin className="h-5 w-5" /> Client Locations
-              <span className={`ml-2 text-sm font-normal ${textMuted}`}>({locations.length} pin{locations.length === 1 ? '' : 's'})</span>
+              <span className={`ml-2 text-sm font-normal ${muted}`}>({locations.length} pin{locations.length === 1 ? '' : 's'})</span>
             </CardTitle>
-            <CardDescription className={textMuted}>Pins are placed using each client's latitude/longitude. Admins set these when creating users.</CardDescription>
+            <CardDescription className={muted}>Toggle between Satellite and Streets in the top-right. Click a pin for coordinates.</CardDescription>
           </CardHeader>
           <CardContent>
             <LocationMap locations={locations} />
           </CardContent>
         </Card>
 
-        {/* === SEGMENTED SECTIONS === */}
-        <InstrumentSection
-          title="Water Abstraction"
-          subtitle="Flowmeter — volumetric water draw"
-          color="#4a9fd8"
-          icon={Droplets}
-          tiles={flowTiles}
-          emptyText="No flowmeter live"
-          isDarkMode={isDarkMode}
-          testId="section-water-abstraction"
-        />
+        {/* === WATER ABSTRACTION === */}
+        <Card className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`} style={{ borderTopColor: '#4a9fd8' }} data-testid="section-water-abstraction">
+          <CardHeader>
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg" style={{ backgroundColor: '#4a9fd8' }}><Droplets className="h-5 w-5 text-white" /></div>
+                <div>
+                  <CardTitle className={text}>Ground Water — Volumetric Water Abstraction</CardTitle>
+                  <CardDescription className={muted}>Borewell flowmeter(s) measuring groundwater draw · flow in m³/hr · totaliser in KL</CardDescription>
+                </div>
+              </div>
+              <Badge className={groundwater.some((a) => a.flow_rate_m3h > 0) ? 'bg-green-500' : 'bg-gray-400'}>{groundwater.length} device{groundwater.length === 1 ? '' : 's'}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {groundwater.length === 0 ? (
+              <p className={`text-center py-6 text-sm ${muted}`}>No groundwater flowmeter registered. Use <code className="bg-gray-100 px-1 rounded">PUT /api/flowmeter-mgmt/{'{hardware_id}'}/category</code> with <code>groundwater_abstraction</code>.</p>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {groundwater.map((a) => (
+                  <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#4a9fd8" onClick={() => navigate('/flowmeter')} />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
+        {/* === WATER LEVEL === */}
         <InstrumentSection
           title="Water Level"
-          subtitle="DWLR — Digital Water Level Recorder (groundwater)"
+          subtitle="DWLR — Digital Water Level Recorder (groundwater table)"
           color="#27ae60"
           icon={TrendingUp}
           tiles={dwlrTiles}
@@ -232,60 +265,96 @@ const EnhancedDashboard = () => {
           testId="section-water-level"
         />
 
-        <InstrumentSection
-          title="Water Quality"
-          subtitle="pH, Conductivity, TDS"
-          color="#8e44ad"
-          icon={FlaskConical}
-          tiles={qualityTiles}
-          emptyText="No water-quality sensors live"
-          isDarkMode={isDarkMode}
-          testId="section-water-quality"
-        />
+        {/* === WATER QUALITY === */}
+        <Card className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`} style={{ borderTopColor: '#8e44ad' }} data-testid="section-water-quality">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg" style={{ backgroundColor: '#8e44ad' }}><FlaskConical className="h-5 w-5 text-white" /></div>
+              <div>
+                <CardTitle className={text}>Water Quality</CardTitle>
+                <CardDescription className={muted}>pH, Conductivity, TDS sensors + STP Inlet / Outlet flowmeters</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Quality sensor tiles */}
+            <div>
+              <h3 className={`text-sm font-semibold mb-2 ${text}`}>Quality parameters</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {qualityTiles.map((t) => (
+                  <div
+                    key={`${t.label}-${t.hardware_id || 'pending'}`}
+                    data-testid={`tile-${t.label.toLowerCase()}-${t.hardware_id || 'pending'}`}
+                    className={`p-3 rounded-lg border-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'}`}
+                    style={{ borderColor: t.status === 'active' ? '#10b981' : '#cbd5e1' }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-sm font-semibold ${text}`}>{t.label}</span>
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: t.status === 'active' ? '#10b981' : '#94a3b8' }} />
+                    </div>
+                    <p className="text-2xl font-bold" style={{ color: '#8e44ad' }}>
+                      {t.value != null ? t.value : '—'}
+                      {t.unit && <span className="text-base ml-1 text-gray-500">{t.unit}</span>}
+                    </p>
+                    <p className={`text-xs ${muted}`}>{t.hardware_id ? t.hardware_id : 'No device'}{t.meta ? ` · ${t.meta}` : ''}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
 
-        {/* === Quick links === */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card
-            className={`hover:shadow-xl transition-all cursor-pointer border-2 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
-            onClick={() => navigate('/flowmeter')}
-            data-testid="dashboard-flowmeter-card"
-          >
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-lg" style={{ backgroundColor: '#4a9fd8' }}>
-                  <Droplets className="h-6 w-6 text-white" />
+            {/* STP Flowmeters */}
+            <div>
+              <h3 className={`text-sm font-semibold mb-2 flex items-center gap-2 ${text}`}>
+                <Factory className="h-4 w-4" /> STP Flowmeters — inlet &amp; outlet (m³/hr, totaliser in KL)
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <p className={`text-xs uppercase tracking-wide mb-2 ${muted}`}>STP Inlet</p>
+                  {stpInlet.length === 0 ? (
+                    <p className={`text-xs italic ${muted}`}>No STP inlet flowmeter registered.</p>
+                  ) : stpInlet.map((a) => (
+                    <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#16a085" onClick={() => navigate('/flowmeter')} />
+                  ))}
                 </div>
                 <div>
-                  <CardTitle className={textColor}>Flowmeter Monitoring</CardTitle>
-                  <CardDescription className={textMuted}>Detailed flow analysis</CardDescription>
+                  <p className={`text-xs uppercase tracking-wide mb-2 ${muted}`}>STP Outlet</p>
+                  {stpOutlet.length === 0 ? (
+                    <p className={`text-xs italic ${muted}`}>No STP outlet flowmeter registered.</p>
+                  ) : stpOutlet.map((a) => (
+                    <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#d35400" onClick={() => navigate('/flowmeter')} />
+                  ))}
                 </div>
               </div>
-            </CardHeader>
-            <CardContent>
-              <Button style={{ backgroundColor: '#4a9fd8' }} className="w-full">View Details →</Button>
-            </CardContent>
-          </Card>
+            </div>
+          </CardContent>
+        </Card>
 
-          <Card
-            className={`hover:shadow-xl transition-all cursor-pointer border-2 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
-            onClick={() => navigate('/water-level-recorder')}
-            data-testid="dashboard-dwlr-card"
-          >
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-lg" style={{ backgroundColor: '#27ae60' }}>
-                  <TrendingUp className="h-6 w-6 text-white" />
+        {/* Quick instrument link grid */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {[
+            { to: '/flowmeter', label: 'Flowmeter', icon: Droplets, color: '#4a9fd8' },
+            { to: '/dwlr', label: 'DWLR', icon: TrendingUp, color: '#27ae60' },
+            { to: '/ph', label: 'pH', icon: FlaskConical, color: '#8e44ad' },
+            { to: '/conductivity', label: 'Conductivity', icon: Activity, color: '#2980b9' },
+            { to: '/tds', label: 'TDS', icon: Droplets, color: '#16a085' },
+            { to: '/certificates', label: 'Certificates', icon: MapPin, color: '#f5a623' },
+          ].map((q) => {
+            const Icon = q.icon;
+            return (
+              <button
+                key={q.to}
+                onClick={() => navigate(q.to)}
+                data-testid={`quicklink-${q.label.toLowerCase()}`}
+                className={`p-4 rounded-lg border-2 hover:shadow-md transition-shadow text-left ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
+              >
+                <div className="p-2 rounded inline-block mb-2" style={{ backgroundColor: q.color }}>
+                  <Icon className="h-4 w-4 text-white" />
                 </div>
-                <div>
-                  <CardTitle className={textColor}>Water Level Recorder</CardTitle>
-                  <CardDescription className={textMuted}>DWLR & groundwater</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Button style={{ backgroundColor: '#27ae60' }} className="w-full">View Details →</Button>
-            </CardContent>
-          </Card>
+                <p className={`text-sm font-semibold ${text}`}>{q.label}</p>
+                <p className={`text-xs ${muted}`}>View details →</p>
+              </button>
+            );
+          })}
         </div>
 
         {!mqttStatus.connected && (
@@ -293,8 +362,9 @@ const EnhancedDashboard = () => {
             <CardContent className="py-4 flex items-center gap-3">
               <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
               <p className="text-sm text-amber-800">
-                <strong>MQTT broker offline</strong> — Configure or verify HiveMQ Cloud credentials, or use the
-                <code className="mx-1 px-1 bg-amber-100 rounded">POST /api/instruments/ingest</code> admin endpoint to publish demo readings.
+                <strong>MQTT broker offline.</strong> Activate HiveMQ Cloud credentials per <code>/app/IOT_DEVICE_CONFIGURATION_GUIDE.md</code>,
+                or use <code className="bg-amber-100 px-1 rounded">POST /api/flowmeter-mgmt/ingest</code> /
+                <code className="bg-amber-100 px-1 rounded">POST /api/instruments/ingest</code> to push demo readings.
               </p>
             </CardContent>
           </Card>

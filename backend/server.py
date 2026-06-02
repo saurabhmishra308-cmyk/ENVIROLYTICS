@@ -27,6 +27,8 @@ from api_instruments import router as instruments_router
 import api_instruments
 from api_certificates import router as certificates_router
 import api_certificates
+from api_flowmeter_mgmt import router as flowmeter_mgmt_router
+import api_flowmeter_mgmt
 import auth as auth_module
 
 
@@ -43,6 +45,7 @@ api_auth.set_db(db)
 api_instruments.set_db(db)
 api_instruments.set_mqtt(mqtt_service)
 api_certificates.set_db(db)
+api_flowmeter_mgmt.set_db(db)
 auth_module.set_db(db)
 
 # Create the main app
@@ -94,6 +97,7 @@ app.include_router(flowmeter_router)
 app.include_router(admin_router)
 app.include_router(instruments_router)
 app.include_router(certificates_router)
+app.include_router(flowmeter_mgmt_router)
 
 app.add_middleware(
     CORSMiddleware,

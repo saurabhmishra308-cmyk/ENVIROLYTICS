@@ -75,6 +75,7 @@ async def upload_certificate(
     file: UploadFile = File(...),
     cert_type: str = Form(...),
     year: int = Form(...),
+    month: Optional[int] = Form(None),
     instrument_id: Optional[str] = Form(None),
     instrument_type: Optional[str] = Form(None),
     client_id: Optional[str] = Form(None),
@@ -85,6 +86,8 @@ async def upload_certificate(
     t = _validate_type(cert_type)
     if year < 2000 or year > 2100:
         raise HTTPException(status_code=400, detail="Year out of range")
+    if month is not None and (month < 1 or month > 12):
+        raise HTTPException(status_code=400, detail="Month must be between 1 and 12")
     ext = _validate_extension(file.filename or "upload.bin")
 
     contents = await file.read()
@@ -103,6 +106,7 @@ async def upload_certificate(
         "id": cert_id,
         "cert_type": t,
         "year": year,
+        "month": month,
         "instrument_id": instrument_id,
         "instrument_type": instrument_type,
         "client_id": client_id,
