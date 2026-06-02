@@ -819,3 +819,159 @@ class TestCertificateMonth:
         cert = r.json()["certificate"]
         assert cert.get("month") is None
         requests.delete(f"{API}/certificates/{cert['id']}", headers=hdr)
+
+
+# ============================
+# Iteration 4 — Audit log endpoints
+# ============================
+class TestAuditLog:
+    @pytest.fixture(scope="class")
+    def audit_seed(self, admin_token):
+        """Ensure at least one flowmeter edit + one DWLR edit exist (with edited_by set)."""
+        hdr = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+        # ---- Flowmeter edit ----
+        from datetime import datetime, timedelta, timezone
+        fm_hw = f"TEST_AUDIT_FM_{uuid.uuid4().hex[:6]}"
+        now = datetime.now(timezone.utc)
+        for i, val in enumerate([1000.0, 2000.0, 3000.0]):
+            payload = {
+                "hardware_id": fm_hw, "flow_rate_lph": 500.0 + i*10,
+                "forward_totalizer": val, "reverse_totalizer": 0,
+                "temperature": 25.0,
+                "timestamp": (now - timedelta(hours=(2-i)*2)).isoformat(),
+            }
+            requests.post(f"{API}/flowmeter-mgmt/ingest", headers=hdr, json=payload)
+        # Get middle reading id
+        h = requests.get(f"{API}/flowmeter/history/{fm_hw}").json()["readings"]
+        mid_rid = h[1]["_id"]
+        upd = requests.put(f"{API}/flowmeter-mgmt/readings/flowmeter/{mid_rid}",
+                           headers=hdr, json={"forward_totalizer": 2500.0})
+        assert upd.status_code == 200, upd.text
+
+        # ---- DWLR edit ----
+        dw_hw = f"TEST_AUDIT_DWLR_{uuid.uuid4().hex[:6]}"
+        ingest = requests.post(f"{API}/instruments/ingest?instrument_type=dwlr",
+                               headers=hdr, json={"hardware_id": dw_hw, "values": {"LEVEL": 10.0, "TEMPER": 22.0}})
+        assert ingest.status_code == 200
+        ih = requests.get(f"{API}/instruments/dwlr/{dw_hw}/history").json()["readings"]
+        dw_rid = ih[0]["_id"]
+        upd2 = requests.put(f"{API}/flowmeter-mgmt/readings/instrument/{dw_rid}",
+                            headers=hdr, json={"values": {"LEVEL": 12.0}})
+        assert upd2.status_code == 200, upd2.text
+
+        return {"fm_hw": fm_hw, "fm_rid": mid_rid, "dw_hw": dw_hw, "dw_rid": dw_rid, "hdr": hdr}
+
+    # ---- 401/403 guards ----
+    def test_summary_requires_token(self, session):
+        r = session.get(f"{API}/admin/audit-log/summary")
+        assert r.status_code in (401, 403)
+
+    def test_summary_forbidden_for_client(self, session, admin_headers):
+        # Create client
+        email = f"TEST_audit_client_{uuid.uuid4().hex[:6]}@envirolytics.com"
+        cr = session.post(f"{API}/admin/users/create", headers=admin_headers,
+                          json={"email": email, "password": "ClientPass123", "full_name": "AC", "role": "client"})
+        uid = cr.json()["user"]["id"]
+        login = session.post(f"{API}/auth/login", json={"email": email, "password": "ClientPass123"})
+        ctok = login.json()["access_token"]
+        r = session.get(f"{API}/admin/audit-log/summary", headers={"Authorization": f"Bearer {ctok}"})
+        assert r.status_code == 403
+        # cleanup
+        session.delete(f"{API}/admin/users/{uid}", headers=admin_headers)
+
+    def test_reading_edits_requires_token(self, session):
+        r = session.get(f"{API}/admin/audit-log/reading-edits")
+        assert r.status_code in (401, 403)
+
+    # ---- Summary shape ----
+    def test_summary_shape_and_counts(self, audit_seed):
+        hdr = audit_seed["hdr"]
+        r = requests.get(f"{API}/admin/audit-log/summary", headers=hdr)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "total_edits" in body
+        assert "by_instrument" in body
+        assert "flowmeter" in body["by_instrument"]
+        assert "instrument_readings" in body["by_instrument"]
+        assert "top_editors" in body
+        assert isinstance(body["top_editors"], list)
+        # at least our two seeded edits
+        assert body["by_instrument"]["flowmeter"] >= 1
+        assert body["by_instrument"]["instrument_readings"] >= 1
+        assert body["total_edits"] >= 2
+        # top_editors shape
+        for ed in body["top_editors"]:
+            assert "user_id" in ed and "count" in ed and "email" in ed and "full_name" in ed
+        # Admin must show up
+        admin_in_list = any(ed["email"] == ADMIN_EMAIL for ed in body["top_editors"])
+        assert admin_in_list
+
+    # ---- Reading edits shape ----
+    def test_reading_edits_shape(self, audit_seed):
+        hdr = audit_seed["hdr"]
+        r = requests.get(f"{API}/admin/audit-log/reading-edits", headers=hdr)
+        assert r.status_code == 200
+        body = r.json()
+        assert "edits" in body and "count" in body
+        assert body["count"] == len(body["edits"])
+        assert body["count"] >= 2
+        for e in body["edits"]:
+            for k in ("reading_id", "source", "hardware_id", "timestamp", "edited_at",
+                      "edited_by", "values_snapshot", "editor"):
+                assert k in e, f"missing key {k}"
+            assert "email" in e["editor"]
+            assert "full_name" in e["editor"]
+
+    def test_reading_edits_sorted_desc(self, audit_seed):
+        hdr = audit_seed["hdr"]
+        r = requests.get(f"{API}/admin/audit-log/reading-edits", headers=hdr)
+        edits = r.json()["edits"]
+        if len(edits) >= 2:
+            for i in range(len(edits) - 1):
+                a = edits[i].get("edited_at") or ""
+                b = edits[i+1].get("edited_at") or ""
+                assert a >= b, f"not sorted desc at {i}: {a} < {b}"
+
+    # ---- Filters ----
+    def test_filter_instrument_type_flowmeter(self, audit_seed):
+        hdr = audit_seed["hdr"]
+        r = requests.get(f"{API}/admin/audit-log/reading-edits?instrument_type=flowmeter", headers=hdr)
+        assert r.status_code == 200
+        for e in r.json()["edits"]:
+            assert e["source"] == "flowmeter"
+
+    def test_filter_instrument_type_dwlr(self, audit_seed):
+        hdr = audit_seed["hdr"]
+        r = requests.get(f"{API}/admin/audit-log/reading-edits?instrument_type=dwlr", headers=hdr)
+        assert r.status_code == 200
+        edits = r.json()["edits"]
+        assert len(edits) >= 1
+        for e in edits:
+            assert e["source"] == "dwlr"
+        # The DWLR-edited reading should be present
+        assert any(e["reading_id"] == audit_seed["dw_rid"] for e in edits)
+
+    def test_filter_hardware_id(self, audit_seed):
+        hdr = audit_seed["hdr"]
+        hw = audit_seed["fm_hw"]
+        r = requests.get(f"{API}/admin/audit-log/reading-edits?hardware_id={hw}", headers=hdr)
+        assert r.status_code == 200
+        edits = r.json()["edits"]
+        assert len(edits) >= 1
+        for e in edits:
+            assert e["hardware_id"] == hw
+
+    def test_filter_limit_one(self, audit_seed):
+        hdr = audit_seed["hdr"]
+        r = requests.get(f"{API}/admin/audit-log/reading-edits?limit=1", headers=hdr)
+        assert r.status_code == 200
+        assert len(r.json()["edits"]) <= 1
+
+    def test_dwlr_edit_source_is_dwlr_not_instrument(self, audit_seed):
+        """Source for an edited DWLR reading must be 'dwlr' (not 'instrument')."""
+        hdr = audit_seed["hdr"]
+        r = requests.get(f"{API}/admin/audit-log/reading-edits", headers=hdr)
+        edits = r.json()["edits"]
+        dwlr = [e for e in edits if e["reading_id"] == audit_seed["dw_rid"]]
+        assert len(dwlr) == 1
+        assert dwlr[0]["source"] == "dwlr"

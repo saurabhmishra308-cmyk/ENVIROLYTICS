@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
+import { isAdmin } from '../mockData';
 import { 
   LayoutDashboard, 
   BarChart3, 
@@ -9,14 +10,16 @@ import {
   MapPin,
   Users,
   Award,
+  History,
   ChevronRight
 } from 'lucide-react';
 
 const Sidebar = () => {
   const location = useLocation();
   const { isDarkMode } = useTheme();
+  const admin = isAdmin();
 
-  const menuItems = [
+  const baseMenu = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/analysis', icon: BarChart3, label: 'Analysis' },
     { path: '/reports', icon: FileText, label: 'Reports' },
@@ -25,6 +28,9 @@ const Sidebar = () => {
     { path: '/user', icon: Users, label: 'User' },
     { path: '/certificates', icon: Award, label: 'Certificates' },
   ];
+  const menuItems = admin
+    ? [...baseMenu, { path: '/audit-log', icon: History, label: 'Audit Log' }]
+    : baseMenu;
 
   const isActive = (path) => location.pathname === path;
 

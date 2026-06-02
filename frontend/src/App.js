@@ -13,6 +13,7 @@ import GraphReport from "./pages/GraphReport";
 import Site from "./pages/Site";
 import User from "./pages/User";
 import Certificates from "./pages/Certificates";
+import AuditLog from "./pages/AuditLog";
 import Sidebar from "./components/Sidebar";
 import { Toaster } from "./components/ui/sonner";
 
@@ -40,6 +41,7 @@ function App() {
             <Route path="/user" element={<DashboardLayout><User /></DashboardLayout>} />
             <Route path="/certificates" element={<DashboardLayout><Certificates /></DashboardLayout>} />
             <Route path="/maintenance" element={<DashboardLayout><Certificates /></DashboardLayout>} />
+            <Route path="/audit-log" element={<DashboardLayout><AuditLog /></DashboardLayout>} />
 
             <Route path="/flowmeter" element={<Flowmeter />} />
             <Route path="/water-level-recorder" element={<WaterLevelRecorder />} />
