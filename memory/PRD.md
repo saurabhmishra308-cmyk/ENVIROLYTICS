@@ -45,26 +45,31 @@ Build a web application initially cloning www.asterflow.com, then customised and
 
 ## What's Been Implemented (latest first)
 
+### 2026-06-02 (evening) — Admin Audit Log
+- 🔍 **New backend endpoints** `GET /api/admin/audit-log/summary` and `/api/admin/audit-log/reading-edits` surface every reading edit/delete tracked by the existing `edited_by` / `edited_at` fields, joined with the editor's `email` + `full_name`.
+- 👀 **New admin-only page** at `/audit-log` (sidebar entry visible only to admins) with three summary cards (Total edits, By source, Top editors) + filters (instrument source, hardware ID, limit) + full history table.
+- 🚦 Fast-fail on unknown `instrument_type` filter (returns 400 with allowed list).
+- 🛡 Non-admin clients see "Admin access required" fallback both via direct URL and sidebar.
+- ✅ Backend: **81 / 81 pytest pass** (11 new TestAuditLog cases). Frontend e2e green.
+
 ### 2026-06-02 (afternoon) — Flowmeter categories, totalisers in KL, reading edits, map upgrade
-- 🏷 **Flowmeter categorisation** (`groundwater_abstraction` / `stp_inlet` / `stp_outlet`) via `PUT /api/flowmeter-mgmt/{hw}/category`. Default = groundwater.
-- 💧 **Dashboard "Ground Water — Volumetric Water Abstraction"** section shows flow in **m³/hr** + 4 totaliser cards (Hourly / Weekly / Monthly / Yearly) in **KL**, plus cumulative.
-- 🚰 **STP Inlet & Outlet sub-section** under Water Quality (m³/hr + same 4 totaliser cards in KL each).
-- 📊 **Flowmeter detail page** now has an hourly KL bar chart (24h trend).
-- 🧪 **Per-instrument detail pages** at `/dwlr`, `/ph`, `/tds`, `/conductivity` (generic `InstrumentDetail` component with device selector + history chart).
-- 📈 **Analysis page** rewritten to **only** show Flowmeter (ground-water abstraction hourly bars + KL totals) and DWLR (level trend) analytics. Other instruments removed from Analysis.
-- ✏️ **Reports edit/delete** — admin can now edit or delete any flowmeter / DWLR / pH / TDS / Conductivity reading. **Strict totaliser-monotonicity validation** rejects edits that would break the non-decreasing chronological sequence with a clear error message (`Forward totaliser mismatch: new value X is LESS/GREATER than previous/next reading`).
-- 📄 **Certificates** upload now collects **Month** (optional, Jan–Dec) alongside Year; badge & list show "Jun 2026" when month is set.
-- 🗺 **Map upgraded**: Esri World Imagery (Satellite) by default with layer toggle (Satellite / Streets) and place-name overlay; markers now have an animated pulse with a coloured outer ring for stronger visibility; popup shows full 6-decimal coordinates.
-- 🗑 **Zone tab removed** entirely (sidebar + `/zone` route + `Zone.jsx` page).
-- ✅ Backend: **70 / 70 pytest cases pass** (TestFlowmeterMgmt, TestInstrumentEditDelete, TestCertificateMonth added). Frontend e2e flows all green.
+- Flowmeter categorisation (`groundwater_abstraction` / `stp_inlet` / `stp_outlet`).
+- Dashboard "Ground Water — Volumetric Water Abstraction" + STP Inlet/Outlet, m³/hr + 4 KL totaliser cards.
+- Flowmeter hourly KL bar chart.
+- Per-instrument detail pages (`/dwlr`, `/ph`, `/tds`, `/conductivity`).
+- Analysis restricted to Flowmeter + DWLR.
+- Reports edit/delete with strict totaliser-monotonicity validation.
+- Certificates Month field.
+- Zone tab removed.
+- Map upgraded to Satellite/Streets layer toggle with pulsing markers.
 
 ### 2026-06-02 (morning) — Segmented dashboard, location map, Certificates module
-- 🗺 Client-location map (Leaflet via CDN).
-- 🧭 Dashboard split into Water Abstraction / Water Level / Water Quality.
-- 🗑 Removed BOD, COD, TSS instrument types.
-- 📄 Certificates tab replacing Maintenance.
-- 👤 User Lat/Lng/Location-name fields + Edit dialog.
-- 🛰 Generic Instruments API.
+- Client-location map (Leaflet).
+- Dashboard split into Water Abstraction / Water Level / Water Quality.
+- Removed BOD, COD, TSS.
+- Certificates tab replacing Maintenance.
+- User Lat/Lng/Location-name fields + Edit dialog.
+- Generic Instruments API.
 
 ### 2026-06-01 — Auth + admin + production-ready frontend
 - Fixed corrupted JSX; build clean.
@@ -80,11 +85,12 @@ Build a web application initially cloning www.asterflow.com, then customised and
 - [ ] Optional: Custom-domain mapping (Emergent Deploy → Settings → Custom Domain) to expose the portal on `environmental.monitoring.<your-domain>.com`.
 
 ### P1
-- [ ] Per-instrument detail pages for DWLR, pH, Conductivity, TDS (mirroring the existing `Flowmeter.jsx` detail page).
-- [ ] Audit log of admin actions (password resets, activations, certificate deletions).
-- [ ] Charts in Reports page (currently table-only).
+- [ ] Expand audit log to cover non-reading events (user create/delete/activate, password resets, cert upload/delete, site activations).
+- [ ] CSV export of the audit log.
+- [ ] Charts in Reports page (still table-only).
+- [ ] Per-instrument detail page polish (battery alerts on DWLR, threshold breach badges on pH/TDS).
 
 ### P2
 - [ ] Notification system (email / SMS) on instrument threshold breach.
 - [ ] User self-service site-renewal request flow.
-- [ ] Multi-tenant zones with hierarchical filter on map view.
+- [ ] Compliance-trends monthly PDF auto-mailer.

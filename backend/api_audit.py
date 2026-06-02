@@ -47,6 +47,13 @@ async def list_reading_edits(
         if end_date:
             edit_filter["edited_at"]["$lte"] = end_date
 
+    VALID_INSTRUMENT_TYPES = {"flowmeter", "dwlr", "ph", "tds", "conductivity"}
+    if instrument_type and instrument_type not in VALID_INSTRUMENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid instrument_type '{instrument_type}'. Allowed: {sorted(VALID_INSTRUMENT_TYPES)}",
+        )
+
     sources = []
     if not instrument_type or instrument_type == "flowmeter":
         sources.append(("flowmeter", db.flowmeter_readings))
