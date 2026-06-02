@@ -45,31 +45,30 @@ Build a web application initially cloning www.asterflow.com, then customised and
 
 ## What's Been Implemented (latest first)
 
-### 2026-06-02 — Segmented dashboard, location map, Certificates module
-- 🗺 **Client-location map on Dashboard** (Leaflet via CDN, OpenStreetMap tiles). Pins are coloured purple = admin, green = active client, grey = inactive. Auto-fits bounds when ≥2 pins.
-- 🧭 **Dashboard split into 3 sections** with brand-coloured borders:
-  - 💧 **Water Abstraction** — Flowmeter
-  - 📏 **Water Level** — DWLR
-  - 🧪 **Water Quality** — pH, Conductivity, TDS
-- 🗑 **Removed BOD, COD, TSS** entirely from the app (backend supported types restricted to `dwlr, ph, tds, conductivity`).
-- 📄 **Certificates module** (replaces *Maintenance* tab):
-  - 4 sub-tabs: Installation, Calibration, Water Quality Pre-Monsoon, Water Quality Post-Monsoon
-  - Real file upload (PDF/JPG/PNG, 10 MB cap, .exe rejected), year filter, role-aware listing, download, delete
-  - Files persisted to disk at `/app/backend/certificate_files/{type}/{year}/` with metadata in MongoDB.
-- 👤 **User create / edit** — admin can set/edit **Latitude, Longitude, Location Name** plus all profile fields & role.
-- 🛰 **Generic instruments API** (`/api/instruments/*`): `types`, `all/latest`, `{type}/latest`, `{type}/{hw}/latest`, `{type}/{hw}/history`, admin `subscribe`, admin `ingest` (for demos / when broker is offline).
-- 📦 **MQTT service** now subscribes to per-type topics `{type}/{hardware_id}/data` in addition to legacy flowmeter `{id}/0`.
-- 🧪 51/51 backend pytest pass + all UI flows verified (testing agent v3 iteration_2).
+### 2026-06-02 (afternoon) — Flowmeter categories, totalisers in KL, reading edits, map upgrade
+- 🏷 **Flowmeter categorisation** (`groundwater_abstraction` / `stp_inlet` / `stp_outlet`) via `PUT /api/flowmeter-mgmt/{hw}/category`. Default = groundwater.
+- 💧 **Dashboard "Ground Water — Volumetric Water Abstraction"** section shows flow in **m³/hr** + 4 totaliser cards (Hourly / Weekly / Monthly / Yearly) in **KL**, plus cumulative.
+- 🚰 **STP Inlet & Outlet sub-section** under Water Quality (m³/hr + same 4 totaliser cards in KL each).
+- 📊 **Flowmeter detail page** now has an hourly KL bar chart (24h trend).
+- 🧪 **Per-instrument detail pages** at `/dwlr`, `/ph`, `/tds`, `/conductivity` (generic `InstrumentDetail` component with device selector + history chart).
+- 📈 **Analysis page** rewritten to **only** show Flowmeter (ground-water abstraction hourly bars + KL totals) and DWLR (level trend) analytics. Other instruments removed from Analysis.
+- ✏️ **Reports edit/delete** — admin can now edit or delete any flowmeter / DWLR / pH / TDS / Conductivity reading. **Strict totaliser-monotonicity validation** rejects edits that would break the non-decreasing chronological sequence with a clear error message (`Forward totaliser mismatch: new value X is LESS/GREATER than previous/next reading`).
+- 📄 **Certificates** upload now collects **Month** (optional, Jan–Dec) alongside Year; badge & list show "Jun 2026" when month is set.
+- 🗺 **Map upgraded**: Esri World Imagery (Satellite) by default with layer toggle (Satellite / Streets) and place-name overlay; markers now have an animated pulse with a coloured outer ring for stronger visibility; popup shows full 6-decimal coordinates.
+- 🗑 **Zone tab removed** entirely (sidebar + `/zone` route + `Zone.jsx` page).
+- ✅ Backend: **70 / 70 pytest cases pass** (TestFlowmeterMgmt, TestInstrumentEditDelete, TestCertificateMonth added). Frontend e2e flows all green.
+
+### 2026-06-02 (morning) — Segmented dashboard, location map, Certificates module
+- 🗺 Client-location map (Leaflet via CDN).
+- 🧭 Dashboard split into Water Abstraction / Water Level / Water Quality.
+- 🗑 Removed BOD, COD, TSS instrument types.
+- 📄 Certificates tab replacing Maintenance.
+- 👤 User Lat/Lng/Location-name fields + Edit dialog.
+- 🛰 Generic Instruments API.
 
 ### 2026-06-01 — Auth + admin + production-ready frontend
-- 🚨 Fixed corrupted JSX; `yarn build` clean (~293 KB gz).
-- 🔐 JWT auth (bcrypt + PyJWT), idempotent admin seed.
-- 🛡 Brute-force lockout honouring `cf-connecting-ip` / `X-Forwarded-For` + email fallback (verified 5 fails → 429).
-- 📡 Removed mocked instrument data; Dashboard polls `/api/flowmeter/latest` every 5 s.
-- 🧭 Sidebar nav wired with `data-testid`s.
-- 👥 Admin User UI (create/list/reset-password/toggle-status/delete).
-- 🏷 Site activation UI (monthly / quarterly / yearly).
-- 📥📤 Reports page: CSV/PDF download, Excel upload, shadcn Calendar date filters.
+- Fixed corrupted JSX; build clean.
+- JWT auth, brute-force lockout, admin seed, full admin UI, Reports CSV/PDF/Excel.
 
 ## Known Limitations
 - 🔸 **MQTT broker auth** — HiveMQ Cloud currently rejects with rc=5 (Not Authorized). Either the credentials need to be set up in the HiveMQ Cloud console (Access Management), or the broker URL/port/credentials need re-verification. Frontend gracefully shows empty-state until a device publishes.

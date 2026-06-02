@@ -50,6 +50,25 @@ Body:    {"instrument_type":"dwlr","hardware_id":"DWLR001"}
 ```
 …so the backend subscribes to that topic. (Flowmeters auto-subscribe when first seen if the gateway is registered.)
 
+### 2.1) Categorising a flowmeter
+
+Every flowmeter must be tagged so the dashboard knows where to display it:
+
+| Category                    | Where it appears on the dashboard                |
+| --------------------------- | ------------------------------------------------ |
+| `groundwater_abstraction`   | "Ground Water — Volumetric Water Abstraction"   |
+| `stp_inlet`                 | Water Quality → STP Flowmeters → STP Inlet       |
+| `stp_outlet`                | Water Quality → STP Flowmeters → STP Outlet      |
+
+Set the category via:
+```
+PUT {API_URL}/api/flowmeter-mgmt/{HARDWARE_ID}/category
+Headers: Authorization: Bearer <admin-token>
+Body:    {"category":"groundwater_abstraction","label":"Main Borewell"}
+```
+
+> A flowmeter without a category is treated as `groundwater_abstraction` by default.
+
 ---
 
 ## 3) Payload schema (JSON)
