@@ -43,19 +43,33 @@ Build a web application initially cloning www.asterflow.com, then customised and
 - **pages/Reports.jsx** — Filters (hardware ID + shadcn calendar date pickers), CSV/PDF download (admin), Excel upload (admin), tabular data view.
 - **components/Sidebar.jsx** — 8 menu items with active-state highlight and data-testids.
 
-## What's Been Implemented (2026-06-01)
-- ✅ Fixed corrupted JSX (`EnhancedDashboard` footer + entire `Flowmeter.jsx`) — production build now passes (`yarn build` clean, 288 kB gzipped).
-- ✅ Removed orphaned Register page + route (admin-only user creation policy).
-- ✅ New JWT auth stack (bcrypt + PyJWT) with idempotent admin seed on startup.
-- ✅ Default admin: `admin@envirolytics.com` / `Admin@Envirolytics2026` (auto-resyncs from `.env`).
-- ✅ Brute-force lockout works behind k8s/Cloudflare (uses `cf-connecting-ip` / `X-Forwarded-For`, plus email-only fallback). Verified: 5 fails → 429.
-- ✅ Wired Sidebar layout for Analysis, Reports, GraphReport, Site, User, Zone, Maintenance.
-- ✅ Replaced all mocked instrument live data with real backend polling of `/api/flowmeter/latest`. Empty-state UX when MQTT has no data.
-- ✅ Admin UI: create user, reset any password, activate/deactivate, delete (cannot delete self), change own password.
-- ✅ Site activation UI: monthly (30d) / quarterly (90d) / yearly (365d).
-- ✅ Reports page: real CSV/PDF downloads via Bearer token, Excel upload with validation feedback, shadcn Calendar date pickers.
-- ✅ MQTT service updated for HiveMQ Cloud TLS (port 8883); credentials wired in `backend/.env`.
-- ✅ Backend regression test suite at `/app/backend/tests/backend_test.py` (33/34 pass; remaining one is the brute-force test which is now fixed in this iteration).
+## What's Been Implemented (latest first)
+
+### 2026-06-02 — Segmented dashboard, location map, Certificates module
+- 🗺 **Client-location map on Dashboard** (Leaflet via CDN, OpenStreetMap tiles). Pins are coloured purple = admin, green = active client, grey = inactive. Auto-fits bounds when ≥2 pins.
+- 🧭 **Dashboard split into 3 sections** with brand-coloured borders:
+  - 💧 **Water Abstraction** — Flowmeter
+  - 📏 **Water Level** — DWLR
+  - 🧪 **Water Quality** — pH, Conductivity, TDS
+- 🗑 **Removed BOD, COD, TSS** entirely from the app (backend supported types restricted to `dwlr, ph, tds, conductivity`).
+- 📄 **Certificates module** (replaces *Maintenance* tab):
+  - 4 sub-tabs: Installation, Calibration, Water Quality Pre-Monsoon, Water Quality Post-Monsoon
+  - Real file upload (PDF/JPG/PNG, 10 MB cap, .exe rejected), year filter, role-aware listing, download, delete
+  - Files persisted to disk at `/app/backend/certificate_files/{type}/{year}/` with metadata in MongoDB.
+- 👤 **User create / edit** — admin can set/edit **Latitude, Longitude, Location Name** plus all profile fields & role.
+- 🛰 **Generic instruments API** (`/api/instruments/*`): `types`, `all/latest`, `{type}/latest`, `{type}/{hw}/latest`, `{type}/{hw}/history`, admin `subscribe`, admin `ingest` (for demos / when broker is offline).
+- 📦 **MQTT service** now subscribes to per-type topics `{type}/{hardware_id}/data` in addition to legacy flowmeter `{id}/0`.
+- 🧪 51/51 backend pytest pass + all UI flows verified (testing agent v3 iteration_2).
+
+### 2026-06-01 — Auth + admin + production-ready frontend
+- 🚨 Fixed corrupted JSX; `yarn build` clean (~293 KB gz).
+- 🔐 JWT auth (bcrypt + PyJWT), idempotent admin seed.
+- 🛡 Brute-force lockout honouring `cf-connecting-ip` / `X-Forwarded-For` + email fallback (verified 5 fails → 429).
+- 📡 Removed mocked instrument data; Dashboard polls `/api/flowmeter/latest` every 5 s.
+- 🧭 Sidebar nav wired with `data-testid`s.
+- 👥 Admin User UI (create/list/reset-password/toggle-status/delete).
+- 🏷 Site activation UI (monthly / quarterly / yearly).
+- 📥📤 Reports page: CSV/PDF download, Excel upload, shadcn Calendar date filters.
 
 ## Known Limitations
 - 🔸 **MQTT broker auth** — HiveMQ Cloud currently rejects with rc=5 (Not Authorized). Either the credentials need to be set up in the HiveMQ Cloud console (Access Management), or the broker URL/port/credentials need re-verification. Frontend gracefully shows empty-state until a device publishes.
@@ -63,17 +77,15 @@ Build a web application initially cloning www.asterflow.com, then customised and
 
 ## Prioritised Backlog
 ### P0 — Next
-- [ ] Verify HiveMQ Cloud credentials & ACLs (user-action: confirm broker setup) so live data flows end-to-end.
-- [ ] Add Water Level Recorder backend endpoints (currently UI exists but no `/api/dwlr/*` routes).
-- [ ] Certificate Download UI: surface buttons on Reports/Maintenance pages calling `/api/admin/certificate/{calibration,installation}`.
+- [ ] **Activate HiveMQ Cloud broker credentials** so live IoT data flows end-to-end. See `/app/IOT_DEVICE_CONFIGURATION_GUIDE.md` for the exact connection parameters that need to be enabled.
+- [ ] Optional: Custom-domain mapping (Emergent Deploy → Settings → Custom Domain) to expose the portal on `environmental.monitoring.<your-domain>.com`.
 
 ### P1
-- [ ] DWLR / pH / TDS / BOD / COD / TSS instrument types in backend with their own MQTT topic schemas.
-- [ ] User self-service site renewal request flow.
-- [ ] Audit log of admin actions (password resets, activations, deletes).
-- [ ] Charts in Reports (currently table-only).
+- [ ] Per-instrument detail pages for DWLR, pH, Conductivity, TDS (mirroring the existing `Flowmeter.jsx` detail page).
+- [ ] Audit log of admin actions (password resets, activations, certificate deletions).
+- [ ] Charts in Reports page (currently table-only).
 
 ### P2
-- [ ] Multi-tenant zones with geographic map view.
 - [ ] Notification system (email / SMS) on instrument threshold breach.
-- [ ] Mobile app (PWA).
+- [ ] User self-service site-renewal request flow.
+- [ ] Multi-tenant zones with hierarchical filter on map view.

@@ -228,6 +228,7 @@ const UserPage = () => {
                     <th className="text-left p-3">Name</th>
                     <th className="text-left p-3">Email</th>
                     <th className="text-left p-3">Role</th>
+                    <th className="text-left p-3">Location</th>
                     <th className="text-left p-3">Status</th>
                     <th className="text-left p-3">Actions</th>
                   </tr>
@@ -238,6 +239,12 @@ const UserPage = () => {
                       <td className="p-3 font-medium">{u.full_name || '—'}</td>
                       <td className="p-3 text-gray-600">{u.email}</td>
                       <td className="p-3"><Badge className={u.role === 'admin' ? 'bg-purple-500' : 'bg-blue-500'}>{u.role}</Badge></td>
+                      <td className="p-3 text-gray-600 text-xs">
+                        {u.location_name ? <span className="font-medium">{u.location_name}</span> : <span className="text-gray-400">—</span>}
+                        {u.latitude != null && u.longitude != null && (
+                          <div className="text-gray-400 mt-0.5">{Number(u.latitude).toFixed(4)}, {Number(u.longitude).toFixed(4)}</div>
+                        )}
+                      </td>
                       <td className="p-3"><Badge className={u.is_active ? 'bg-green-500' : 'bg-gray-500'}>{u.is_active ? 'Active' : 'Inactive'}</Badge></td>
                       <td className="p-3">
                         <div className="flex gap-2 flex-wrap">
