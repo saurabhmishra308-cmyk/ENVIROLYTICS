@@ -15,8 +15,9 @@ api.interceptors.request.use((config) => {
       config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${token}`;
     }
-  } catch {
-    // localStorage unavailable; skip
+  } catch (e) {
+    // localStorage may be disabled (Safari private mode, iframe sandbox) — proceed without token
+    if (typeof console !== "undefined") console.warn("[api] localStorage unavailable in request interceptor:", e?.message);
   }
   return config;
 });
@@ -30,8 +31,8 @@ api.interceptors.response.use(
       try {
         localStorage.removeItem("envirolytics_token");
         localStorage.removeItem("envirolytics_user");
-      } catch {
-        // ignore
+      } catch (e) {
+        if (typeof console !== "undefined") console.warn("[api] localStorage unavailable during 401 cleanup:", e?.message);
       }
     }
     return Promise.reject(err);

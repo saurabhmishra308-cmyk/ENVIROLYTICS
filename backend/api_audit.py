@@ -128,19 +128,22 @@ async def audit_summary(admin: dict = Depends(require_admin)):
     editor_ids = {eid for eid, _ in sorted_editors}
     user_map = await _resolve_users(editor_ids)
 
+    # Build top_editors with explicit loop (clearer than nested comprehension)
+    top_editors = []
+    for editor_id, count in sorted_editors:
+        info = user_map.get(editor_id, {})
+        top_editors.append({
+            "user_id": editor_id,
+            "count": count,
+            "email": info.get("email", editor_id),
+            "full_name": info.get("full_name", "(unknown)"),
+        })
+
     return {
         "total_edits": flow_count + instr_count,
         "by_instrument": {
             "flowmeter": flow_count,
             "instrument_readings": instr_count,
         },
-        "top_editors": [
-            {
-                "user_id": eid,
-                "count": cnt,
-                "email": user_map.get(eid, {}).get("email", eid),
-                "full_name": user_map.get(eid, {}).get("full_name", "(unknown)"),
-            }
-            for eid, cnt in sorted_editors
-        ],
+        "top_editors": top_editors,
     }

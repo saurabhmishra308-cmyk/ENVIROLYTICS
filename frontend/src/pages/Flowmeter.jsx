@@ -9,6 +9,11 @@ import { LogOut, ArrowLeft, Droplets, AlertCircle, Clock, Download, RefreshCw, B
 import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import ReadingsTable from '../components/ReadingsTable';
 
+// Module-level constants to avoid recreating chart prop objects each render
+const AXIS_TICK = { fontSize: 11 };
+const Y_LABEL_KL = { value: 'KL', angle: -90, position: 'insideLeft', fontSize: 11 };
+const KL_TOOLTIP = (v) => [`${v} KL`, 'Abstraction'];
+
 const POLL_MS = 5000;
 
 const Flowmeter = () => {
@@ -28,7 +33,7 @@ const Flowmeter = () => {
       setLatest(list);
       if (!selected && list.length > 0) setSelected(list[0].hardware_id);
     } catch (e) {
-      // swallow - empty state will render
+      console.warn('[Flowmeter] failed to fetch latest:', e?.message || e);
     }
   }, [selected]);
 
@@ -36,7 +41,8 @@ const Flowmeter = () => {
     try {
       const { data } = await api.get('/api/flowmeter/status');
       setMqttStatus(data);
-    } catch {
+    } catch (e) {
+      console.warn('[Flowmeter] failed to fetch MQTT status:', e?.message || e);
       setMqttStatus({ connected: false });
     }
   }, []);
@@ -50,7 +56,8 @@ const Flowmeter = () => {
       ]);
       setHistory(histRes.data.readings || []);
       setHourly((hourlyRes.data.buckets || []).map((b) => ({ time: b.hour_label, kl: b.abstraction_kl })));
-    } catch {
+    } catch (e) {
+      console.warn('[Flowmeter] failed to fetch history:', e?.message || e);
       setHistory([]);
       setHourly([]);
     }
@@ -257,9 +264,9 @@ const Flowmeter = () => {
                   <ResponsiveContainer width="100%" height={280}>
                     <BarChart data={hourly}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} label={{ value: 'KL', angle: -90, position: 'insideLeft', fontSize: 11 }} />
-                      <Tooltip formatter={(v) => [`${v} KL`, 'Abstraction']} />
+                      <XAxis dataKey="time" tick={AXIS_TICK} />
+                      <YAxis tick={AXIS_TICK} label={Y_LABEL_KL} />
+                      <Tooltip formatter={KL_TOOLTIP} />
                       <Bar dataKey="kl" fill="#4a9fd8" name="Hourly KL" />
                     </BarChart>
                   </ResponsiveContainer>

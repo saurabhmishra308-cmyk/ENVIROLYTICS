@@ -177,9 +177,9 @@ const WaterLevelRecorder = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {alerts.map((alert, index) => (
+                {alerts.map((alert) => (
                   <div
-                    key={index}
+                    key={`${alert.time}-${alert.message}`}
                     className="flex gap-3 p-3 rounded-lg border-l-4"
                     style={{
                       backgroundColor: alert.severity === 'warning' ? '#fff8f0' : '#f0f8ff',
@@ -277,8 +277,8 @@ const WaterLevelRecorder = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {historicalData.map((data, index) => (
-                <div key={index} className="flex items-center gap-4">
+              {historicalData.map((data) => (
+                <div key={data.date} className="flex items-center gap-4">
                   <div className="w-24 text-sm font-medium" style={{ color: '#1a2332' }}>
                     {data.date}
                   </div>

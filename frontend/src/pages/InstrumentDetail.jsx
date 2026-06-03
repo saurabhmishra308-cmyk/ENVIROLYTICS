@@ -38,8 +38,8 @@ const InstrumentDetail = ({ type }) => {
       const list = data.readings || [];
       setDevices(list);
       if (!selected && list.length > 0) setSelected(list[0].hardware_id);
-    } catch {
-      // empty state will render
+    } catch (e) {
+      console.warn(`[InstrumentDetail:${type}] failed to fetch devices:`, e?.message || e);
     }
   }, [type, selected]);
 
@@ -48,7 +48,8 @@ const InstrumentDetail = ({ type }) => {
     try {
       const { data } = await api.get(`/api/instruments/${type}/${hw}/history?limit=50`);
       setHistory((data.readings || []).slice().reverse());
-    } catch {
+    } catch (e) {
+      console.warn(`[InstrumentDetail:${type}] failed to fetch history:`, e?.message || e);
       setHistory([]);
     }
   }, [type]);

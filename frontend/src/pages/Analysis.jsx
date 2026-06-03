@@ -5,6 +5,12 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { Droplets, TrendingUp, Activity } from 'lucide-react';
 import api from '../lib/api';
 
+// Module-level constants — avoid creating new objects on every render
+const AXIS_TICK = { fontSize: 11 };
+const Y_LABEL_KL = { value: 'KL', angle: -90, position: 'insideLeft', fontSize: 11 };
+const Y_LABEL_M = { value: 'm', angle: -90, position: 'insideLeft', fontSize: 11 };
+const KL_TOOLTIP = (v) => [`${v} KL`, 'Abstraction'];
+
 const Analysis = () => {
   const [groundwater, setGroundwater] = useState([]); // aggregates of groundwater_abstraction flowmeters
   const [dwlrDevices, setDwlrDevices] = useState([]); // latest readings
@@ -47,11 +53,14 @@ const Analysis = () => {
         try {
           const r = await api.get(`/api/instruments/dwlr/${d.hardware_id}/history?limit=50`);
           hist[d.hardware_id] = (r.data.readings || []).slice().reverse();
-        } catch { hist[d.hardware_id] = []; }
+        } catch (e) {
+          console.warn(`[Analysis] DWLR history fetch failed for ${d.hardware_id}:`, e?.message || e);
+          hist[d.hardware_id] = [];
+        }
       }));
       setDwlrHistory(hist);
-    } catch {
-      // empty state will render
+    } catch (e) {
+      console.warn('[Analysis] failed to load analysis data:', e?.message || e);
     } finally {
       setLoading(false);
     }
@@ -97,9 +106,9 @@ const Analysis = () => {
                   <ResponsiveContainer width="100%" height={220}>
                     <BarChart data={series}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} label={{ value: 'KL', angle: -90, position: 'insideLeft', fontSize: 11 }} />
-                      <Tooltip formatter={(v) => [`${v} KL`, 'Abstraction']} />
+                      <XAxis dataKey="time" tick={AXIS_TICK} />
+                      <YAxis tick={AXIS_TICK} label={Y_LABEL_KL} />
+                      <Tooltip formatter={KL_TOOLTIP} />
                       <Bar dataKey="kl" fill="#4a9fd8" name="Hourly KL" />
                     </BarChart>
                   </ResponsiveContainer>
@@ -152,8 +161,8 @@ const Analysis = () => {
                   <ResponsiveContainer width="100%" height={220}>
                     <LineChart data={series}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} label={{ value: 'm', angle: -90, position: 'insideLeft', fontSize: 11 }} />
+                      <XAxis dataKey="time" tick={AXIS_TICK} />
+                      <YAxis tick={AXIS_TICK} label={Y_LABEL_M} />
                       <Tooltip />
                       <Legend />
                       <Line type="monotone" dataKey="level" stroke="#27ae60" strokeWidth={2} dot={{ r: 2 }} name="Water Level (m)" />
