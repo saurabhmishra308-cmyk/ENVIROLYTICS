@@ -45,6 +45,19 @@ Build a web application initially cloning www.asterflow.com, then customised and
 
 ## What's Been Implemented (latest first)
 
+### 2026-06-03 — AWS deployment package
+- 📦 **`/app/aws-deploy/` directory** with everything needed to deploy on AWS EC2:
+  - `Dockerfile.backend` — Python 3.11-slim + uvicorn (2 workers, healthcheck).
+  - `Dockerfile.frontend` — multi-stage Node 20 build → Caddy 2 image (serves React + reverse-proxies `/api`).
+  - `Caddyfile` — auto Let's Encrypt HTTPS, security headers, gzip/zstd, `/api/*` → backend container.
+  - `docker-compose.yml` — wires both services, named volumes for cert uploads + Caddy data.
+  - `.env.example` — production secrets template (Mongo Atlas URL, JWT_SECRET, MQTT, admin creds).
+  - `userdata.sh` — EC2 cloud-init that installs Docker + clones repo + pulls .env from SSM Parameter Store + boots the stack.
+  - `DEPLOYMENT.md` — end-to-end step-by-step guide (~$25/mo target spend).
+- ✅ Zero code changes required — frontend builds with `REACT_APP_BACKEND_URL=""` so axios calls become same-origin and Caddy proxies them.
+- ✅ `.dockerignore` added at repo root.
+- ☑️ Recommended combo: **EC2 t3.small + MongoDB Atlas M0 + Caddy auto-HTTPS + EBS volume + ap-south-1**.
+
 ### 2026-06-02 (evening) — Admin Audit Log
 - 🔍 **New backend endpoints** `GET /api/admin/audit-log/summary` and `/api/admin/audit-log/reading-edits` surface every reading edit/delete tracked by the existing `edited_by` / `edited_at` fields, joined with the editor's `email` + `full_name`.
 - 👀 **New admin-only page** at `/audit-log` (sidebar entry visible only to admins) with three summary cards (Total edits, By source, Top editors) + filters (instrument source, hardware ID, limit) + full history table.

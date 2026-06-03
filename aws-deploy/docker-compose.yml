@@ -1,0 +1,64 @@
+# docker-compose for AWS EC2 deployment of Envirolytics Monitor
+# Usage:
+#   cd /app
+#   cp aws-deploy/.env.example aws-deploy/.env   # then edit with your secrets
+#   docker compose -f aws-deploy/docker-compose.yml --env-file aws-deploy/.env up -d --build
+
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: aws-deploy/Dockerfile.backend
+    image: envirolytics-backend:latest
+    container_name: envirolytics_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "8001"
+    volumes:
+      - cert_files:/data/certificate_files
+    networks:
+      - envirolytics
+    # Resource hints (adjust to your instance)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  web:
+    build:
+      context: ..
+      dockerfile: aws-deploy/Dockerfile.frontend
+      args:
+        REACT_APP_WEATHER_API_KEY: ${REACT_APP_WEATHER_API_KEY:-}
+    image: envirolytics-web:latest
+    container_name: envirolytics_web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - caddy_data:/data       # Let's Encrypt certs persisted here
+      - caddy_config:/config
+    networks:
+      - envirolytics
+
+networks:
+  envirolytics:
+    driver: bridge
+
+volumes:
+  cert_files:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local

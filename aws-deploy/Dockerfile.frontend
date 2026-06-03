@@ -1,0 +1,31 @@
+# Envirolytics Monitor — frontend image (multi-stage)
+# Stage 1: build the React app
+FROM node:20-alpine AS build
+
+WORKDIR /src
+
+# Install dependencies first (better caching)
+COPY frontend/package.json frontend/yarn.lock ./
+RUN yarn install --frozen-lockfile
+
+# Copy the rest of the source
+COPY frontend/ ./
+
+# At build time we use an EMPTY backend URL so that all axios calls become
+# same-origin (/api/...) and Caddy reverse-proxies them to the backend.
+ENV REACT_APP_BACKEND_URL=""
+ARG REACT_APP_WEATHER_API_KEY=""
+ENV REACT_APP_WEATHER_API_KEY=${REACT_APP_WEATHER_API_KEY}
+
+RUN yarn build
+
+# Stage 2: serve via Caddy with auto-HTTPS
+FROM caddy:2-alpine
+
+# Built React assets
+COPY --from=build /src/build /srv
+
+# Caddyfile (templated — $DOMAIN, $ACME_EMAIL injected by docker-compose)
+COPY aws-deploy/Caddyfile /etc/caddy/Caddyfile
+
+EXPOSE 80 443

@@ -1,0 +1,26 @@
+# Don't ship our local dev artifacts into the Docker image
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/node_modules
+**/build
+**/dist
+**/.next
+.git
+.gitignore
+.emergent
+.env
+**/.env.local
+**/.env.development
+**/.env.production
+**/.DS_Store
+test_reports/
+memory/
+tests/
+.venv
+venv/
+*.egg-info
+*.log

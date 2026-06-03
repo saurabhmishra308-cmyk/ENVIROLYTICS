@@ -1,0 +1,58 @@
+# Caddyfile — automatic HTTPS via Let's Encrypt
+#
+# {$DOMAIN} is injected from docker-compose's environment.
+# Examples:
+#   DOMAIN=envirolytics.example.com  → public HTTPS via Let's Encrypt
+#   DOMAIN=:80                       → bare HTTP on port 80 (no TLS)
+#   DOMAIN=:443                      → HTTPS but self-signed (internal use)
+
+{
+    email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+    # gzip / brotli compression
+    encode zstd gzip
+
+    # Useful security headers
+    header {
+        Strict-Transport-Security  "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options     "nosniff"
+        X-Frame-Options            "DENY"
+        Referrer-Policy            "strict-origin-when-cross-origin"
+        Permissions-Policy         "camera=(), microphone=(), geolocation=()"
+        # Remove server banner
+        -Server
+    }
+
+    # Larger bodies for certificate uploads (10 MB)
+    request_body {
+        max_size 20MB
+    }
+
+    # Forward /api/* to the FastAPI backend container.
+    # The "backend" hostname resolves via Docker DNS.
+    # We use `handle` (NOT handle_path) so the /api prefix is preserved —
+    # the backend's routes are mounted at /api/*.
+    handle /api/* {
+        reverse_proxy backend:8001 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Static frontend — try the exact file, fallback to index.html for SPA routes.
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+
+    # Access log to stdout
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+}
