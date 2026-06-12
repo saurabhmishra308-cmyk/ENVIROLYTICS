@@ -33,6 +33,9 @@ from api_audit import router as audit_router
 import api_audit
 from api_alerts import router as alerts_router
 import api_alerts
+from api_notifications import router as notifications_router
+import api_notifications
+import notification_service
 import auth as auth_module
 
 
@@ -52,6 +55,7 @@ api_certificates.set_db(db)
 api_flowmeter_mgmt.set_db(db)
 api_audit.set_db(db)
 api_alerts.set_db(db)
+api_notifications.set_db(db)
 auth_module.set_db(db)
 
 # Create the main app
@@ -106,6 +110,7 @@ app.include_router(certificates_router)
 app.include_router(flowmeter_mgmt_router)
 app.include_router(audit_router)
 app.include_router(alerts_router)
+app.include_router(notifications_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -131,11 +136,16 @@ async def startup_event():
     mqtt_service.set_event_loop(asyncio.get_event_loop())
     # Connect to MQTT broker (non-blocking)
     mqtt_service.connect()
+    # Background loop for offline-device email notifications
+    app.state.notify_task = asyncio.create_task(notification_service.background_loop(db))
     logger.info("Startup complete")
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
     mqtt_service.disconnect()
+    task = getattr(app.state, "notify_task", None)
+    if task:
+        task.cancel()
     client.close()
     logger.info("Services shut down")

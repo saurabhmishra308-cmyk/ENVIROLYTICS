@@ -84,6 +84,14 @@ Build a web application initially cloning www.asterflow.com, then customised and
 - User Lat/Lng/Location-name fields + Edit dialog.
 - Generic Instruments API.
 
+### 2026-06-12 — Offline-device email notifications (Resend, max 4 recipients)
+- New backend module `notification_service.py` + router `api_notifications.py` (`/api/notifications/emails GET|PUT`, `/test POST`, `/run-now POST`, all admin-only).
+- Recipients persisted as a singleton doc in `notification_settings` collection. Hard cap of **4** recipients (HTTP 400 on overflow).
+- Background async task started at FastAPI startup scans `flowmeter_latest` + `instrument_latest` every `OFFLINE_ALERT_INTERVAL_MIN` (default 10 min). Sends a Resend email to all configured recipients for any device silent ≥ 2 h, with a per-device `OFFLINE_ALERT_COOLDOWN_HOURS` (default 6 h) cooldown stored in `notification_state`.
+- Email template: branded Envirolytics card with "Telemetry alert" header and the offline-device list. Sends via `resend.Emails.send` wrapped in `asyncio.to_thread`.
+- New env vars: `RESEND_API_KEY` (empty = feature disabled but UI still works), `SENDER_EMAIL`, `OFFLINE_ALERT_INTERVAL_MIN`, `OFFLINE_ALERT_COOLDOWN_HOURS`.
+- New frontend admin-only card `NotificationRecipientsCard.jsx` on the dashboard: add/remove emails, max-4 chip-style list, "Send test" button, live "Email service live/not configured" badge.
+
 ### 2026-06-12 — Offline device alerts (UI banner)
 - New backend endpoint `GET /api/alerts/offline?hours=2` (`/app/backend/api_alerts.py`) — scans `flowmeter_latest` + `instrument_latest`, returns devices stale ≥ 2 h.
 - New frontend component `OfflineAlertsBanner.jsx` polls every 60 s, renders a red banner on the dashboard listing each offline device with "last seen" relative time. Hidden when no devices are stale or the endpoint errors.
@@ -109,6 +117,7 @@ Build a web application initially cloning www.asterflow.com, then customised and
 - [ ] Per-instrument detail page polish (battery alerts on DWLR, threshold breach badges on pH/TDS).
 
 ### P2
+- [ ] **Set RESEND_API_KEY** in `backend/.env` to actually deliver the offline-device emails. UI + delivery pipeline already wired; without the key the system is dormant.
 - [ ] Email/SMS notifications when an instrument goes offline ≥ 2 h (UI banner already in place).
 - [ ] Notification system (email / SMS) on instrument threshold breach.
 - [ ] User self-service site-renewal request flow.
