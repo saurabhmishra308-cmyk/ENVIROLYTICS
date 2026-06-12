@@ -12,6 +12,7 @@ import axios from 'axios';
 import WeatherCard from '../components/WeatherCard';
 import InstrumentSection from '../components/InstrumentSection';
 import LocationMap from '../components/LocationMap';
+import OfflineAlertsBanner from '../components/OfflineAlertsBanner';
 
 const POLL_MS = 5000;
 const logError = (e, c) => { if (process.env.NODE_ENV === 'development') console.error(`[${c}]`, e); };
@@ -211,6 +212,8 @@ const EnhancedDashboard = () => {
         </div>
 
         <WeatherCard weather={weather} loading={loadingWeather} isDarkMode={isDarkMode} getWaterFlowDirection={() => '—'} />
+
+        <OfflineAlertsBanner isDarkMode={isDarkMode} />
 
         {/* Client Location Map */}
         <Card className={isDarkMode ? 'bg-gray-800 border-gray-700' : ''} data-testid="dashboard-map-card">

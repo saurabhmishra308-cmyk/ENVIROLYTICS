@@ -84,6 +84,11 @@ Build a web application initially cloning www.asterflow.com, then customised and
 - User Lat/Lng/Location-name fields + Edit dialog.
 - Generic Instruments API.
 
+### 2026-06-12 — Offline device alerts (UI banner)
+- New backend endpoint `GET /api/alerts/offline?hours=2` (`/app/backend/api_alerts.py`) — scans `flowmeter_latest` + `instrument_latest`, returns devices stale ≥ 2 h.
+- New frontend component `OfflineAlertsBanner.jsx` polls every 60 s, renders a red banner on the dashboard listing each offline device with "last seen" relative time. Hidden when no devices are stale or the endpoint errors.
+- Wired into `EnhancedDashboard.jsx` directly under the weather card.
+
 ### 2026-06-01 — Auth + admin + production-ready frontend
 - Fixed corrupted JSX; build clean.
 - JWT auth, brute-force lockout, admin seed, full admin UI, Reports CSV/PDF/Excel.
@@ -104,6 +109,7 @@ Build a web application initially cloning www.asterflow.com, then customised and
 - [ ] Per-instrument detail page polish (battery alerts on DWLR, threshold breach badges on pH/TDS).
 
 ### P2
+- [ ] Email/SMS notifications when an instrument goes offline ≥ 2 h (UI banner already in place).
 - [ ] Notification system (email / SMS) on instrument threshold breach.
 - [ ] User self-service site-renewal request flow.
 - [ ] Compliance-trends monthly PDF auto-mailer.
