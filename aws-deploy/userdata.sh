@@ -19,7 +19,7 @@
 
 set -euxo pipefail
 
-REPO_URL="https://github.com/<your-org>/envirolytics-monitor.git"
+REPO_URL="https://github.com/<Envirolytics Sustainability Private Limited>/envirolytics-monitor.git"
 APP_DIR="/opt/envirolytics"
 SSM_ENV_PARAM="/envirolytics/prod/env"          # SSM SecureString parameter name (optional)
 AWS_REGION="ap-south-1"
