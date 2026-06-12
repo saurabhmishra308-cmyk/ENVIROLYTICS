@@ -1,4 +1,5 @@
 """Admin API for offline-device email-alert recipients (max 4)."""
+import os
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
@@ -27,14 +28,14 @@ async def list_emails(admin: dict = Depends(require_admin)):
     return {
         "emails": emails,
         "max": svc.MAX_RECIPIENTS,
-        "provider_configured": bool(__import__("os").environ.get("RESEND_API_KEY", "").strip()),
+        "provider_configured": bool(os.environ.get("RESEND_API_KEY", "").strip()),
     }
 
 
 @router.put("/emails")
 async def replace_emails(payload: RecipientsPayload, admin: dict = Depends(require_admin)):
     try:
-        cleaned = await svc.set_recipients(db, [str(e) for e in payload.emails])
+        cleaned: List[str] = await svc.set_recipients(db, [str(e) for e in payload.emails])
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"emails": cleaned, "max": svc.MAX_RECIPIENTS}
