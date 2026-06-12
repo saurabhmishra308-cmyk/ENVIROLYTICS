@@ -1,23 +1,22 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { AlertTriangle, WifiOff } from 'lucide-react';
+import { Radio, ShieldAlert } from 'lucide-react';
 import api from '../lib/api';
 
-const POLL_MS = 60 * 1000; // re-check every 60 seconds
+const POLL_MS = 60 * 1000;
 const THRESHOLD_HOURS = 2;
 
-const fmtAgo = (mins) => {
-  if (mins < 60) return `${mins} min ago`;
-  const hrs = Math.floor(mins / 60);
-  const rem = mins % 60;
-  if (hrs < 24) return rem ? `${hrs}h ${rem}m ago` : `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ${hrs % 24}h ago`;
+const TYPE_META = {
+  flowmeter:    { label: 'Flowmeter',    accent: '#4a9fd8' },
+  dwlr:         { label: 'DWLR',         accent: '#27ae60' },
+  ph:           { label: 'pH',           accent: '#8e44ad' },
+  tds:          { label: 'TDS',          accent: '#16a085' },
+  conductivity: { label: 'Conductivity', accent: '#2980b9' },
 };
 
-const labelFor = (d) =>
-  d.kind === 'flowmeter'
-    ? `Flowmeter · ${d.hardware_id}`
-    : `${(d.instrument_type || 'device').toUpperCase()} · ${d.hardware_id}`;
+const metaFor = (d) => {
+  const key = d.kind === 'flowmeter' ? 'flowmeter' : (d.instrument_type || '').toLowerCase();
+  return TYPE_META[key] || { label: (d.instrument_type || 'Device').toUpperCase(), accent: '#94a3b8' };
+};
 
 const OfflineAlertsBanner = ({ isDarkMode }) => {
   const [items, setItems] = useState([]);
@@ -36,57 +35,97 @@ const OfflineAlertsBanner = ({ isDarkMode }) => {
 
   useEffect(() => {
     let cancelled = false;
-    const tick = () => {
-      if (cancelled) return;
-      fetchOffline();
-    };
+    const tick = () => { if (!cancelled) fetchOffline(); };
     const t = setTimeout(tick, 0);
     const i = setInterval(tick, POLL_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-      clearInterval(i);
-    };
+    return () => { cancelled = true; clearTimeout(t); clearInterval(i); };
   }, [fetchOffline]);
 
   if (error || items.length === 0) return null;
 
-  const max = 6;
-  const shown = items.slice(0, max);
-  const rest = items.length - shown.length;
+  const surface       = isDarkMode ? 'bg-[#1a2332]'        : 'bg-white';
+  const border        = isDarkMode ? 'border-red-900/60'   : 'border-red-200';
+  const headlineText  = isDarkMode ? 'text-red-100'        : 'text-red-900';
+  const subText       = isDarkMode ? 'text-red-300/80'     : 'text-red-700/80';
+  const chipBg        = isDarkMode ? 'bg-red-950/60'       : 'bg-red-50';
+  const chipText      = isDarkMode ? 'text-red-100'        : 'text-red-900';
+  const idText        = isDarkMode ? 'text-red-200/70'     : 'text-red-700/70';
 
   return (
-    <div
+    <section
       data-testid="offline-alerts-banner"
-      className={`rounded-lg border-2 px-4 py-3 flex items-start gap-3 ${
-        isDarkMode ? 'bg-red-950/40 border-red-700 text-red-100' : 'bg-red-50 border-red-300 text-red-900'
-      }`}
+      className={`relative overflow-hidden rounded-xl border ${border} ${surface} shadow-sm`}
+      aria-live="polite"
     >
-      <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0 text-red-500" />
-      <div className="flex-1 min-w-0">
-        <p className="font-semibold text-sm" data-testid="offline-alerts-title">
-          {items.length} device{items.length === 1 ? '' : 's'} offline · no data for ≥ {THRESHOLD_HOURS} hours
-        </p>
-        <ul className="mt-1.5 space-y-1 text-xs">
-          {shown.map((d) => (
-            <li
-              key={`${d.kind}-${d.instrument_type}-${d.hardware_id}`}
-              data-testid={`offline-alert-item-${d.hardware_id}`}
-              className="flex items-center gap-2"
-            >
-              <WifiOff className="h-3 w-3 shrink-0 opacity-70" />
-              <span className="font-medium">{labelFor(d)}</span>
-              <span className="opacity-75">— last seen {fmtAgo(d.minutes_since_last_seen)}</span>
-            </li>
-          ))}
-          {rest > 0 && (
-            <li className="opacity-75 italic" data-testid="offline-alerts-more">
-              …and {rest} more
-            </li>
-          )}
+      {/* Red severity rail */}
+      <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-red-500 to-red-700" />
+
+      <div className="pl-6 pr-5 py-4 sm:py-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-red-500/40 animate-ping" />
+              <span className="relative flex items-center justify-center w-9 h-9 rounded-full bg-red-600 shadow-md">
+                <ShieldAlert className="h-4.5 w-4.5 text-white" aria-hidden />
+              </span>
+            </div>
+            <div>
+              <p className={`text-[10px] uppercase tracking-[0.18em] font-semibold ${subText}`}>
+                Telemetry alert
+              </p>
+              <h3
+                data-testid="offline-alerts-title"
+                className={`text-base sm:text-lg font-semibold ${headlineText}`}
+              >
+                {items.length} device{items.length === 1 ? '' : 's'} reporting offline
+              </h3>
+            </div>
+          </div>
+
+          <span
+            className={`inline-flex items-center gap-1.5 self-start sm:self-auto px-2.5 py-1 rounded-full text-[11px] font-medium uppercase tracking-wider ${chipBg} ${chipText} ring-1 ring-red-300/40`}
+          >
+            <Radio className="h-3 w-3" />
+            No signal
+          </span>
+        </div>
+
+        <ul
+          className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
+          data-testid="offline-alerts-list"
+        >
+          {items.map((d) => {
+            const m = metaFor(d);
+            return (
+              <li
+                key={`${d.kind}-${d.instrument_type}-${d.hardware_id}`}
+                data-testid={`offline-alert-item-${d.hardware_id}`}
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg ${chipBg} ring-1 ring-inset ring-red-200/30`}
+              >
+                <span
+                  className="inline-block w-1.5 h-8 rounded-sm shrink-0"
+                  style={{ backgroundColor: m.accent }}
+                  aria-hidden
+                />
+                <div className="min-w-0 flex-1">
+                  <p className={`text-[10px] uppercase tracking-widest font-semibold ${subText}`}>
+                    {m.label}
+                  </p>
+                  <p className={`text-sm font-medium truncate ${chipText}`} title={d.hardware_id}>
+                    {d.hardware_id}
+                  </p>
+                </div>
+                <span
+                  className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md ring-1 ring-red-400/40 ${idText}`}
+                >
+                  Offline
+                </span>
+              </li>
+            );
+          })}
         </ul>
       </div>
-    </div>
+    </section>
   );
 };
 
