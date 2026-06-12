@@ -39,7 +39,7 @@ const InstrumentDetail = ({ type }) => {
       setDevices(list);
       if (!selected && list.length > 0) setSelected(list[0].hardware_id);
     } catch (e) {
-      console.warn(`[InstrumentDetail:${type}] failed to fetch devices:`, e?.message || e);
+      if (process.env.NODE_ENV === 'development') console.warn(`[InstrumentDetail:${type}] failed to fetch devices:`, e?.message || e);
     }
   }, [type, selected]);
 
@@ -49,7 +49,7 @@ const InstrumentDetail = ({ type }) => {
       const { data } = await api.get(`/api/instruments/${type}/${hw}/history?limit=50`);
       setHistory((data.readings || []).slice().reverse());
     } catch (e) {
-      console.warn(`[InstrumentDetail:${type}] failed to fetch history:`, e?.message || e);
+      if (process.env.NODE_ENV === 'development') console.warn(`[InstrumentDetail:${type}] failed to fetch history:`, e?.message || e);
       setHistory([]);
     }
   }, [type]);

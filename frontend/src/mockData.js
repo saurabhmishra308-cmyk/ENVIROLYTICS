@@ -9,7 +9,8 @@ const USER_KEY = "envirolytics_user";
 function safeGet(key) {
   try {
     return localStorage.getItem(key);
-  } catch {
+  } catch (e) {
+    if (process.env.NODE_ENV === 'development') console.warn('[storage] read blocked:', e?.message);
     return null;
   }
 }
@@ -17,16 +18,16 @@ function safeGet(key) {
 function safeSet(key, val) {
   try {
     localStorage.setItem(key, val);
-  } catch {
-    // ignore
+  } catch (e) {
+    if (process.env.NODE_ENV === 'development') console.warn('[storage] write blocked:', e?.message);
   }
 }
 
 function safeRemove(key) {
   try {
     localStorage.removeItem(key);
-  } catch {
-    // ignore
+  } catch (e) {
+    if (process.env.NODE_ENV === 'development') console.warn('[storage] remove blocked:', e?.message);
   }
 }
 
