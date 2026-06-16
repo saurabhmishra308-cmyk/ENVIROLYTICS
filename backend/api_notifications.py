@@ -43,10 +43,10 @@ async def replace_emails(payload: RecipientsPayload, admin: dict = Depends(requi
 
 @router.post("/test")
 async def send_test(admin: dict = Depends(require_admin)):
-    result = await svc.send_test_email(db)
-    if not result.get("sent"):
-        raise HTTPException(status_code=400, detail=result.get("reason", "Send failed"))
-    return result
+    """Always returns 200; sent:false + reason when the provider isn't configured
+    or when the upstream send fails. Keeps the API contract consistent with
+    /api/limits/check-now and /api/renewals/run-now."""
+    return await svc.send_test_email(db)
 
 
 @router.post("/run-now")

@@ -1,5 +1,12 @@
 /* Animated environmental scene for the login page —
-   pure CSS, zero deps, GPU-accelerated (transform + opacity only). */
+   pure CSS, zero deps, GPU-accelerated (transform + opacity only).
+
+   Storyline cycle (24 seconds total):
+     0-6s   : clear sky · seedlings · clouds drift in
+     6-12s  : rain falls from the clouds, water level rises
+     12-18s : plants grow into trees (post-rain)
+     18-24s : trees mature, leaves fall, then loop
+*/
 
 .env-scene {
   position: relative;
@@ -207,7 +214,143 @@
   .env-plant,
   .env-leaf,
   .env-water-band,
-  .env-particle {
+  .env-particle,
+  .env-rain,
+  .env-tree {
     animation: none !important;
   }
+}
+
+/* =================================================== */
+/* Rainfall — drops fall from the cloud band            */
+/* Each drop runs its own falling animation, all of     */
+/* them gated by a parent "rain-cycle" opacity that     */
+/* fades in/out over the 24s storyline cycle.           */
+/* =================================================== */
+.env-rain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: env-rain-cycle 24s linear infinite;
+}
+@keyframes env-rain-cycle {
+  0%, 22%   { opacity: 0; }
+  25%       { opacity: 1; }
+  48%       { opacity: 1; }
+  52%, 100% { opacity: 0; }
+}
+.env-drop {
+  position: absolute;
+  top: 18%;
+  width: 2px;
+  height: 14px;
+  background: linear-gradient(180deg, rgba(120, 180, 230, 0.0), rgba(74, 159, 216, 0.85));
+  border-radius: 2px;
+  animation: env-drop-fall var(--dur, 1.1s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+@keyframes env-drop-fall {
+  0%   { transform: translateY(0)     scaleY(0.6); opacity: 0; }
+  10%  { opacity: 1; }
+  100% { transform: translateY(75vh)  scaleY(1);   opacity: 0; }
+}
+.env-drop.d1  { left:  6%; --dur: 1.0s; --delay: -0.2s; }
+.env-drop.d2  { left: 12%; --dur: 1.3s; --delay: -0.6s; }
+.env-drop.d3  { left: 19%; --dur: 0.9s; --delay: -0.4s; }
+.env-drop.d4  { left: 27%; --dur: 1.2s; --delay: -0.1s; }
+.env-drop.d5  { left: 33%; --dur: 1.0s; --delay: -0.8s; }
+.env-drop.d6  { left: 41%; --dur: 1.4s; --delay: -0.3s; }
+.env-drop.d7  { left: 47%; --dur: 0.95s; --delay: -0.7s; }
+.env-drop.d8  { left: 54%; --dur: 1.1s; --delay: -0.5s; }
+.env-drop.d9  { left: 62%; --dur: 1.3s; --delay: -0.2s; }
+.env-drop.d10 { left: 70%; --dur: 1.0s; --delay: -0.9s; }
+.env-drop.d11 { left: 78%; --dur: 1.2s; --delay: -0.4s; }
+.env-drop.d12 { left: 86%; --dur: 1.05s; --delay: -0.1s; }
+.env-drop.d13 { left: 92%; --dur: 1.4s; --delay: -0.6s; }
+.env-drop.d14 { left: 16%; --dur: 1.1s; --delay: -1.0s; }
+.env-drop.d15 { left: 58%; --dur: 1.25s; --delay: -0.3s; }
+
+/* =================================================== */
+/* Plant → Tree growth                                  */
+/* The .env-plant elements get a 24s growth animation:  */
+/*   0-30%  : seedling (small)                          */
+/*   30-50% : during rain                               */
+/*   50-75% : grows tall                                */
+/*   75-100%: full tree, then loops back                */
+/* The tree silhouette is layered on top and fades in.  */
+/* =================================================== */
+.env-plant {
+  animation:
+    env-plant-sway 4s ease-in-out infinite alternate,
+    env-plant-grow 24s ease-in-out infinite;
+}
+@keyframes env-plant-grow {
+  0%, 25%  { transform: scale(0.55) translateY(0) rotate(0deg); }
+  45%      { transform: scale(0.7)  translateY(0); }
+  60%      { transform: scale(0.95) translateY(0); }
+  75%, 95% { transform: scale(1)    translateY(0); }
+  100%     { transform: scale(0.55) translateY(0); }
+}
+
+/* Tree silhouette — same anchor points as plants, becomes visible 60-95% */
+.env-tree {
+  position: absolute;
+  bottom: 60px;
+  width: 110px;
+  height: 170px;
+  pointer-events: none;
+  transform-origin: bottom center;
+  opacity: 0;
+  animation:
+    env-tree-emerge 24s ease-in-out infinite,
+    env-plant-sway   6s ease-in-out infinite alternate;
+}
+.env-tree.t1 { left: 6%;   }
+.env-tree.t2 { left: 21%; transform-origin: bottom center; }
+.env-tree.t3 { right: 14%; }
+.env-tree.t4 { right: 5%;  }
+@keyframes env-tree-emerge {
+  0%, 55%   { opacity: 0; transform: scale(0.55) translateY(20px); }
+  68%       { opacity: 0.8; }
+  75%, 95%  { opacity: 1; transform: scale(1) translateY(0); }
+  100%      { opacity: 0; transform: scale(0.55) translateY(20px); }
+}
+
+/* =================================================== */
+/* Flowing water — horizontal stream effect over the    */
+/* existing wave band                                   */
+/* =================================================== */
+.env-water-flow {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  height: 30px;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 0.7;
+}
+.env-water-flow::before,
+.env-water-flow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(8px 4px at  20px 12px, rgba(255,255,255,0.7), transparent 60%),
+    radial-gradient(10px 4px at  80px 18px, rgba(255,255,255,0.55), transparent 60%),
+    radial-gradient(6px  3px at 160px 10px, rgba(255,255,255,0.65), transparent 60%),
+    radial-gradient(12px 4px at 240px 16px, rgba(255,255,255,0.5),  transparent 60%),
+    radial-gradient(8px  3px at 320px 12px, rgba(255,255,255,0.75), transparent 60%);
+  background-repeat: repeat-x;
+  background-size: 400px 30px;
+  animation: env-water-stream 12s linear infinite;
+}
+.env-water-flow::after {
+  animation-duration: 20s;
+  opacity: 0.6;
+  transform: translateY(8px);
+}
+@keyframes env-water-stream {
+  0%   { background-position-x: 0; }
+  100% { background-position-x: 400px; }
 }

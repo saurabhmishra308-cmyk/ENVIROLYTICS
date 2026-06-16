@@ -21,6 +21,24 @@ const PlantSvg = () => (
   </svg>
 );
 
+// Mature tree silhouette — emerges over the plant once rainfall ends
+const TreeSvg = () => (
+  <svg viewBox="0 0 110 170" xmlns="http://www.w3.org/2000/svg" width="110" height="170" aria-hidden>
+    {/* trunk */}
+    <path d="M50 165 L50 95 C 50 80, 45 70, 48 55 L62 55 C 65 70, 60 80, 60 95 L60 165 Z" fill="#6b4423" />
+    {/* branches */}
+    <path d="M55 100 C 35 95, 20 80, 18 65" stroke="#5d3a1f" strokeWidth="4" fill="none" strokeLinecap="round" />
+    <path d="M55 90  C 75 85, 90 70, 92 55"  stroke="#5d3a1f" strokeWidth="4" fill="none" strokeLinecap="round" />
+    {/* canopy — layered leafy blobs */}
+    <ellipse cx="55" cy="45"  rx="42" ry="32" fill="#3d7a2a" />
+    <ellipse cx="32" cy="55"  rx="22" ry="20" fill="#4f8b3f" />
+    <ellipse cx="80" cy="50"  rx="24" ry="22" fill="#5fa14a" />
+    <ellipse cx="55" cy="28"  rx="28" ry="22" fill="#6cb24a" />
+    <ellipse cx="42" cy="35"  rx="14" ry="13" fill="#7ab050" />
+    <ellipse cx="70" cy="38"  rx="13" ry="12" fill="#7ab050" />
+  </svg>
+);
+
 const Login = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
@@ -78,17 +96,35 @@ const Login = () => {
       <div className="env-particle x5" aria-hidden />
       <div className="env-particle x6" aria-hidden />
 
-      {/* Ground band: soil → grass → plants → water */}
+      {/* Rainfall — fades in/out on the 24 s storyline cycle */}
+      <div className="env-rain" aria-hidden>
+        <div className="env-drop d1" /><div className="env-drop d2" /><div className="env-drop d3" />
+        <div className="env-drop d4" /><div className="env-drop d5" /><div className="env-drop d6" />
+        <div className="env-drop d7" /><div className="env-drop d8" /><div className="env-drop d9" />
+        <div className="env-drop d10" /><div className="env-drop d11" /><div className="env-drop d12" />
+        <div className="env-drop d13" /><div className="env-drop d14" /><div className="env-drop d15" />
+      </div>
+
+      {/* Ground band: soil → grass → plants → trees → water */}
       <div className="env-soil" aria-hidden />
       <div className="env-grass" aria-hidden />
       <div className="env-plant p1" aria-hidden><PlantSvg /></div>
       <div className="env-plant p2" aria-hidden><PlantSvg /></div>
       <div className="env-plant p3" aria-hidden><PlantSvg /></div>
       <div className="env-plant p4" aria-hidden><PlantSvg /></div>
+
+      {/* Trees — emerge after the rain phase of the cycle */}
+      <div className="env-tree t1" aria-hidden><TreeSvg /></div>
+      <div className="env-tree t2" aria-hidden><TreeSvg /></div>
+      <div className="env-tree t3" aria-hidden><TreeSvg /></div>
+      <div className="env-tree t4" aria-hidden><TreeSvg /></div>
+
       <div className="env-water" aria-hidden>
         <div className="env-water-band"    />
         <div className="env-water-band w2" />
       </div>
+      {/* Horizontal flowing water on top of the wave band */}
+      <div className="env-water-flow" aria-hidden />
 
       {/* Foreground login card */}
       <div className="relative z-10 min-h-screen flex items-center justify-center px-4 py-12">

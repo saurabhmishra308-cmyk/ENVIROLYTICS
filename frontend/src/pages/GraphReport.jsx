@@ -269,7 +269,7 @@ const GraphReport = () => {
             </div>
             <div className="flex items-end text-xs text-gray-600">
               <div>
-                <p>DWLR: <Badge variant="outline">{meta.dwlr || 'n/a'}</Badge></p>
+                <div>DWLR: <Badge variant="outline">{meta.dwlr || 'n/a'}</Badge></div>
                 {meta.lat != null && (
                   <p className="mt-1 text-gray-500">
                     Site: {Number(meta.lat).toFixed(3)}, {Number(meta.lon).toFixed(3)}
