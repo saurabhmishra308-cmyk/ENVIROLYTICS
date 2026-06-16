@@ -21,9 +21,7 @@ const fmtBucket = (iso) => {
   return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, '0')}:00`;
 };
 
-// =========================================================================
-// 1. Rainfall vs DWLR Water Level
-// =========================================================================
+// ---------- Rainfall vs DWLR Water Level ----------
 const LevelVsRainfallChart = ({ dwlrId, days }) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -82,9 +80,7 @@ const LevelVsRainfallChart = ({ dwlrId, days }) => {
   );
 };
 
-// =========================================================================
-// 2. Flow vs DWLR Water Level
-// =========================================================================
+// ---------- Flow vs DWLR Water Level ----------
 const FlowVsLevelChart = ({ flowmeterId, days, dwlrId }) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -144,9 +140,7 @@ const FlowVsLevelChart = ({ flowmeterId, days, dwlrId }) => {
   );
 };
 
-// =========================================================================
-// 3. All-borewells consumption + grand total (downloadable report, not a graph)
-// =========================================================================
+// ---------- All-borewells consumption (downloadable report) ----------
 const AllBorewellsReport = ({ days }) => {
   const [data, setData] = useState({ borewells: [], grand_total_kl: 0 });
   const [loading, setLoading] = useState(false);
@@ -266,9 +260,7 @@ const AllBorewellsReport = ({ days }) => {
   );
 };
 
-// =========================================================================
-// Main panel — two graphs + downloadable consumption report + limits
-// =========================================================================
+// ---------- Main panel ----------
 const ReportsCharts = () => {
   const [flowmeterIds, setFlowmeterIds] = useState([]);
   const [dwlrIds, setDwlrIds] = useState([]);
@@ -315,7 +307,7 @@ const ReportsCharts = () => {
             <Activity className="h-5 w-5 text-cyan-600" /> Graph &amp; Combined Reports
           </CardTitle>
           <CardDescription>
-            Two graphs only: rainfall ↔ water level, and flow ↔ water level. Pick a borewell + DWLR + range.
+            Two graphs: rainfall ↔ water level, and flow ↔ water level. Pick a borewell + DWLR + range.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

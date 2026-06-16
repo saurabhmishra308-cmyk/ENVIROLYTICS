@@ -245,7 +245,7 @@ const Reports = () => {
           <TabsTrigger value="ph" data-testid="reports-tab-ph">pH</TabsTrigger>
           <TabsTrigger value="tds" data-testid="reports-tab-tds">TDS</TabsTrigger>
           <TabsTrigger value="conductivity" data-testid="reports-tab-conductivity">Conductivity</TabsTrigger>
-          <TabsTrigger value="charts" data-testid="reports-tab-charts">Graphs & Combined</TabsTrigger>
+          <TabsTrigger value="charts" data-testid="reports-tab-charts">Graphs &amp; Combined</TabsTrigger>
         </TabsList>
 
         <TabsContent value="charts" className="mt-4">
