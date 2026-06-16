@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
-  LineChart, Line, BarChart, Bar, ComposedChart,
+  Line, Bar, ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -8,16 +8,21 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
-import { Activity, Download, Droplets, CloudRain, TrendingUp } from 'lucide-react';
+import { Activity, Download, Droplets, CloudRain, GaugeCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import api, { formatApiError } from '../lib/api';
 import { getToken, getCurrentUser } from '../mockData';
 import LimitsCard from './LimitsCard';
 
 const AXIS_TICK = { fontSize: 11 };
+const fmtBucket = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, '0')}:00`;
+};
 
 // =========================================================================
-// 1. Rainfall vs Water Level (DWLR)
+// 1. Rainfall vs DWLR Water Level
 // =========================================================================
 const LevelVsRainfallChart = ({ dwlrId, days }) => {
   const [data, setData] = useState([]);
@@ -31,7 +36,7 @@ const LevelVsRainfallChart = ({ dwlrId, days }) => {
       if (dwlrId) params.append('hardware_id', dwlrId);
       const { data: d } = await api.get(`/api/reports/level-vs-rainfall?${params.toString()}`);
       setData(d.series || []);
-      setMeta({ dwlr_id: d.dwlr_id, lat: d.latitude, lon: d.longitude });
+      setMeta({ dwlr_id: d.dwlr_id });
     } catch (e) {
       toast.error(formatApiError(e?.response?.data?.detail) || 'Failed to load rainfall chart');
     } finally {
@@ -78,92 +83,69 @@ const LevelVsRainfallChart = ({ dwlrId, days }) => {
 };
 
 // =========================================================================
-// 2. Rainfall Impact — combined rainfall + ground-water abstraction + level
+// 2. Flow vs DWLR Water Level
 // =========================================================================
-const correlationLabel = (r) => {
-  if (r == null) return { text: 'n/a', color: 'bg-gray-400' };
-  if (r >= 0.6)   return { text: `${r}  ·  strong positive (recharge effective)`,   color: 'bg-emerald-600' };
-  if (r >= 0.3)   return { text: `${r}  ·  moderate positive`,                       color: 'bg-emerald-500' };
-  if (r > -0.3)   return { text: `${r}  ·  weak / no clear link`,                    color: 'bg-amber-500'   };
-  if (r > -0.6)   return { text: `${r}  ·  moderate negative (over-abstraction?)`,   color: 'bg-orange-500'  };
-  return            { text: `${r}  ·  strong negative (heavy over-abstraction)`,     color: 'bg-red-600'     };
-};
-
-const RainfallImpactChart = ({ days, dwlrId }) => {
+const FlowVsLevelChart = ({ flowmeterId, days, dwlrId }) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [meta, setMeta] = useState({});
+  const [meta, setMeta] = useState({ dwlr_id: dwlrId });
 
   const fetchData = useCallback(async () => {
+    if (!flowmeterId) return;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ days: String(days) });
+      const params = new URLSearchParams({ hardware_id: flowmeterId, days: String(days) });
       if (dwlrId) params.append('dwlr_id', dwlrId);
-      const { data: d } = await api.get(`/api/reports/rainfall-impact?${params.toString()}`);
-      setData(d.series || []);
-      setMeta({ dwlr_id: d.dwlr_id, corr: d.rainfall_level_correlation });
+      const { data: d } = await api.get(`/api/reports/flow-vs-level?${params.toString()}`);
+      const series = (d.series || []).map((s) => ({ ...s, bucket: fmtBucket(s.bucket) }));
+      setData(series);
+      setMeta({ dwlr_id: d.dwlr_id });
     } catch (e) {
-      toast.error(formatApiError(e?.response?.data?.detail) || 'Failed to load impact chart');
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Failed to load flow chart');
     } finally {
       setLoading(false);
     }
-  }, [dwlrId, days]);
+  }, [flowmeterId, days, dwlrId]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const corr = correlationLabel(meta.corr);
-
   return (
-    <Card data-testid="rainfall-impact-card">
+    <Card data-testid="flow-vs-level-card">
       <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-cyan-600" /> Impact of Rainfall on Groundwater
-            </CardTitle>
-            <CardDescription>
-              How daily rainfall (mm) compares against total groundwater abstraction (KL across every
-              borewell) and the resulting average DWLR water level (m) · last {days} days · DWLR
-              <Badge variant="outline" className="ml-1">{meta.dwlr_id || 'n/a'}</Badge>
-            </CardDescription>
-          </div>
-          <div className="text-right shrink-0">
-            <p className="text-[10px] uppercase tracking-widest text-gray-500">Rainfall ↔ Level</p>
-            <Badge className={`mt-1 ${corr.color}`} data-testid="rainfall-impact-correlation">{corr.text}</Badge>
-          </div>
-        </div>
+        <CardTitle className="flex items-center gap-2">
+          <GaugeCircle className="h-5 w-5 text-cyan-600" /> Flow vs Water Level
+        </CardTitle>
+        <CardDescription>
+          Borewell flow rate (m³/hr) overlaid with the DWLR water level (m) — shows how the abstraction
+          drags the water table · last {days} days · DWLR <Badge variant="outline">{meta.dwlr_id || 'n/a'}</Badge>
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {loading && <p className="text-sm text-gray-500">Loading…</p>}
-        {!loading && data.length === 0 && <p className="text-sm text-gray-500 italic">No data yet.</p>}
+        {!loading && data.length === 0 && <p className="text-sm text-gray-500 italic">No data for the selected range yet.</p>}
         {data.length > 0 && (
-          <div style={{ width: '100%', height: 360 }} data-testid="rainfall-impact-chart">
+          <div style={{ width: '100%', height: 320 }} data-testid="flow-vs-level-chart">
             <ResponsiveContainer>
               <ComposedChart data={data}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={AXIS_TICK} angle={-30} textAnchor="end" height={60} />
-                <YAxis yAxisId="rain"  orientation="left"  tick={AXIS_TICK} label={{ value: 'Rainfall (mm) / Abstraction (KL)', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }} />
-                <YAxis yAxisId="level" orientation="right" tick={AXIS_TICK} label={{ value: 'Level (m)', angle: 90, position: 'insideRight', style: { fontSize: 11 } }} />
+                <XAxis dataKey="bucket" tick={AXIS_TICK} />
+                <YAxis yAxisId="flow"  orientation="left"  tick={AXIS_TICK} label={{ value: 'Flow (m³/hr)', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }} />
+                <YAxis yAxisId="level" orientation="right" tick={AXIS_TICK} label={{ value: 'Level (m)',     angle:  90, position: 'insideRight', style: { fontSize: 11 } }} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar  yAxisId="rain"  dataKey="rainfall_mm"    fill="#6366f1" name="Rainfall (mm)" />
-                <Bar  yAxisId="rain"  dataKey="abstraction_kl" fill="#4a9fd8" name="Abstraction (KL)" />
-                <Line yAxisId="level" type="monotone" dataKey="level_m" stroke="#27ae60" strokeWidth={2.5} dot={false} name="Water Level (m)" />
+                <Line yAxisId="flow"  type="monotone" dataKey="flow_m3h" stroke="#4a9fd8" strokeWidth={2} dot={false} name="Flow (m³/hr)" />
+                <Line yAxisId="level" type="monotone" dataKey="level_m"  stroke="#27ae60" strokeWidth={2} dot={false} name="Water Level (m)" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         )}
-        <p className="text-[11px] text-gray-500 mt-2">
-          A <strong>positive</strong> correlation means water levels rise when it rains (recharge is working).
-          A <strong>negative</strong> correlation typically signals over-abstraction outpacing rainfall recharge.
-        </p>
       </CardContent>
     </Card>
   );
 };
 
 // =========================================================================
-// 3. All-borewells consumption + grand total (downloadable report)
+// 3. All-borewells consumption + grand total (downloadable report, not a graph)
 // =========================================================================
 const AllBorewellsReport = ({ days }) => {
   const [data, setData] = useState({ borewells: [], grand_total_kl: 0 });
@@ -285,16 +267,18 @@ const AllBorewellsReport = ({ days }) => {
 };
 
 // =========================================================================
-// Main "Correlated Reports" panel — what gets rendered inside the Reports page
+// Main panel — two graphs + downloadable consumption report + limits
 // =========================================================================
 const ReportsCharts = () => {
+  const [flowmeterIds, setFlowmeterIds] = useState([]);
   const [dwlrIds, setDwlrIds] = useState([]);
+  const [selectedFm, setSelectedFm] = useState('');
   const [selectedDwlr, setSelectedDwlr] = useState('');
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(7);
 
   const [enabled, setEnabled] = useState({
     rainfallVsLevel: true,
-    rainfallImpact:  true,
+    flowVsLevel:     true,
     allBorewells:    true,
   });
 
@@ -302,10 +286,16 @@ const ReportsCharts = () => {
     let cancelled = false;
     (async () => {
       try {
-        const { data: dw } = await api.get('/api/instruments/dwlr/latest');
+        const [fm, dw] = await Promise.all([
+          api.get('/api/flowmeter/latest'),
+          api.get('/api/instruments/dwlr/latest'),
+        ]);
         if (cancelled) return;
-        const dws = (dw?.readings || []).map((r) => r.hardware_id).filter(Boolean);
+        const fms = (fm.data?.flowmeters || []).map((r) => r.hardware_id).filter(Boolean);
+        const dws = (dw.data?.readings || []).map((r) => r.hardware_id).filter(Boolean);
+        setFlowmeterIds(fms);
         setDwlrIds(dws);
+        if (fms.length) setSelectedFm(fms[0]);
         if (dws.length) setSelectedDwlr(dws[0]);
       } catch (e) {
         if (process.env.NODE_ENV === 'development') console.warn('[reports-bootstrap]', e?.message);
@@ -315,7 +305,6 @@ const ReportsCharts = () => {
   }, []);
 
   const toggle = (k) => setEnabled((s) => ({ ...s, [k]: !s[k] }));
-
   const canManageLimits = !!(getCurrentUser()?.role === 'admin' || getCurrentUser()?.permissions?.limits);
 
   return (
@@ -326,11 +315,23 @@ const ReportsCharts = () => {
             <Activity className="h-5 w-5 text-cyan-600" /> Graph &amp; Combined Reports
           </CardTitle>
           <CardDescription>
-            Pick a DWLR and range, then toggle the sections you want to see.
+            Two graphs only: rainfall ↔ water level, and flow ↔ water level. Pick a borewell + DWLR + range.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div>
+              <Label className="text-xs">Borewell (flowmeter)</Label>
+              <select
+                data-testid="reports-fm-select"
+                className="w-full border rounded-md px-2 py-2 text-sm bg-white dark:bg-gray-800"
+                value={selectedFm}
+                onChange={(e) => setSelectedFm(e.target.value)}
+              >
+                <option value="">— select —</option>
+                {flowmeterIds.map((id) => <option key={id} value={id}>{id}</option>)}
+              </select>
+            </div>
             <div>
               <Label className="text-xs">DWLR (water level)</Label>
               <select
@@ -346,9 +347,9 @@ const ReportsCharts = () => {
             <div>
               <Label className="text-xs">Range (days)</Label>
               <Input
-                type="number" min={2} max={180}
+                type="number" min={1} max={90}
                 value={days}
-                onChange={(e) => setDays(Math.max(2, Math.min(180, Number(e.target.value) || 30)))}
+                onChange={(e) => setDays(Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
                 data-testid="reports-days-input"
               />
             </div>
@@ -356,9 +357,9 @@ const ReportsCharts = () => {
               <Label className="text-xs">Show</Label>
               <div className="flex flex-wrap gap-3 text-xs mt-2">
                 {[
-                  { k: 'rainfallVsLevel', label: 'Rainfall vs Level' },
-                  { k: 'rainfallImpact',  label: 'Rainfall Impact'   },
-                  { k: 'allBorewells',    label: 'All Borewells'     },
+                  { k: 'rainfallVsLevel', label: 'Rainfall + Level' },
+                  { k: 'flowVsLevel',     label: 'Flow + Level'     },
+                  { k: 'allBorewells',    label: 'All Borewells'    },
                 ].map(({ k, label }) => (
                   <label key={k} className="inline-flex items-center gap-1 cursor-pointer">
                     <input
@@ -376,8 +377,8 @@ const ReportsCharts = () => {
         </CardContent>
       </Card>
 
-      {enabled.rainfallVsLevel && <LevelVsRainfallChart dwlrId={selectedDwlr} days={days} />}
-      {enabled.rainfallImpact  && <RainfallImpactChart  dwlrId={selectedDwlr} days={days} />}
+      {enabled.rainfallVsLevel && <LevelVsRainfallChart dwlrId={selectedDwlr} days={days * 2} />}
+      {enabled.flowVsLevel     && <FlowVsLevelChart     flowmeterId={selectedFm} dwlrId={selectedDwlr} days={days} />}
       {enabled.allBorewells    && <AllBorewellsReport   days={days} />}
 
       <LimitsCard canManage={canManageLimits} />
