@@ -975,3 +975,318 @@ class TestAuditLog:
         dwlr = [e for e in edits if e["reading_id"] == audit_seed["dw_rid"]]
         assert len(dwlr) == 1
         assert dwlr[0]["source"] == "dwlr"
+
+
+# ============================
+# Iteration 5 — Reports (flow-vs-level, level-vs-rainfall, borewell-consumption, hourly-pumping-vs-level)
+# ============================
+class TestReports:
+    def test_flow_vs_level_requires_auth(self, session):
+        r = session.get(f"{API}/reports/flow-vs-level?hardware_id=FM_GW_001&days=7")
+        assert r.status_code in (401, 403)
+
+    def test_flow_vs_level_shape(self, session, admin_headers):
+        r = session.get(f"{API}/reports/flow-vs-level?hardware_id=FM_GW_001&days=7", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "series" in body
+        assert "dwlr_id" in body
+        # When data exists, each row should have flow_m3h and level_m keys
+        for row in body["series"][:3]:
+            assert "flow_m3h" in row
+            assert "level_m" in row
+
+    def test_level_vs_rainfall_shape(self, session, admin_headers):
+        r = session.get(f"{API}/reports/level-vs-rainfall?days=14", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "series" in body
+        if body["series"]:
+            row = body["series"][0]
+            assert "level_m" in row
+            assert "rainfall_mm" in row
+
+    def test_borewell_consumption_json(self, session, admin_headers):
+        r = session.get(f"{API}/reports/borewell-consumption", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "borewells" in body
+        assert "grand_total_kl" in body
+        assert isinstance(body["borewells"], list)
+        assert isinstance(body["grand_total_kl"], (int, float))
+
+    def test_borewell_consumption_csv(self, session, admin_headers):
+        r = session.get(f"{API}/reports/borewell-consumption?format=csv", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        assert "text/csv" in r.headers.get("content-type", "")
+        assert "attachment" in r.headers.get("content-disposition", "").lower()
+        text = r.text
+        assert "GRAND TOTAL" in text.upper()
+
+    def test_hourly_pumping_vs_level(self, session, admin_headers):
+        r = session.get(f"{API}/reports/hourly-pumping-vs-level?hardware_id=FM_GW_001&hours=24",
+                        headers=admin_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        # Expect 24 hourly buckets in some array key
+        # Find an array of length 24
+        found = None
+        for k, v in body.items():
+            if isinstance(v, list) and len(v) == 24:
+                found = v
+                break
+        assert found is not None, f"Expected 24 buckets, got {body}"
+
+
+# ============================
+# Iteration 5 — Weather waterbody
+# ============================
+class TestWeatherWaterbody:
+    def test_waterbody_requires_auth(self, session):
+        r = session.get(f"{API}/weather/waterbody")
+        assert r.status_code in (401, 403)
+
+    def test_waterbody_admin_profile_lucknow(self, session, admin_headers):
+        r = session.get(f"{API}/weather/waterbody", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body.get("available") is True
+        assert "name" in body and body["name"]
+        # Lucknow (26.84, 80.94) → nearest waterbody should be Gomti River
+        assert "Gomti" in body.get("name", "") or "gomti" in body.get("name", "").lower()
+        assert "cardinal" in body
+        assert "distance_km" in body
+
+    def test_waterbody_explicit_coords(self, session, admin_headers):
+        # Mumbai → should be Arabian Sea or similar
+        r = session.get(f"{API}/weather/waterbody?lat=19.076&lon=72.877", headers=admin_headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert body.get("available") is True
+        assert "distance_km" in body
+
+
+# ============================
+# Iteration 5 — Sub-users (CRUD with permissions)
+# ============================
+class TestSubUsers:
+    @pytest.fixture(scope="class")
+    def created_subuser(self, admin_token):
+        s = requests.Session()
+        hdr = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+        email = f"TEST_sub_{uuid.uuid4().hex[:6]}@envirolytics.com"
+        payload = {
+            "email": email,
+            "password": "SubPass1234",
+            "full_name": "Test Sub",
+            "permissions": {"dashboard": True, "reports": True, "analysis": False,
+                            "certificates": False, "audit": False, "limits": False},
+        }
+        r = s.post(f"{API}/users/subusers", headers=hdr, json=payload)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        yield {"id": body["id"], "email": email, "password": "SubPass1234", "hdr": hdr}
+        # cleanup
+        requests.delete(f"{API}/users/subusers/{body['id']}", headers=hdr)
+        # also remove via admin endpoint just in case
+        requests.delete(f"{API}/admin/users/{body['id']}", headers=hdr)
+
+    def test_create_returns_normalised_permissions(self, created_subuser):
+        # Verify the created sub-user has the right permission flags
+        r = requests.get(f"{API}/users/subusers", headers=created_subuser["hdr"])
+        assert r.status_code == 200
+        users = r.json()["users"]
+        match = [u for u in users if u["id"] == created_subuser["id"]]
+        assert len(match) == 1
+        u = match[0]
+        assert u["permissions"]["dashboard"] is True
+        assert u["permissions"]["reports"] is True
+        assert u["permissions"]["analysis"] is False
+        assert u["permissions"]["limits"] is False
+
+    def test_create_short_password_rejected(self, admin_token):
+        hdr = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+        email = f"TEST_subshort_{uuid.uuid4().hex[:6]}@envirolytics.com"
+        r = requests.post(f"{API}/users/subusers", headers=hdr,
+                          json={"email": email, "password": "short", "full_name": "X",
+                                "permissions": {}})
+        assert r.status_code in (400, 422)
+
+    def test_create_duplicate_email_rejected(self, created_subuser):
+        r = requests.post(f"{API}/users/subusers", headers=created_subuser["hdr"], json={
+            "email": created_subuser["email"], "password": "Another1234", "full_name": "Dup",
+            "permissions": {},
+        })
+        assert r.status_code in (400, 409)
+
+    def test_list_requires_admin(self, session):
+        r = session.get(f"{API}/users/subusers")
+        assert r.status_code in (401, 403)
+
+    def test_update_permissions(self, created_subuser):
+        r = requests.put(f"{API}/users/subusers/{created_subuser['id']}",
+                         headers=created_subuser["hdr"],
+                         json={"permissions": {"dashboard": True, "reports": True,
+                                               "analysis": True, "certificates": False,
+                                               "audit": False, "limits": True}})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["permissions"]["analysis"] is True
+        assert body["permissions"]["limits"] is True
+        # Verify via list
+        rl = requests.get(f"{API}/users/subusers", headers=created_subuser["hdr"])
+        u = [x for x in rl.json()["users"] if x["id"] == created_subuser["id"]][0]
+        assert u["permissions"]["analysis"] is True
+
+    def test_subuser_can_login(self, created_subuser):
+        r = requests.post(f"{API}/auth/login", json={
+            "email": created_subuser["email"], "password": created_subuser["password"]
+        })
+        assert r.status_code == 200, r.text
+
+    def test_toggle_active_then_login_blocked(self, created_subuser):
+        r = requests.put(f"{API}/users/subusers/{created_subuser['id']}",
+                         headers=created_subuser["hdr"], json={"is_active": False})
+        assert r.status_code == 200
+        # Login should fail when inactive
+        login = requests.post(f"{API}/auth/login", json={
+            "email": created_subuser["email"], "password": created_subuser["password"]
+        })
+        assert login.status_code in (401, 403)
+        # restore
+        requests.put(f"{API}/users/subusers/{created_subuser['id']}",
+                     headers=created_subuser["hdr"], json={"is_active": True})
+
+
+# ============================
+# Iteration 5 — Limits CRUD + check-now
+# ============================
+class TestLimits:
+    @pytest.fixture(scope="class")
+    def created_limit(self, admin_token):
+        s = requests.Session()
+        hdr = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+        hw = f"TEST_LIM_{uuid.uuid4().hex[:6]}"
+        payload = {
+            "hardware_id": hw,
+            "label": "Test STP Limit",
+            "monthly_limit_kl": 50,
+            "customer_email": "test@example.com",
+            "is_active": True,
+        }
+        r = s.post(f"{API}/limits", headers=hdr, json=payload)
+        assert r.status_code == 200, r.text
+        yield {"hw": hw, "hdr": hdr}
+        requests.delete(f"{API}/limits/{hw}", headers=hdr)
+
+    def test_list_requires_auth(self, session):
+        r = session.get(f"{API}/limits")
+        assert r.status_code in (401, 403)
+
+    def test_list_contains_created(self, created_limit):
+        r = requests.get(f"{API}/limits", headers=created_limit["hdr"])
+        assert r.status_code == 200
+        items = r.json()["limits"]
+        match = [i for i in items if i["hardware_id"] == created_limit["hw"]]
+        assert len(match) == 1
+        assert match[0]["label"] == "Test STP Limit"
+        assert match[0]["monthly_limit_kl"] == 50.0
+        assert "consumption_kl_this_month" in match[0]
+        assert "exceeded" in match[0]
+
+    def test_update_limit(self, created_limit):
+        r = requests.put(f"{API}/limits/{created_limit['hw']}",
+                         headers=created_limit["hdr"],
+                         json={"monthly_limit_kl": 75})
+        assert r.status_code == 200, r.text
+        assert r.json()["monthly_limit_kl"] == 75.0
+
+    def test_create_duplicate_rejected(self, created_limit):
+        r = requests.post(f"{API}/limits", headers=created_limit["hdr"], json={
+            "hardware_id": created_limit["hw"], "label": "Dup",
+            "monthly_limit_kl": 10, "customer_email": "x@y.com"
+        })
+        assert r.status_code in (400, 409)
+
+    def test_check_now_no_resend_key(self, created_limit):
+        # RESEND_API_KEY is intentionally empty → sent should be 0
+        r = requests.post(f"{API}/limits/check-now", headers=created_limit["hdr"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "checked" in body
+        assert "sent" in body
+        assert body["sent"] == 0
+
+    def test_delete_limit(self, admin_token):
+        hdr = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+        hw = f"TEST_LIM_DEL_{uuid.uuid4().hex[:6]}"
+        requests.post(f"{API}/limits", headers=hdr, json={
+            "hardware_id": hw, "label": "Del Me",
+            "monthly_limit_kl": 10, "customer_email": "x@y.com"
+        })
+        r = requests.delete(f"{API}/limits/{hw}", headers=hdr)
+        assert r.status_code == 200
+        # Idempotent: second delete returns 404
+        r2 = requests.delete(f"{API}/limits/{hw}", headers=hdr)
+        assert r2.status_code == 404
+
+
+# ============================
+# Iteration 5 — Renewals
+# ============================
+class TestRenewals:
+    def test_list_requires_admin(self, session):
+        r = session.get(f"{API}/renewals")
+        assert r.status_code in (401, 403)
+
+    def test_list_renewals_shape(self, session, admin_headers):
+        r = session.get(f"{API}/renewals", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "users" in body
+        assert "reminder_window_days" in body
+        for u in body["users"][:3]:
+            assert "id" in u
+            assert "service_term_years" in u
+            assert "status" in u
+            assert u["status"] in ("active", "expiring", "expired", "unknown")
+
+    def test_update_term_to_expiring(self, session, admin_headers, test_user):
+        # Set term to 0.1 years (~36 days) → should be 'expiring'
+        r = session.put(f"{API}/renewals/{test_user['id']}", headers=admin_headers,
+                        json={"service_term_years": 0.1})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["service_term_years"] == 0.1
+        # status should now be 'expiring' (since 0.1y from creation ≈ 36 days)
+        assert body["status"] in ("expiring", "expired")
+
+    def test_update_invalid_date(self, session, admin_headers, test_user):
+        r = session.put(f"{API}/renewals/{test_user['id']}", headers=admin_headers,
+                        json={"service_expiry_date": "not-a-date"})
+        assert r.status_code == 400
+
+    def test_run_now(self, session, admin_headers):
+        r = session.post(f"{API}/renewals/run-now", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "checked" in body and "due" in body and "sent" in body
+        # No RESEND key → sent should be 0
+        assert body["sent"] == 0
+
+
+# ============================
+# Iteration 5 — Permission normalisation in login payload
+# ============================
+class TestLoginPermissions:
+    def test_admin_login_has_permissions_field(self, session):
+        r = session.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        assert r.status_code == 200
+        u = r.json()["user"]
+        # Admin should have a permissions key with all True (implicit)
+        perms = u.get("permissions") or {}
+        # All known permission keys should be present
+        for k in ("dashboard", "reports", "analysis", "certificates", "audit", "limits"):
+            assert k in perms, f"missing permission {k} in admin login payload"
+            assert perms[k] is True
+

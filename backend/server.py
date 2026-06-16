@@ -37,6 +37,15 @@ from api_notifications import router as notifications_router
 import api_notifications
 import notification_service
 import field_simulator
+from api_reports import router as reports_router
+import api_reports
+from api_subusers import router as subusers_router
+import api_subusers
+from api_weather import router as weather_router
+from api_limits import router as limits_router
+import api_limits
+from api_renewals import router as renewals_router
+import api_renewals
 import auth as auth_module
 
 
@@ -57,6 +66,10 @@ api_flowmeter_mgmt.set_db(db)
 api_audit.set_db(db)
 api_alerts.set_db(db)
 api_notifications.set_db(db)
+api_reports.set_db(db)
+api_subusers.set_db(db)
+api_limits.set_db(db)
+api_renewals.set_db(db)
 auth_module.set_db(db)
 
 # Create the main app
@@ -112,6 +125,11 @@ app.include_router(flowmeter_mgmt_router)
 app.include_router(audit_router)
 app.include_router(alerts_router)
 app.include_router(notifications_router)
+app.include_router(reports_router)
+app.include_router(subusers_router)
+app.include_router(weather_router)
+app.include_router(limits_router)
+app.include_router(renewals_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -141,6 +159,10 @@ async def startup_event():
     app.state.notify_task = asyncio.create_task(notification_service.background_loop(db))
     # Optional live field-data simulator (env-gated)
     app.state.simulator_task = asyncio.create_task(field_simulator.background_loop(mqtt_service))
+    # Background loop for abstract-limit checks
+    app.state.limits_task = asyncio.create_task(api_limits.background_loop())
+    # Background loop for service-renewal reminders
+    app.state.renewals_task = asyncio.create_task(api_renewals.background_loop())
     logger.info("Startup complete")
 
 
@@ -153,5 +175,11 @@ async def shutdown_db_client():
     sim = getattr(app.state, "simulator_task", None)
     if sim:
         sim.cancel()
+    lim = getattr(app.state, "limits_task", None)
+    if lim:
+        lim.cancel()
+    ren = getattr(app.state, "renewals_task", None)
+    if ren:
+        ren.cancel()
     client.close()
     logger.info("Services shut down")

@@ -77,6 +77,15 @@ async def get_current_user(request: Request) -> Dict:
         raise HTTPException(status_code=401, detail="User not found")
     user.pop("password_hash", None)
     user.pop("_id", None)
+    # Normalise permissions so the frontend always sees a complete map.
+    perms = user.get("permissions") or {}
+    user["permissions"] = {
+        k: bool(perms.get(k, False))
+        for k in ("dashboard", "reports", "analysis", "certificates", "audit", "limits")
+    }
+    # Admins implicitly have everything.
+    if user.get("role") == "admin":
+        user["permissions"] = {k: True for k in user["permissions"]}
     return user
 
 

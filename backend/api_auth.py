@@ -122,6 +122,13 @@ async def login(req: LoginRequest, request: Request):
     token = create_access_token(
         user_id=user["id"], email=user["email"], role=user.get("role", "client")
     )
+    perms = user.get("permissions") or {}
+    permissions = {
+        k: bool(perms.get(k, False))
+        for k in ("dashboard", "reports", "analysis", "certificates", "audit", "limits")
+    }
+    if user.get("role") == "admin":
+        permissions = {k: True for k in permissions}
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -130,6 +137,7 @@ async def login(req: LoginRequest, request: Request):
             "email": user["email"],
             "full_name": user.get("full_name", ""),
             "role": user.get("role", "client"),
+            "permissions": permissions,
         },
     }
 

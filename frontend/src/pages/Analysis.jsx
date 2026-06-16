@@ -4,6 +4,7 @@ import { Badge } from '../components/ui/badge';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Droplets, TrendingUp, Activity } from 'lucide-react';
 import api from '../lib/api';
+import HourlyPumpingLevelChart from '../components/HourlyPumpingLevelChart';
 
 // Module-level constants — avoid creating new objects on every render
 const AXIS_TICK = { fontSize: 11 };
@@ -75,6 +76,8 @@ const Analysis = () => {
         <h1 className="text-3xl font-bold text-gray-900">Data Analysis</h1>
         <p className="text-gray-600 mt-1">Flowmeter (ground water abstraction) and DWLR (water level) analytics only.</p>
       </div>
+
+      <HourlyPumpingLevelChart />
 
       {/* === Flowmeter Analysis === */}
       <Card className="border-t-4" style={{ borderTopColor: '#4a9fd8' }}>

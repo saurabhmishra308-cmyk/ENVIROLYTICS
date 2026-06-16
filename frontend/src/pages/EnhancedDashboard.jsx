@@ -207,10 +207,66 @@ const EnhancedDashboard = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-6">
-        <div>
-          <h2 className={`text-3xl font-bold mb-2 ${text}`}>Dashboard — Envirolytics Monitor</h2>
-          <p className={muted}>Real-time environmental monitoring driven by IoT devices</p>
-        </div>
+        {/* Hero / executive summary — government-grade presentation */}
+        <section
+          className={`relative overflow-hidden rounded-2xl border ${
+            isDarkMode ? 'border-gray-700 bg-gradient-to-br from-[#1a2332] via-[#1e3a5f] to-[#1a2332]'
+                       : 'border-blue-100 bg-gradient-to-br from-white via-blue-50 to-cyan-50'
+          }`}
+          data-testid="dashboard-hero"
+        >
+          {/* faint grid texture */}
+          <div
+            aria-hidden
+            className="absolute inset-0 opacity-[0.06] pointer-events-none"
+            style={{
+              backgroundImage:
+                'linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px)',
+              backgroundSize: '40px 40px',
+            }}
+          />
+          <div className="relative p-6 md:p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div className="space-y-1">
+              <p className={`text-[10px] tracking-[0.28em] font-semibold ${
+                isDarkMode ? 'text-cyan-300' : 'text-cyan-700'
+              }`}>
+                CENTRAL GROUND WATER AUTHORITY · STATE POLLUTION CONTROL BOARD COMPLIANT
+              </p>
+              <h2 className={`text-2xl md:text-3xl lg:text-4xl font-bold leading-tight ${text}`}>
+                Envirolytics Monitoring Console
+              </h2>
+              <p className={`text-sm ${muted}`}>
+                Real-time IoT telemetry for groundwater abstraction, STP discharge, water quality &amp; rainfall recharge.
+              </p>
+              <p className={`text-xs ${muted}`}>
+                Logged in as <span className="font-semibold">{user.fullName}</span> ·
+                {' '}{new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:min-w-[480px]">
+              <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-flowmeters">
+                <p className={`text-[10px] uppercase tracking-widest ${muted}`}>Flowmeters</p>
+                <p className={`text-2xl font-bold ${text}`}>{aggList.length}</p>
+              </div>
+              <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-dwlr">
+                <p className={`text-[10px] uppercase tracking-widest ${muted}`}>DWLRs</p>
+                <p className={`text-2xl font-bold ${text}`}>{byType.dwlr.length}</p>
+              </div>
+              <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-mqtt">
+                <p className={`text-[10px] uppercase tracking-widest ${muted}`}>Stream</p>
+                <p className={`text-2xl font-bold ${mqttStatus.connected ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {mqttStatus.connected ? 'LIVE' : 'OFFLINE'}
+                </p>
+              </div>
+              <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-time">
+                <p className={`text-[10px] uppercase tracking-widest ${muted}`}>Server time</p>
+                <p className={`text-2xl font-bold ${text}`}>
+                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <WeatherCard weather={weather} loading={loadingWeather} isDarkMode={isDarkMode} getWaterFlowDirection={() => '—'} />
 

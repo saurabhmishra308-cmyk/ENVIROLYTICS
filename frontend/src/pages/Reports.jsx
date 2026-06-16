@@ -12,6 +12,7 @@ import { Download, FileSpreadsheet, FileText, Upload, Loader2, RefreshCw, Calend
 import api, { formatApiError } from '../lib/api';
 import { isAdmin, getToken } from '../mockData';
 import { toast } from 'sonner';
+import ReportsCharts from '../components/ReportsCharts';
 
 const formatDate = (d) => (d ? d.toISOString().split('T')[0] : '');
 const fmt = (n, d = 2) => (n == null || isNaN(n) ? '—' : Number(n).toFixed(d));
@@ -240,9 +241,14 @@ const Reports = () => {
           <TabsTrigger value="ph" data-testid="reports-tab-ph">pH</TabsTrigger>
           <TabsTrigger value="tds" data-testid="reports-tab-tds">TDS</TabsTrigger>
           <TabsTrigger value="conductivity" data-testid="reports-tab-conductivity">Conductivity</TabsTrigger>
+          <TabsTrigger value="charts" data-testid="reports-tab-charts">Graphs & Combined</TabsTrigger>
         </TabsList>
 
-        <TabsContent value={section} className="mt-4">
+        <TabsContent value="charts" className="mt-4">
+          <ReportsCharts />
+        </TabsContent>
+
+        <TabsContent value={section === 'charts' ? '__hide__' : section} className="mt-4">
           <Card>
             <CardHeader>
               <CardTitle>Filters</CardTitle>

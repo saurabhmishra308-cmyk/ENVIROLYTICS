@@ -9,6 +9,8 @@ import { Users as UsersIcon, UserPlus, Shield, KeyRound, Power, Trash2 } from 'l
 import api, { formatApiError } from '../lib/api';
 import { isAdmin, getCurrentUser } from '../mockData';
 import { toast } from 'sonner';
+import SubUserCard from '../components/SubUserCard';
+import RenewalsCard from '../components/RenewalsCard';
 
 const UserPage = () => {
   const [users, setUsers] = useState([]);
@@ -272,6 +274,10 @@ const UserPage = () => {
           )}
         </CardContent>
       </Card>
+
+      <SubUserCard />
+
+      <RenewalsCard />
 
       {/* Create User Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

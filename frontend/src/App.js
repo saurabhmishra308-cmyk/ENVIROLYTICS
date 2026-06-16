@@ -1,5 +1,5 @@
 import "./App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Login from "./pages/Login";
 import Policies from "./pages/Policies";
@@ -16,6 +16,7 @@ import Certificates from "./pages/Certificates";
 import AuditLog from "./pages/AuditLog";
 import Sidebar from "./components/Sidebar";
 import { Toaster } from "./components/ui/sonner";
+import { getCurrentUser, isAuthenticated } from "./mockData";
 
 const DashboardLayout = ({ children }) => (
   <div className="flex min-h-screen">
@@ -23,6 +24,16 @@ const DashboardLayout = ({ children }) => (
     <div className="flex-1 bg-gray-50 overflow-x-hidden">{children}</div>
   </div>
 );
+
+// Permission gate: admins pass through; sub-users need the named permission.
+const PermissionRoute = ({ permission, children }) => {
+  if (!isAuthenticated()) return <Navigate to="/" replace />;
+  const user = getCurrentUser();
+  const isAdmin = user?.role === 'admin';
+  const allowed = isAdmin || !!user?.permissions?.[permission];
+  if (!allowed) return <Navigate to="/dashboard" replace />;
+  return children;
+};
 
 function App() {
   return (
@@ -33,15 +44,15 @@ function App() {
             <Route path="/" element={<Login />} />
             <Route path="/policies" element={<Policies />} />
 
-            <Route path="/dashboard" element={<DashboardLayout><EnhancedDashboard /></DashboardLayout>} />
-            <Route path="/analysis" element={<DashboardLayout><Analysis /></DashboardLayout>} />
-            <Route path="/reports" element={<DashboardLayout><Reports /></DashboardLayout>} />
-            <Route path="/graph-report" element={<DashboardLayout><GraphReport /></DashboardLayout>} />
+            <Route path="/dashboard" element={<PermissionRoute permission="dashboard"><DashboardLayout><EnhancedDashboard /></DashboardLayout></PermissionRoute>} />
+            <Route path="/analysis" element={<PermissionRoute permission="analysis"><DashboardLayout><Analysis /></DashboardLayout></PermissionRoute>} />
+            <Route path="/reports" element={<PermissionRoute permission="reports"><DashboardLayout><Reports /></DashboardLayout></PermissionRoute>} />
+            <Route path="/graph-report" element={<PermissionRoute permission="reports"><DashboardLayout><GraphReport /></DashboardLayout></PermissionRoute>} />
             <Route path="/site" element={<DashboardLayout><Site /></DashboardLayout>} />
             <Route path="/user" element={<DashboardLayout><User /></DashboardLayout>} />
-            <Route path="/certificates" element={<DashboardLayout><Certificates /></DashboardLayout>} />
-            <Route path="/maintenance" element={<DashboardLayout><Certificates /></DashboardLayout>} />
-            <Route path="/audit-log" element={<DashboardLayout><AuditLog /></DashboardLayout>} />
+            <Route path="/certificates" element={<PermissionRoute permission="certificates"><DashboardLayout><Certificates /></DashboardLayout></PermissionRoute>} />
+            <Route path="/maintenance" element={<PermissionRoute permission="certificates"><DashboardLayout><Certificates /></DashboardLayout></PermissionRoute>} />
+            <Route path="/audit-log" element={<PermissionRoute permission="audit"><DashboardLayout><AuditLog /></DashboardLayout></PermissionRoute>} />
 
             <Route path="/flowmeter" element={<Flowmeter />} />
             <Route path="/water-level-recorder" element={<WaterLevelRecorder />} />

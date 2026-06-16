@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 5 — Verified the large new batch (reports, sub-users, limits, renewals, weather/waterbody, hourly pumping vs level, dashboard hero). Backend: added 28 new pytest cases to /app/backend/tests/backend_test.py covering /api/reports/{flow-vs-level,level-vs-rainfall,borewell-consumption,hourly-pumping-vs-level}, /api/weather/waterbody (Lucknow → Gomti River verified), /api/users/subusers CRUD with permission normalisation, /api/limits CRUD + check-now (sent=0 with empty RESEND_API_KEY), /api/renewals list/update/run-now (service_term_years=0.1 transitions user to 'expiring'), and the admin login payload having implicit all-true permissions. Total: 109/109 backend tests pass (81 carried + 28 new). Frontend: validated dashboard hero (4 tiles + 'CENTRAL GROUND WATER AUTHORITY' eyebrow), Weather 'Water Flow Dir' shows 'Gomti River · E · 5.4 km · river', Reports → Graphs & Combined renders Flow-vs-Level chart, Water-Level-vs-Rainfall (loading→data), All-Borewells table with GRAND TOTAL row, CSV button downloads 'borewell-consumption_7d.csv'. Monthly Abstraction Limits card present with FM_GW_001 already flagged 'Exceeded'. Analysis page has hourly-pumping-level-card at top. User page has Sub-users & Permissions + Subscription Renewal Reminders cards. Fixed one pre-existing pandas regression in /app/backend/data_export_service.py (timestamps with '+00:00' tz suffix were failing strict strftime).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/data/export (csv/pdf)", "issue": "Pre-existing pandas parse error on +00:00 timestamps — FIXED by switching to format='mixed', errors='coerce', utc=True in data_export_service.py"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Reports page mount", "issue": "Transient toast 'Unsupported instrument type charts. Supported: [conductivity, dwlr, ph, tds]' fires on tab change to Graphs & Combined — looks like a component calling /api/instruments/charts/latest or passing the active tab key as instrument_type. Cosmetic but visible.", "affected_selectors": [".toast", "[role=\"status\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Investigate the Reports page mount calling something like /api/instruments/charts/latest — the 'charts' tab key is being passed as instrument_type and the API correctly returns 400. Either suppress this call when active tab is the combined view, or change the dispatcher to not treat 'charts' as an instrument key.",
+    "(Optional) Consider returning a structured error response when /api/weather/waterbody is called with no lat/lon and the user profile lacks coordinates — currently it defaults to (0,0) which falls back to a generic body."
+  ],
+  "critical_code_review_comments": [
+    "api_subusers.create_subuser stores role='client' but the endpoint label is sub-user — a sub-user logging in can hit any /api/* endpoint not gated by require_admin. Permission checks rely on frontend PermissionRoute only; backend endpoints like /api/reports/* are not actually filtered by sub-user permissions. Confirm whether that is intentional (UI-only gating) or a security gap.",
+    "api_limits._ensure_permission gates create/update/delete/check-now — verify that the helper actually checks user['permissions']['limits'] for non-admin sub-users; otherwise any client with a valid token could mutate limits.",
+    "data_export_service: pandas timestamp parsing was strict — fixed in this iteration; consider adding a small unit test if reused outside the admin export.",
+    "api_renewals._summary: float-multiplication days_left from years*365.25 is fine, but service_expiry_date stored via update_renewal is never read back in _summary (only created_at + term is used) — meaning explicit expiry dates set by admin are silently ignored. Confirm intended behaviour or wire _summary to honour service_expiry_date when present.",
+    "api_reports/hourly-pumping-vs-level returns 24 buckets but tests rely on inferring the array key — endpoint response shape is not documented in code comments; consider adding an explicit Pydantic response model for stability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/data_export_service.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@envirolytics.com / Admin@Envirolytics2026",
+  "seed_data_creation": "TestSubUsers creates TEST_sub_<rand>@envirolytics.com (cleaned up). TestLimits creates TEST_LIM_<rand> hardware limit (cleaned up). TestReports/TestWeatherWaterbody read-only. TestRenewals mutates the shared test_user's service_term_years to 0.1 — restored implicitly when the session-scoped test_user fixture is deleted by admin.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login route is '/' (NOT /login). New testids confirmed: reports-toggle-flowVsLevel, reports-toggle-levelVsRainfall, reports-toggle-allBorewells, reports-fm-select, download-borewells-csv-btn, limits-card, limits-add-btn, hourly-pumping-level-card, add-subuser-btn. RESEND_API_KEY is intentionally empty so /api/limits/check-now and /api/renewals/run-now return sent=0 — that's the expected contract. Admin login payload includes implicit all-true permissions dict (dashboard/reports/analysis/certificates/audit/limits). Backend test count: 109 passing.",
+  "rca_of_the_issue": "Pre-existing 500 on /api/admin/data/export?format=csv|pdf — root cause: pd.to_datetime(...) without a format argument trips when the simulator inserts timestamps containing tz offset '+00:00' alongside a fractional microsecond pattern (pandas falls back to strict strftime and fails). Mitigation applied: pd.to_datetime(df[col], format='mixed', errors='coerce', utc=True) in both to_csv() and to_pdf() of data_export_service.py — now passes for all 4 export test cases."
+}

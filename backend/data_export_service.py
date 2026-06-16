@@ -20,7 +20,7 @@ class DataExportService:
         # Format datetime columns
         for col in df.columns:
             if 'timestamp' in col.lower() or 'date' in col.lower():
-                df[col] = pd.to_datetime(df[col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+                df[col] = pd.to_datetime(df[col], format='mixed', errors='coerce', utc=True).dt.strftime('%Y-%m-%d %H:%M:%S')
         
         # Convert to CSV bytes
         csv_buffer = io.StringIO()
@@ -66,7 +66,7 @@ class DataExportService:
             # Format data
             for col in df.columns:
                 if 'timestamp' in col.lower() or 'date' in col.lower():
-                    df[col] = pd.to_datetime(df[col]).dt.strftime('%Y-%m-%d %H:%M')
+                    df[col] = pd.to_datetime(df[col], format='mixed', errors='coerce', utc=True).dt.strftime('%Y-%m-%d %H:%M')
                 elif df[col].dtype in ['float64', 'float32']:
                     df[col] = df[col].round(2)
             

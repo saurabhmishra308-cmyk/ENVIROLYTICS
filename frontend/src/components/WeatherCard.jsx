@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Cloud, Thermometer, Droplet, Wind, CloudRain, Activity, Navigation } from 'lucide-react';
+import api from '../lib/api';
 
 const WeatherItem = ({ Icon, color, label, value, subtext, bgColor, textMuted, textColor }) => (
   <div className="p-4 rounded-lg" style={{ backgroundColor: bgColor }}>
@@ -18,6 +19,29 @@ const WeatherCard = ({ weather, loading, isDarkMode, getWaterFlowDirection }) =>
   const textMuted = isDarkMode ? 'text-gray-400' : 'text-gray-600';
   const cardBg = isDarkMode ? 'bg-gray-800' : 'bg-white';
   const borderColor = isDarkMode ? 'border-gray-700' : 'border-gray-200';
+
+  // Real "water flow direction" — nearest river / dam / sea + cardinal bearing
+  // from the user's site (defaults to the user's profile lat/lon on backend).
+  const [waterbody, setWaterbody] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get('/api/weather/waterbody');
+        if (!cancelled && data?.available) setWaterbody(data);
+      } catch (e) {
+        if (process.env.NODE_ENV === 'development') console.warn('[waterbody]', e?.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const flowDirValue = waterbody?.name
+    ? `${waterbody.name}`
+    : (getWaterFlowDirection ? getWaterFlowDirection() : '—');
+  const flowDirSub = waterbody
+    ? `${waterbody.cardinal} · ${waterbody.distance_km} km · ${waterbody.kind}`
+    : 'Nearest waterbody';
 
   const weatherItems = useMemo(() => {
     if (!weather) return [];
@@ -73,12 +97,12 @@ const WeatherCard = ({ weather, loading, isDarkMode, getWaterFlowDirection }) =>
         Icon: Navigation,
         color: '#ec4899',
         label: 'Water Flow Dir',
-        value: getWaterFlowDirection(),
-        subtext: 'Underground',
+        value: flowDirValue,
+        subtext: flowDirSub,
         bgColor: isDarkMode ? '#374151' : '#fce7f3'
       }
     ];
-  }, [weather, isDarkMode, getWaterFlowDirection]);
+  }, [weather, isDarkMode, getWaterFlowDirection, flowDirValue, flowDirSub]);
 
   if (loading) {
     return (
