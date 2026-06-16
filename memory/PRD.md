@@ -84,6 +84,13 @@ Build a web application initially cloning www.asterflow.com, then customised and
 - User Lat/Lng/Location-name fields + Edit dialog.
 - Generic Instruments API.
 
+### 2026-06-16 — Live field-data simulator + perf optimizations
+- New `field_simulator.py` module: env-gated (`FIELD_SIMULATOR_ENABLED=true`) background task that generates realistic readings for the canonical devices (FM_GW_001, FM_STP_IN, FM_STP_OUT, DWLR001, PH001, TDS001, COND001) every `FIELD_SIMULATOR_INTERVAL_SEC` seconds and reuses the MQTT service's persistence path. Diurnal sine curve on flowmeter base flow; monotonic forward totalizers; per-device random noise.
+- Verified: dashboard shows Main Borewell at ~8.154 m³/hr LIVE; offline count dropped from 18→11 (only TEST_* devices remain stale).
+- Wired into FastAPI startup, cancelled cleanly on shutdown.
+- Recharts perf: extracted `AXIS_TICK`/`LINE_DOT` constants in `InstrumentDetail.jsx` and `Analysis.jsx` (no more inline object props re-creating per render); memoised `current` device and `secondaryValues` filter via `useMemo`.
+- `Login.jsx` — clarified `useEffect` deps with comment, `mockData.js` empty catches now log in dev only, `InstrumentDetail.jsx` console.warn guarded by NODE_ENV.
+
 ### 2026-06-12 — Offline-device email notifications (Resend, max 4 recipients)
 - New backend module `notification_service.py` + router `api_notifications.py` (`/api/notifications/emails GET|PUT`, `/test POST`, `/run-now POST`, all admin-only).
 - Recipients persisted as a singleton doc in `notification_settings` collection. Hard cap of **4** recipients (HTTP 400 on overflow).

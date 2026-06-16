@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { isAuthenticated, getCurrentUser, mockLogout } from '../mockData';
 import api from '../lib/api';
@@ -17,6 +17,11 @@ const META = {
 
 const POLL_MS = 5000;
 
+// Stable references — kept outside the component so Recharts doesn't
+// see a new object on every render (would invalidate its memoization).
+const AXIS_TICK = { fontSize: 11 };
+const LINE_DOT  = { r: 2 };
+
 const pickValue = (values, keys, fallback = null) => {
   if (!values) return fallback;
   for (const k of keys) if (values[k] != null) return values[k];
@@ -31,6 +36,22 @@ const InstrumentDetail = ({ type }) => {
   const [selected, setSelected] = useState(null);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // The "current" device for the live card — derive from the selected hardware_id,
+  // falling back to the first device in the list.
+  const current = useMemo(
+    () => devices.find((d) => d.hardware_id === selected) || devices[0] || null,
+    [devices, selected],
+  );
+
+  // Secondary values shown on the live card, excluding the primary metric keys.
+  // Memoised so we don't re-filter/slice on every render when nothing changed.
+  const secondaryValues = useMemo(() => {
+    if (!current?.values) return [];
+    return Object.entries(current.values)
+      .filter(([k]) => !meta.altKeys.includes(k))
+      .slice(0, 6);
+  }, [current, meta.altKeys]);
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -70,7 +91,6 @@ const InstrumentDetail = ({ type }) => {
 
   if (!user || !meta) return null;
   const Icon = meta.icon;
-  const current = devices.find((d) => d.hardware_id === selected) || devices[0];
 
   const chartData = history.map((r) => ({
     time: new Date(r.timestamp || r.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -155,7 +175,7 @@ const InstrumentDetail = ({ type }) => {
                     </div>
                     {current?.values && (
                       <div className="grid grid-cols-3 gap-3 mt-6">
-                        {Object.entries(current.values).filter(([k]) => !meta.altKeys.includes(k)).slice(0, 6).map(([k, v]) => (
+                        {secondaryValues.map(([k, v]) => (
                           <div key={k} className="p-3 bg-gray-50 rounded">
                             <p className="text-xs text-gray-500 uppercase">{k}</p>
                             <p className="text-lg font-bold text-gray-900">{String(v)}</p>
@@ -200,10 +220,10 @@ const InstrumentDetail = ({ type }) => {
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
+                      <XAxis dataKey="time" tick={AXIS_TICK} />
+                      <YAxis tick={AXIS_TICK} />
                       <Tooltip />
-                      <Line type="monotone" dataKey="value" stroke={meta.color} strokeWidth={2} dot={{ r: 2 }} />
+                      <Line type="monotone" dataKey="value" stroke={meta.color} strokeWidth={2} dot={LINE_DOT} />
                     </LineChart>
                   </ResponsiveContainer>
                 )}

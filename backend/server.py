@@ -36,6 +36,7 @@ import api_alerts
 from api_notifications import router as notifications_router
 import api_notifications
 import notification_service
+import field_simulator
 import auth as auth_module
 
 
@@ -138,6 +139,8 @@ async def startup_event():
     mqtt_service.connect()
     # Background loop for offline-device email notifications
     app.state.notify_task = asyncio.create_task(notification_service.background_loop(db))
+    # Optional live field-data simulator (env-gated)
+    app.state.simulator_task = asyncio.create_task(field_simulator.background_loop(mqtt_service))
     logger.info("Startup complete")
 
 
@@ -147,5 +150,8 @@ async def shutdown_db_client():
     task = getattr(app.state, "notify_task", None)
     if task:
         task.cancel()
+    sim = getattr(app.state, "simulator_task", None)
+    if sim:
+        sim.cancel()
     client.close()
     logger.info("Services shut down")

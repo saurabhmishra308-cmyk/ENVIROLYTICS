@@ -7,6 +7,7 @@ import api from '../lib/api';
 
 // Module-level constants — avoid creating new objects on every render
 const AXIS_TICK = { fontSize: 11 };
+const LINE_DOT  = { r: 2 };
 const Y_LABEL_KL = { value: 'KL', angle: -90, position: 'insideLeft', fontSize: 11 };
 const Y_LABEL_M = { value: 'm', angle: -90, position: 'insideLeft', fontSize: 11 };
 const KL_TOOLTIP = (v) => [`${v} KL`, 'Abstraction'];
@@ -165,7 +166,7 @@ const Analysis = () => {
                       <YAxis tick={AXIS_TICK} label={Y_LABEL_M} />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="level" stroke="#27ae60" strokeWidth={2} dot={{ r: 2 }} name="Water Level (m)" />
+                      <Line type="monotone" dataKey="level" stroke="#27ae60" strokeWidth={2} dot={LINE_DOT} name="Water Level (m)" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>

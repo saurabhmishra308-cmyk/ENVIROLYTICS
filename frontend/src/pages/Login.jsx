@@ -17,6 +17,8 @@ const Login = () => {
     if (isAuthenticated()) {
       navigate('/dashboard');
     }
+    // `isAuthenticated` is a stable import (module-level function), safe to omit.
+    // `navigate` is stable per react-router. Effect only needs to run once on mount.
   }, [navigate]);
 
   const handleSubmit = async (e) => {
