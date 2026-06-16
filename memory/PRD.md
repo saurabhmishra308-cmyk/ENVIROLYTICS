@@ -84,6 +84,44 @@ Build a web application initially cloning www.asterflow.com, then customised and
 - User Lat/Lng/Location-name fields + Edit dialog.
 - Generic Instruments API.
 
+### 2026-06-16 — Massive feature batch (Reports, Sub-users, Limits, Renewals, Hero)
+
+**Reports — Correlated charts + multi-borewell consumption** (`api_reports.py`, `ReportsCharts.jsx`)
+- New tab "Graphs & Combined" in the Reports page with toggleable sections.
+- `/api/reports/flow-vs-level` — hourly merged borewell flow + DWLR level chart.
+- `/api/reports/level-vs-rainfall` — daily DWLR level + Open-Meteo rainfall (no API key required) overlay chart.
+- `/api/reports/borewell-consumption?format=csv` — all groundwater flowmeters with consumption per device + GRAND TOTAL row. CSV download.
+- `/api/reports/hourly-pumping-vs-level` — fuels the new Analysis-page chart.
+
+**Sub-users + permissions** (`api_subusers.py`, `SubUserCard.jsx`, App.js `PermissionRoute`)
+- Admin can create / list / edit / disable / remove sub-users via `/api/users/subusers`.
+- Permission keys: `dashboard`, `reports`, `analysis`, `certificates`, `audit`, `limits`. Sub-user route access is gated by `<PermissionRoute>` (redirects to `/dashboard` on missing permission).
+- Login & `/api/auth/me` responses now include `permissions` map. Admin implicitly has every permission.
+
+**Abstract limit + customer email alert** (`api_limits.py`, `LimitsCard.jsx`)
+- `POST /api/limits` (admin or `permissions.limits`) — attach monthly KL cap + customer email to any flowmeter.
+- Background loop every `LIMIT_CHECK_INTERVAL_MIN` (default 60 min) compares this month's totalizer delta against the cap. If exceeded, customer is emailed via Resend ONCE per month per device (idempotent via `limit_alerts_state` collection).
+- Reports page Limits card shows live per-device progress bar + "Exceeded" badge + edit/remove.
+
+**Subscription renewal reminders** (`api_renewals.py`, `RenewalsCard.jsx`)
+- Expiry = explicit `service_expiry_date` OR `created_at + service_term_years` (default 1 yr).
+- Daily background loop emails each user once when they enter the configurable 60-day reminder window (idempotent via `renewal_reminders_state`).
+- Admin UI: per-user table with status badge (active/expiring/expired), pencil to edit expiry or term.
+
+**Live water-body direction** (`api_weather.py`, `WeatherCard.jsx`)
+- `/api/weather/waterbody?lat=&lon=` returns the nearest river/dam/sea + compass bearing (Lucknow → "Gomti River · E · 5.4 km").
+- WeatherCard fetches it on mount and replaces the dashboard's "—" placeholder.
+
+**Government-grade dashboard hero** (`EnhancedDashboard.jsx`)
+- Eyebrow text "CENTRAL GROUND WATER AUTHORITY · STATE POLLUTION CONTROL BOARD COMPLIANT".
+- Gradient + subtle grid texture. 4 hero stat tiles: flowmeter count, DWLR count, live stream status, server time.
+
+**Hourly pumping + level chart** on Analysis page (`HourlyPumpingLevelChart.jsx`).
+
+**Bug fix**: Reports page no longer fires a spurious "unsupported instrument type" toast when the user switches to the Graphs & Combined tab.
+
+**Testing**: iteration_5.json — 109/109 backend tests pass, all frontend flows green.
+
 ### 2026-06-16 — Live field-data simulator + perf optimizations
 - New `field_simulator.py` module: env-gated (`FIELD_SIMULATOR_ENABLED=true`) background task that generates realistic readings for the canonical devices (FM_GW_001, FM_STP_IN, FM_STP_OUT, DWLR001, PH001, TDS001, COND001) every `FIELD_SIMULATOR_INTERVAL_SEC` seconds and reuses the MQTT service's persistence path. Diurnal sine curve on flowmeter base flow; monotonic forward totalizers; per-device random noise.
 - Verified: dashboard shows Main Borewell at ~8.154 m³/hr LIVE; offline count dropped from 18→11 (only TEST_* devices remain stale).

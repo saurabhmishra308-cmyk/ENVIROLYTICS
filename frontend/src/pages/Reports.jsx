@@ -38,6 +38,10 @@ const Reports = () => {
   const fetchReadings = useCallback(async () => {
     setLoading(true);
     try {
+      if (section === 'charts') {
+        setReadings([]);
+        return;
+      }
       if (section === 'flowmeter') {
         if (!hardwareId) {
           const { data } = await api.get('/api/flowmeter/latest');
