@@ -21,21 +21,49 @@ const PlantSvg = () => (
   </svg>
 );
 
-// Mature tree silhouette — emerges over the plant once rainfall ends
+// Realistic deciduous tree SVG — irregular canopy, thick trunk, branch shadows
 const TreeSvg = () => (
-  <svg viewBox="0 0 110 170" xmlns="http://www.w3.org/2000/svg" width="110" height="170" aria-hidden>
-    {/* trunk */}
-    <path d="M50 165 L50 95 C 50 80, 45 70, 48 55 L62 55 C 65 70, 60 80, 60 95 L60 165 Z" fill="#6b4423" />
+  <svg viewBox="0 0 140 200" xmlns="http://www.w3.org/2000/svg" width="140" height="200" aria-hidden>
+    <defs>
+      <radialGradient id="canopyShade" cx="50%" cy="35%" r="65%">
+        <stop offset="0%"  stopColor="#7ab250" />
+        <stop offset="55%" stopColor="#4f8b3f" />
+        <stop offset="100%" stopColor="#2e5e25" />
+      </radialGradient>
+      <linearGradient id="trunkShade" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%"  stopColor="#4a2e15" />
+        <stop offset="50%" stopColor="#7a4a22" />
+        <stop offset="100%" stopColor="#3d2410" />
+      </linearGradient>
+    </defs>
+    {/* ground shadow */}
+    <ellipse cx="70" cy="196" rx="48" ry="4" fill="rgba(0,0,0,0.18)" />
+    {/* main trunk — twisted, with bark stripes */}
+    <path d="M62 198 C 60 170, 56 150, 64 120 C 58 100, 60 80, 66 65 L78 65 C 84 80, 86 100, 80 120 C 88 150, 84 170, 82 198 Z"
+          fill="url(#trunkShade)" />
+    <path d="M68 180 C 70 160, 72 140, 70 120" stroke="#3d2410" strokeWidth="1.5" fill="none" />
+    <path d="M76 180 C 74 160, 78 140, 74 120" stroke="#3d2410" strokeWidth="1.2" fill="none" />
     {/* branches */}
-    <path d="M55 100 C 35 95, 20 80, 18 65" stroke="#5d3a1f" strokeWidth="4" fill="none" strokeLinecap="round" />
-    <path d="M55 90  C 75 85, 90 70, 92 55"  stroke="#5d3a1f" strokeWidth="4" fill="none" strokeLinecap="round" />
-    {/* canopy — layered leafy blobs */}
-    <ellipse cx="55" cy="45"  rx="42" ry="32" fill="#3d7a2a" />
-    <ellipse cx="32" cy="55"  rx="22" ry="20" fill="#4f8b3f" />
-    <ellipse cx="80" cy="50"  rx="24" ry="22" fill="#5fa14a" />
-    <ellipse cx="55" cy="28"  rx="28" ry="22" fill="#6cb24a" />
-    <ellipse cx="42" cy="35"  rx="14" ry="13" fill="#7ab050" />
-    <ellipse cx="70" cy="38"  rx="13" ry="12" fill="#7ab050" />
+    <path d="M68 110 C 50 100, 35 85, 22 70"  stroke="#4a2e15" strokeWidth="5" fill="none" strokeLinecap="round" />
+    <path d="M74 105 C 90 95, 105 80, 118 70" stroke="#4a2e15" strokeWidth="5" fill="none" strokeLinecap="round" />
+    <path d="M70 95 C 60 85, 50 70, 45 55"    stroke="#4a2e15" strokeWidth="3" fill="none" strokeLinecap="round" />
+    <path d="M72 92 C 85 80, 95 65, 100 50"   stroke="#4a2e15" strokeWidth="3" fill="none" strokeLinecap="round" />
+    {/* dark canopy backdrop */}
+    <ellipse cx="70" cy="60" rx="58" ry="48" fill="#2e5e25" opacity="0.85" />
+    {/* main leafy clusters */}
+    <ellipse cx="40" cy="65" rx="28" ry="26" fill="url(#canopyShade)" />
+    <ellipse cx="100" cy="60" rx="30" ry="28" fill="url(#canopyShade)" />
+    <ellipse cx="70" cy="38" rx="34" ry="26" fill="url(#canopyShade)" />
+    <ellipse cx="55" cy="45" rx="18" ry="16" fill="#6cb24a" />
+    <ellipse cx="88" cy="45" rx="18" ry="16" fill="#6cb24a" />
+    <ellipse cx="70" cy="55" rx="14" ry="13" fill="#7ab250" opacity="0.85" />
+    {/* foliage highlights */}
+    <ellipse cx="48" cy="40" rx="8" ry="7" fill="#a3d76d" opacity="0.6" />
+    <ellipse cx="92" cy="38" rx="9" ry="7" fill="#a3d76d" opacity="0.55" />
+    <ellipse cx="70" cy="28" rx="10" ry="6" fill="#bce28c" opacity="0.5" />
+    {/* a few stray leaves on the lower trunk */}
+    <ellipse cx="58" cy="125" rx="9" ry="5" fill="#5fa14a" opacity="0.85" transform="rotate(-25 58 125)" />
+    <ellipse cx="86" cy="135" rx="8" ry="4" fill="#5fa14a" opacity="0.85" transform="rotate(20 86 135)" />
   </svg>
 );
 
@@ -103,7 +131,18 @@ const Login = () => {
         <div className="env-drop d7" /><div className="env-drop d8" /><div className="env-drop d9" />
         <div className="env-drop d10" /><div className="env-drop d11" /><div className="env-drop d12" />
         <div className="env-drop d13" /><div className="env-drop d14" /><div className="env-drop d15" />
+        <div className="env-drop d16" /><div className="env-drop d17" /><div className="env-drop d18" />
+        <div className="env-drop d19" /><div className="env-drop d20" /><div className="env-drop d21" />
+        <div className="env-drop d22" /><div className="env-drop d23" /><div className="env-drop d24" />
+        <div className="env-drop d25" /><div className="env-drop d26" /><div className="env-drop d27" />
+        <div className="env-drop d28" /><div className="env-drop d29" /><div className="env-drop d30" />
+        <div className="env-drop d31" /><div className="env-drop d32" />
       </div>
+
+      {/* Storm darkening overlay (under the rain but above the sky) */}
+      <div className="env-storm-overlay" aria-hidden />
+      {/* Occasional lightning flash */}
+      <div className="env-lightning" aria-hidden />
 
       {/* Ground band: soil → grass → plants → trees → water */}
       <div className="env-soil" aria-hidden />
