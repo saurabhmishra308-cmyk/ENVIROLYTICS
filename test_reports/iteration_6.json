@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 6 — Re-verified ALL features called out in the review request after Login animation + GraphReport rewrite. Backend: 109/109 existing pytest cases still pass; added 7 new supplementary tests in /app/backend/tests/test_iter6_supplements.py covering /api/auth/me permissions (6 keys), /api/notifications/emails (GET + auth gate), POST /api/notifications/test, /api/alerts/offline (public + auth), and sub-user login permissions shape. 6/7 supplementary tests pass; 1 fails because POST /api/notifications/test returns 400 'RESEND_API_KEY not configured' instead of the graceful JSON {sent:false} contract documented in the review request. Frontend: all 20+ requested data-testids verified end-to-end (Login animation, dashboard hero with 3 authorities, weather waterbody 'Gomti River · E · 5.4 km · river', Reports → Graphs & Combined showing both restored graphs + All-Borewells table + CSV button + Limits card, GraphReport with Live + Daily-Rainfall cards and LIVE badge + auto-refresh timestamp, the three mock cards (24-Hour Flow & Pressure, 30-Day Flow Volume, Quality) are GONE, User page sub-user CRUD + Renewals card visible, Analysis page hourly-pumping-level-card visible). PermissionRoute gating verified: viewer@envirolytics.com (dashboard+reports only) IS redirected from /analysis and /certificates back to /dashboard, but CAN reach /reports.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/notifications/test", "issue": "Returns 400 with detail 'RESEND_API_KEY not configured' when key is empty. Review spec says this should return JSON gracefully (sent:false). Other two POSTs in the same family (/api/limits/check-now and /api/renewals/run-now) DO follow the graceful contract — only /notifications/test still raises HTTPException(400) in api_notifications.py line 47-48."},
+      {"endpoint": "/api/weather/waterbody", "issue": "(carried from iter5) Sub-user with no profile lat/lon falls back to (0,0) which resolves to 'Arabian Sea · 7903.1 km · sea' — looks odd in the UI when Test Viewer logs in. Cosmetic but visible on dashboard."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/graph-report Live Flow & Water Level Trend card", "issues": ["React hydration warning in console: 'In HTML, <div> cannot be a descendant of <p>'. Source: GraphReport.jsx line 272 — a <Badge> (which renders a <div>) is nested inside a <p> tag in the LIVE-status row. Cosmetic; React still renders but logs a hydration error every render."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iter6_supplements.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix POST /api/notifications/test to return {sent:false, reason:'RESEND_API_KEY not configured'} with status 200 instead of HTTPException(400) so it matches the contract used by /api/limits/check-now and /api/renewals/run-now. Change in /app/backend/api_notifications.py lines 44-49.",
+    "Fix HTML nesting in /app/frontend/src/pages/GraphReport.jsx around line 272 — replace the outer <p> containing a <Badge> with a <span> or <div> to silence the React hydration warning."
+  ],
+  "critical_code_review_comments": [
+    "api_notifications.send_test raises HTTPException when the email service is not configured — inconsistent with the rest of the codebase (limits / renewals return {sent:0} JSON). Should be normalised to a single contract so the frontend can rely on a consistent shape.",
+    "GraphReport.jsx wraps a <Badge> in a <p> which produces a div-in-p HTML violation. This is also a re-render perf footgun because React 18 strict mode will re-mount.",
+    "Sidebar still shows menu items that the sub-user has no permission to open (Analysis, Certificates) — the PermissionRoute correctly redirects on navigation, but the menu links still appear. Consider filtering Sidebar links by user.permissions for a cleaner UX.",
+    "(carried) Backend endpoints under /api/reports/* and /api/instruments/* are NOT gated by sub-user permissions — only the frontend PermissionRoute hides routes. A sub-user with a valid token can still curl any of those endpoints. Confirm this is intended UI-only gating, otherwise add a permission_required dependency on the backend."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter6_supplements.py (new)"
+  ],
+  "success_rate": {"backend": "99.1%", "frontend": "100%"},
+  "test_credentials": "admin@envirolytics.com / Admin@Envirolytics2026  |  viewer@envirolytics.com / Viewer@123456 (sub-user, dashboard+reports only)",
+  "seed_data_creation": "No new seed data created in iter6. test_iter6_supplements.py is read-only (no mutations).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend regression total is now 116 tests (109 in backend_test.py + 7 in test_iter6_supplements.py). One known failure: TestNotifications::test_post_test_notification_returns_json — caused by api_notifications.py raising HTTPException(400) on empty RESEND_API_KEY. All frontend selectors from the review request verified working. Login route is still '/', not '/login'. PermissionRoute properly redirects sub-users from forbidden routes back to /dashboard.",
+  "rca_of_the_issue": "POST /api/notifications/test failure RCA: in /app/backend/api_notifications.py line 47-48, when notification_service.send_test_email returns {sent:false, reason:'RESEND_API_KEY not configured'}, the route raises HTTPException(status_code=400, detail=result.get('reason')). The other two parallel POSTs (api_limits.check_now and api_renewals.run_now) just return the dict as-is, which is the documented contract. Mitigation: change those two lines to simply `return result` (or return {**result, 'sent':0} for consistency)."
+}

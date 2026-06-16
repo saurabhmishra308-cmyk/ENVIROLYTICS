@@ -1,0 +1,213 @@
+/* Animated environmental scene for the login page —
+   pure CSS, zero deps, GPU-accelerated (transform + opacity only). */
+
+.env-scene {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, #cfeafd 0%, transparent 60%),
+    radial-gradient(900px  500px at -10% 110%, #d9efd0 0%, transparent 60%),
+    linear-gradient(180deg, #eaf6ff 0%, #f5f8e9 60%, #e7d9c3 100%);
+}
+
+/* Sun ─────────────────────────────────────────────── */
+.env-sun {
+  position: absolute;
+  top: 6%;
+  right: 8%;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff7d6 0%, #f5b942 60%, #e08a18 100%);
+  box-shadow: 0 0 80px 20px rgba(245, 185, 66, 0.35);
+  animation: env-sun-pulse 6s ease-in-out infinite;
+}
+@keyframes env-sun-pulse {
+  0%, 100% { transform: scale(1);   box-shadow: 0 0 80px 20px rgba(245, 185, 66, 0.35); }
+  50%      { transform: scale(1.05); box-shadow: 0 0 110px 26px rgba(245, 185, 66, 0.5); }
+}
+
+/* Clouds (air) ────────────────────────────────────── */
+.env-cloud {
+  position: absolute;
+  top: var(--top, 10%);
+  left: -200px;
+  width: 180px;
+  height: 60px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 60px;
+  filter: drop-shadow(0 6px 14px rgba(70, 110, 150, 0.2));
+  animation: env-cloud-float var(--dur, 40s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+.env-cloud::before,
+.env-cloud::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+}
+.env-cloud::before { width: 90px;  height: 90px; top: -38px; left: 24px;  }
+.env-cloud::after  { width: 70px;  height: 70px; top: -24px; left: 90px; }
+@keyframes env-cloud-float {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(calc(100vw + 250px)); }
+}
+
+/* Soil / ground band ──────────────────────────────── */
+.env-soil {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(0,0,0,0.10) 0 6px, transparent 7px),
+    radial-gradient(circle at 60% 60%, rgba(0,0,0,0.08) 0 4px, transparent 5px),
+    radial-gradient(circle at 85% 20%, rgba(0,0,0,0.10) 0 5px, transparent 6px),
+    linear-gradient(180deg, #b08956 0%, #7c5a36 100%);
+  background-size: 60px 60px, 40px 40px, 80px 80px, 100% 100%;
+}
+
+/* Grass ───────────────────────────────────────────── */
+.env-grass {
+  position: absolute;
+  bottom: 60px;
+  left: 0;
+  right: 0;
+  height: 30px;
+  pointer-events: none;
+  background:
+    linear-gradient(to top,
+      transparent 0%,
+      transparent 65%,
+      #5fa14a 65%,
+      #5fa14a 70%,
+      transparent 70%);
+  background-size: 8px 100%;
+  filter: drop-shadow(0 -1px 0 rgba(0,0,0,0.05));
+  animation: env-grass-sway 5s ease-in-out infinite alternate;
+  transform-origin: bottom center;
+}
+@keyframes env-grass-sway {
+  0%   { transform: skewX(-1.5deg); }
+  100% { transform: skewX(1.5deg);  }
+}
+
+/* Plants ──────────────────────────────────────────── */
+.env-plant {
+  position: absolute;
+  bottom: 60px;
+  width: 70px;
+  height: 100px;
+  pointer-events: none;
+  transform-origin: bottom center;
+  animation: env-plant-sway 4s ease-in-out infinite alternate;
+}
+.env-plant.p1 { left: 8%;  animation-delay: -0.6s; }
+.env-plant.p2 { left: 22%; transform: scale(0.85); animation-delay: -1.4s; }
+.env-plant.p3 { right: 15%; animation-delay: -2.1s; }
+.env-plant.p4 { right: 6%; transform: scale(0.7); animation-delay: -0.3s; }
+@keyframes env-plant-sway {
+  0%   { transform: rotate(-3deg); }
+  100% { transform: rotate(3deg);  }
+}
+
+/* Falling leaves ──────────────────────────────────── */
+.env-leaf {
+  position: absolute;
+  top: -40px;
+  width: 18px;
+  height: 18px;
+  background: #5fa14a;
+  border-radius: 0 100% 0 100%;
+  opacity: 0.85;
+  animation:
+    env-leaf-fall var(--fall-dur, 12s) linear infinite,
+    env-leaf-spin var(--spin-dur,  3s) linear infinite;
+  animation-delay: var(--delay, 0s);
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18));
+}
+.env-leaf.l1 { left:  8%;  --fall-dur: 14s; --spin-dur: 3.2s; --delay: -1s;   background: #5fa14a; }
+.env-leaf.l2 { left: 25%;  --fall-dur: 11s; --spin-dur: 2.6s; --delay: -4s;   background: #7ab050; }
+.env-leaf.l3 { left: 45%;  --fall-dur: 16s; --spin-dur: 3.8s; --delay: -8s;   background: #a3b744; }
+.env-leaf.l4 { left: 65%;  --fall-dur: 13s; --spin-dur: 2.9s; --delay: -3s;   background: #4f8b3f; }
+.env-leaf.l5 { left: 82%;  --fall-dur: 12s; --spin-dur: 3.4s; --delay: -6s;   background: #6cb24a; }
+@keyframes env-leaf-fall {
+  0%   { transform: translate(0, -40px); }
+  100% { transform: translate(60px, calc(100vh + 40px)); }
+}
+@keyframes env-leaf-spin {
+  0%   { rotate: 0deg; }
+  100% { rotate: 360deg; }
+}
+
+/* Water waves at the bottom of the soil band ─────── */
+.env-water {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.env-water-band {
+  position: absolute;
+  bottom: 0;
+  left: -50%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(180deg, rgba(74, 159, 216, 0.55), rgba(39, 116, 174, 0.75));
+  border-radius: 45% 45% 0 0 / 30% 30% 0 0;
+  animation: env-water-wave var(--dur, 9s) ease-in-out infinite;
+}
+.env-water-band.w2 {
+  bottom: -10px;
+  background: linear-gradient(180deg, rgba(74, 159, 216, 0.35), rgba(20, 90, 150, 0.65));
+  --dur: 12s;
+  animation-delay: -3s;
+}
+@keyframes env-water-wave {
+  0%, 100% { transform: translateX(-2%)  scaleY(1);    }
+  50%      { transform: translateX(2%)   scaleY(1.05); }
+}
+
+/* Floating air particles (pollen / sparkle) ──────── */
+.env-particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 6px 2px rgba(255, 255, 255, 0.6);
+  top: 100vh;
+  animation: env-particle-rise var(--dur, 18s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+.env-particle.x1 { left:  5%; --dur: 20s; --delay: -2s; }
+.env-particle.x2 { left: 18%; --dur: 16s; --delay: -7s; }
+.env-particle.x3 { left: 35%; --dur: 22s; --delay: -3s; background: rgba(245, 185, 66, 0.85); }
+.env-particle.x4 { left: 58%; --dur: 14s; --delay: -10s; }
+.env-particle.x5 { left: 78%; --dur: 19s; --delay: -5s; background: rgba(95, 161, 74, 0.85); }
+.env-particle.x6 { left: 90%; --dur: 24s; --delay: -1s; }
+@keyframes env-particle-rise {
+  0%   { transform: translate(0,  0)    scale(1);   opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: translate(40px, -110vh) scale(0.5); opacity: 0; }
+}
+
+/* Reduce motion ───────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .env-sun,
+  .env-cloud,
+  .env-grass,
+  .env-plant,
+  .env-leaf,
+  .env-water-band,
+  .env-particle {
+    animation: none !important;
+  }
+}
