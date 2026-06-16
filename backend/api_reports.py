@@ -328,6 +328,103 @@ async def borewell_consumption(
     }
 
 
+# --------------------------------------------------------------------------- rainfall impact (combined)
+@router.get("/rainfall-impact")
+async def rainfall_impact(
+    days: int = Query(30, ge=2, le=180),
+    dwlr_id: Optional[str] = Query(None),
+    user: dict = Depends(get_current_user),
+):
+    """Daily series with 3 things side-by-side so the customer can visualise the
+    *impact of rainfall on groundwater*:
+
+      - ``rainfall_mm``    — daily precipitation at the user's site (Open-Meteo)
+      - ``abstraction_kl`` — total ground-water draw across every flowmeter that day (KL)
+      - ``level_m``        — average DWLR water level that day (m)
+    """
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+
+    # Pick a DWLR if not provided
+    if not dwlr_id:
+        dwlr_latest = await db.instrument_latest.find_one({"instrument_type": "dwlr"})
+        if dwlr_latest:
+            dwlr_id = dwlr_latest.get("hardware_id")
+
+    # ---- Daily water-level averages
+    level_buckets = {}
+    if dwlr_id:
+        dw_cursor = db.instrument_readings.find(
+            {"instrument_type": "dwlr", "hardware_id": dwlr_id,
+             "timestamp": {"$gte": start.isoformat()}},
+            {"_id": 0, "timestamp": 1, "values": 1},
+        )
+        async for r in dw_cursor:
+            v = r.get("values", {}) or {}
+            level = v.get("LEVEL") if isinstance(v.get("LEVEL"), (int, float)) else v.get("level")
+            if level is None:
+                continue
+            d = _bucket_daily(r["timestamp"])
+            agg = level_buckets.setdefault(d, {"sum": 0.0, "n": 0})
+            agg["sum"] += float(level)
+            agg["n"] += 1
+
+    # ---- Total ground-water abstraction per day, summed across all borewells.
+    borewells = await _list_groundwater_borewells()
+    abstr_buckets = {}
+    # Sum daily deltas
+    day_count = days
+    for i in range(day_count):
+        b_start = (start + timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+        b_end   = b_start + timedelta(days=1)
+        total_kl = 0.0
+        for bw in borewells:
+            total_kl += await _consumption_kl(bw["hardware_id"], b_start, b_end)
+        abstr_buckets[b_start.date().isoformat()] = round(total_kl, 3)
+
+    # ---- Rainfall
+    lat = float(user.get("latitude") or 26.8467)
+    lon = float(user.get("longitude") or 80.9462)
+    rains = await _fetch_rainfall(lat, lon, start.date().isoformat(), end.date().isoformat())
+    rain_by_day = {r["date"]: float(r["rainfall_mm"] or 0) for r in rains}
+
+    all_days = sorted(set(level_buckets.keys()) | set(abstr_buckets.keys()) | set(rain_by_day.keys()))
+    series = []
+    for d in all_days:
+        lvl = level_buckets.get(d)
+        series.append({
+            "date": d,
+            "rainfall_mm":    round(float(rain_by_day.get(d, 0.0)), 2),
+            "abstraction_kl": float(abstr_buckets.get(d, 0.0)),
+            "level_m":        round(lvl["sum"] / lvl["n"], 3) if lvl else None,
+        })
+
+    # Simple Pearson-style correlation between rainfall and water level for the badge.
+    pairs = [(s["rainfall_mm"], s["level_m"]) for s in series if s["level_m"] is not None]
+    correlation = None
+    if len(pairs) >= 3:
+        n = len(pairs)
+        sx  = sum(p[0] for p in pairs)
+        sy  = sum(p[1] for p in pairs)
+        sxy = sum(p[0] * p[1] for p in pairs)
+        sxx = sum(p[0] ** 2 for p in pairs)
+        syy = sum(p[1] ** 2 for p in pairs)
+        denom = ((n * sxx - sx ** 2) * (n * syy - sy ** 2)) ** 0.5
+        if denom > 0:
+            correlation = round((n * sxy - sx * sy) / denom, 3)
+
+    return {
+        "dwlr_id": dwlr_id,
+        "latitude": lat,
+        "longitude": lon,
+        "start": start.date().isoformat(),
+        "end": end.date().isoformat(),
+        "series": series,
+        "rainfall_level_correlation": correlation,
+        "count": len(series),
+    }
+
+
 # --------------------------------------------------------------------------- hourly pumping vs level (Analysis page)
 @router.get("/hourly-pumping-vs-level")
 async def hourly_pumping_vs_level(

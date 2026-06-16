@@ -230,7 +230,7 @@ const EnhancedDashboard = () => {
               <p className={`text-[10px] tracking-[0.28em] font-semibold ${
                 isDarkMode ? 'text-cyan-300' : 'text-cyan-700'
               }`}>
-                CENTRAL GROUND WATER AUTHORITY · STATE POLLUTION CONTROL BOARD COMPLIANT
+                CENTRAL GROUND WATER AUTHORITY · STATE POLLUTION CONTROL BOARD · STATE GROUND WATER AUTHORITY COMPLIANT
               </p>
               <h2 className={`text-2xl md:text-3xl lg:text-4xl font-bold leading-tight ${text}`}>
                 Envirolytics Monitoring Console
