@@ -638,7 +638,7 @@
 }
 
 /* =====================================================================
-   Windmills (wind farm) — 3 turbines, prominent eco icon
+   Windmills (wind farm) — 3 blades pivot from a fixed center hub
    ===================================================================== */
 .env-windmill {
   position: absolute;
@@ -663,7 +663,7 @@
   filter: drop-shadow(0 3px 6px rgba(0,0,0,0.2));
 }
 .env-wm-tower::after {
-  /* tower base concrete pad */
+  /* concrete base pad */
   content: '';
   position: absolute;
   bottom: -2px;
@@ -675,46 +675,51 @@
   transform: translateX(-50%);
 }
 
+/* The rotor assembly sits at the top of the tower; its center IS the hub. */
 .env-wm-blades {
   position: absolute;
   bottom: var(--height, 130px);
   left: 50%;
-  width: 14px;
-  height: 14px;
-  transform: translate(-50%, 50%);
+  width: 1px;
+  height: 1px;
+  transform: translate(-50%, -50%);
   animation: env-wm-spin 2.4s linear infinite;
 }
-.env-wm-blades::before {
-  /* hub */
-  content: '';
+/* Static hub circle, painted at the same point — does NOT rotate */
+.env-windmill .env-wm-hub {
   position: absolute;
-  top: 50%;
+  bottom: var(--height, 130px);
   left: 50%;
-  width: 10px;
-  height: 10px;
-  background: #4d586c;
+  width: 12px;
+  height: 12px;
+  background: radial-gradient(circle at 35% 35%, #6b7689 0%, #3a4458 80%);
+  border: 1px solid #2a3346;
   border-radius: 50%;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, 50%);
   z-index: 2;
+  box-shadow: 0 0 2px rgba(0,0,0,0.4);
 }
+/* Each blade extends UPWARD from the hub. transform-origin at bottom-center
+   means rotation pivots exactly at the hub. */
 .env-wm-blades > span {
   position: absolute;
-  top: 50%;
-  left: 50%;
+  left: 0;
+  bottom: 0;
   width: 4px;
   height: var(--blade-len, 42px);
-  background: linear-gradient(180deg, #ffffff 0%, #d0d8e4 80%, #98a3b5 100%);
+  margin-left: -2px;       /* center the blade horizontally on the hub */
+  background: linear-gradient(180deg, #ffffff 0%, #d6dde9 70%, #98a3b5 100%);
   border-radius: 4px 4px 1px 1px;
-  transform-origin: top center;
-  transform: translate(-50%, -100%);
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
 }
-.env-wm-blades > span:nth-child(2) { transform: translate(-50%, -100%) rotate(120deg); transform-origin: top center; }
-.env-wm-blades > span:nth-child(3) { transform: translate(-50%, -100%) rotate(240deg); transform-origin: top center; }
-/* Rotate the whole assembly; the rotate() on individual blades is the starting offset */
-.env-wm-blades { animation: env-wm-spin 2.4s linear infinite; }
+.env-wm-blades > span:nth-child(1) { transform: rotate(0deg); }
+.env-wm-blades > span:nth-child(2) { transform: rotate(120deg); }
+.env-wm-blades > span:nth-child(3) { transform: rotate(240deg); }
+
 @keyframes env-wm-spin {
-  from { transform: translate(-50%, 50%) rotate(0deg); }
-  to   { transform: translate(-50%, 50%) rotate(360deg); }
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to   { transform: translate(-50%, -50%) rotate(360deg); }
 }
 .env-windmill.wm2 .env-wm-blades { animation-duration: 1.8s; }
 .env-windmill.wm3 .env-wm-blades { animation-duration: 2.9s; animation-direction: reverse; }

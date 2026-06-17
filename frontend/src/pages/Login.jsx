@@ -168,18 +168,21 @@ const Login = () => {
       <div className="env-grass" aria-hidden />
       <div className="env-grass-back" aria-hidden />
 
-      {/* Wind farm — 3 turbines of varying size, prominent against the meadow */}
+      {/* Wind farm — 3 turbines: hub stays fixed, 3 blades spin from center */}
       <div className="env-windmill wm1" aria-hidden>
         <div className="env-wm-tower" />
         <div className="env-wm-blades"><span /><span /><span /></div>
+        <div className="env-wm-hub" />
       </div>
       <div className="env-windmill wm2" aria-hidden>
         <div className="env-wm-tower" />
         <div className="env-wm-blades"><span /><span /><span /></div>
+        <div className="env-wm-hub" />
       </div>
       <div className="env-windmill wm3" aria-hidden>
         <div className="env-wm-tower" />
         <div className="env-wm-blades"><span /><span /><span /></div>
+        <div className="env-wm-hub" />
       </div>
 
       {/* Solar panels — additional eco touch */}
