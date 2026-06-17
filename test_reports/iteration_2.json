@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration-2 (visual polish + branding cleanup) verified end-to-end. ALL polish requirements PASS. Made-with-Emergent badge fully removed from / and /dashboard (and not present on any of the 9 authenticated routes). The emergent-main.js script tag and PostHog script tag are also absent from index.html. Login page enhanced cinematic scene renders every required element with the requested minimum counts (sun-rays=1, birds=4, butterflies=3, fireflies=5, ripples=6, rainbow=1, fish=3, turbine=1, env-login-card=1, login-scene=1). Premium font stack is fully loaded — document.fonts contains Plus Jakarta Sans, Inter and JetBrains Mono; body computed font-family is Inter and h1 is Plus Jakarta Sans (no Arial/Helvetica/system fallback). Regression checks from iteration-1 still PASS: login -> /dashboard works, all 9 authenticated routes (/dashboard, /analysis, /reports, /graph-report, /site, /user, /certificates, /instruments, /audit-log) navigate without bouncing to login, hard reload on /dashboard preserves session, ErrorBoundary fallback never appears, and POST /api/auth/change-password with wrong current_password returns 401 while localStorage envirolytics_token is preserved (smart 401 interceptor still narrowed correctly). Backend smoke (login, /auth/me, /flowmeter/latest, /flowmeter/status, /flowmeter-mgmt/categories, /instruments/all/latest, /admin/users/locations) returns 2xx with admin bearer.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard hero KPI strip (top-right of /dashboard — FLOWMETERS / DWLRS / STREAM / SERVER TIME)", "issues": ["This top-right KPI bar (rendered by the dashboard layout, not EnhancedDashboard.jsx) does NOT carry data-numeric='true' or tabular-nums, so its numerals render in Plus Jakarta Sans / Inter instead of JetBrains Mono. EnhancedDashboard.jsx has the attribute correctly on its own three tiles (lines 249/253/263), but the visible hero strip seen in the screenshot is a different component. Low-priority polish — for the government demo it'd be a nice consistency win to add data-numeric='true' (and tabular-nums) to the hero-stat-flowmeters / hero-stat-dwlr / hero-stat-mqtt / hero-stat-time value spans so the digits also render in JetBrains Mono."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2_smoke.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional polish) Add data-numeric='true' (or className 'tabular-nums') to the visible hero KPI value spans (hero-stat-flowmeters, hero-stat-dwlr, hero-stat-mqtt, hero-stat-time) so those numerals also pick up JetBrains Mono via the index.css rule. EnhancedDashboard.jsx tiles already have it — apply the same pattern in the hero component."
+  ],
+  "critical_code_review_comments": [
+    "Badge/branding removal is clean: /app/frontend/public/index.html has no #emergent-badge, no emergent-main.js, no posthog references — verified by grep and DOM inspection on both / and /dashboard.",
+    "Login scene is implemented as pure CSS animations in /app/frontend/src/styles/login-scene.css and DOM nodes in Login.jsx (27 class hits). No JS animation loop, so no perf regression — runs on GPU compositor.",
+    "Typography wiring is solid: Google Fonts preconnect+preload in index.html, CSS variables --font-display / --font-body / --font-mono in index.css, and a global selector '.font-mono, .tabular-nums, [data-numeric=\"true\"]' applies JetBrains Mono with tabular-nums. The only gap is that the visible hero KPI strip is a separate component not yet decorated with data-numeric.",
+    "Smart 401 interceptor in /app/frontend/src/lib/api.js continues to behave correctly: wrong current_password returns 401 -> token preserved -> user stays on /dashboard (verified via live fetch from page context).",
+    "ErrorBoundary still wraps <Routes> inside <AuthGate>; no fallback triggered while traversing all 9 routes."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration2_smoke.py"],
+  "success_rate": {"backend": "100% (2/2 iter-2 smoke tests, 6/6 review-request endpoints 200, change-password 401-as-expected)", "frontend": "100% on functional + branding + scene; 1 cosmetic note on hero KPI font"},
+  "test_credentials": "admin@envirolytics.com / Admin@Envirolytics2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None (smoke-only iteration). Pre-existing TEST_-prefixed teardown unchanged.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration-2 verified: (1) Made-with-Emergent badge + emergent-main.js + PostHog all stripped; (2) Login cinematic scene fully renders with required min counts; (3) Plus Jakarta Sans / Inter / JetBrains Mono loaded and applied (body=Inter, h1=Plus Jakarta Sans). All iteration-1 regressions (auto-logout, ErrorBoundary, 401-token-preservation) still hold. Only outstanding micro-polish: dashboard hero KPI strip lacks data-numeric attribute so digits use display font instead of JetBrains Mono.",
+  "rca of the issue": "N/A — no bugs found this iteration. The single design-polish note is a missing data-numeric attribute on a sibling hero KPI component (EnhancedDashboard.jsx tiles have it; the always-visible top-right hero strip does not)."
+}

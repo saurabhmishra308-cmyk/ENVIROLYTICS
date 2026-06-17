@@ -246,21 +246,21 @@ const EnhancedDashboard = () => {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:min-w-[480px]">
               <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-flowmeters">
                 <p className={`text-[10px] uppercase tracking-widest ${muted}`}>Flowmeters</p>
-                <p className={`text-2xl font-bold ${text}`}>{aggList.length}</p>
+                <p className={`text-2xl font-bold tabular-nums ${text}`} data-numeric="true">{aggList.length}</p>
               </div>
               <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-dwlr">
                 <p className={`text-[10px] uppercase tracking-widest ${muted}`}>DWLRs</p>
-                <p className={`text-2xl font-bold ${text}`}>{byType.dwlr.length}</p>
+                <p className={`text-2xl font-bold tabular-nums ${text}`} data-numeric="true">{byType.dwlr.length}</p>
               </div>
               <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-mqtt">
                 <p className={`text-[10px] uppercase tracking-widest ${muted}`}>Stream</p>
-                <p className={`text-2xl font-bold ${mqttStatus.connected ? 'text-emerald-500' : 'text-red-500'}`}>
+                <p className={`text-2xl font-bold tracking-wider ${mqttStatus.connected ? 'text-emerald-500' : 'text-red-500'}`}>
                   {mqttStatus.connected ? 'LIVE' : 'OFFLINE'}
                 </p>
               </div>
               <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-time">
                 <p className={`text-[10px] uppercase tracking-widest ${muted}`}>Server time</p>
-                <p className={`text-2xl font-bold ${text}`}>
+                <p className={`text-2xl font-bold tabular-nums ${text}`} data-numeric="true">
                   {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </p>
               </div>

@@ -101,13 +101,29 @@ const Login = () => {
 
   return (
     <div className="env-scene" data-testid="login-scene">
-      {/* Sky / sun */}
+      {/* Sky / sun + animated god-rays */}
+      <div className="env-sun-rays" aria-hidden />
       <div className="env-sun" aria-hidden />
 
-      {/* Clouds (air) */}
-      <div className="env-cloud" style={{ '--top': '8%',  '--dur': '55s', '--delay': '-5s'  }} aria-hidden />
-      <div className="env-cloud" style={{ '--top': '18%', '--dur': '70s', '--delay': '-30s' }} aria-hidden />
-      <div className="env-cloud" style={{ '--top': '28%', '--dur': '60s', '--delay': '-15s' }} aria-hidden />
+      {/* Rainbow appears after the storm */}
+      <div className="env-rainbow" aria-hidden />
+
+      {/* Clouds (air) — varied size/speed */}
+      <div className="env-cloud" style={{ '--top': '8%',  '--dur': '55s', '--delay': '-5s',  '--w': '210px', '--h': '64px' }} aria-hidden />
+      <div className="env-cloud" style={{ '--top': '18%', '--dur': '70s', '--delay': '-30s', '--w': '170px', '--h': '54px' }} aria-hidden />
+      <div className="env-cloud" style={{ '--top': '28%', '--dur': '60s', '--delay': '-15s', '--w': '230px', '--h': '72px' }} aria-hidden />
+      <div className="env-cloud" style={{ '--top': '5%',  '--dur': '85s', '--delay': '-50s', '--w': '150px', '--h': '46px' }} aria-hidden />
+
+      {/* Birds — V-shape silhouettes flying across */}
+      <div className="env-bird b1" aria-hidden />
+      <div className="env-bird b2" aria-hidden />
+      <div className="env-bird b3" aria-hidden />
+      <div className="env-bird b4" aria-hidden />
+
+      {/* Butterflies — zigzag flight near the meadow */}
+      <div className="env-butterfly bf1" aria-hidden />
+      <div className="env-butterfly bf2" aria-hidden />
+      <div className="env-butterfly bf3" aria-hidden />
 
       {/* Floating leaves */}
       <div className="env-leaf l1" aria-hidden />
@@ -115,6 +131,13 @@ const Login = () => {
       <div className="env-leaf l3" aria-hidden />
       <div className="env-leaf l4" aria-hidden />
       <div className="env-leaf l5" aria-hidden />
+
+      {/* Fireflies — show during the dim/storm phase */}
+      <div className="env-firefly f1" aria-hidden />
+      <div className="env-firefly f2" aria-hidden />
+      <div className="env-firefly f3" aria-hidden />
+      <div className="env-firefly f4" aria-hidden />
+      <div className="env-firefly f5" aria-hidden />
 
       {/* Air sparkles / pollen */}
       <div className="env-particle x1" aria-hidden />
@@ -165,38 +188,56 @@ const Login = () => {
       {/* Horizontal flowing water on top of the wave band */}
       <div className="env-water-flow" aria-hidden />
 
+      {/* Expanding water ripples */}
+      <div className="env-ripple r1" aria-hidden />
+      <div className="env-ripple r2" aria-hidden />
+      <div className="env-ripple r3" aria-hidden />
+      <div className="env-ripple r4" aria-hidden />
+      <div className="env-ripple r5" aria-hidden />
+      <div className="env-ripple r6" aria-hidden />
+
+      {/* Fish that leap from the water on the cycle */}
+      <div className="env-fish fi1" aria-hidden />
+      <div className="env-fish fi2" aria-hidden />
+      <div className="env-fish fi3" aria-hidden />
+
+      {/* Wind turbine — appears after the storm with mature ecosystem */}
+      <div className="env-turbine" aria-hidden>
+        <div className="env-turbine-head" />
+        <div className="env-turbine-blades"><span className="env-turbine-blade-3" /></div>
+      </div>
+
       {/* Foreground login card */}
       <div className="relative z-10 min-h-screen flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-md">
           <div
-            className="rounded-2xl shadow-2xl p-8 backdrop-blur-sm"
-            style={{ backgroundColor: 'rgba(26, 35, 50, 0.92)' }}
+            className="env-login-card"
             data-testid="login-card"
           >
-            <div className="text-center mb-8">
+            <div className="text-center mb-8 relative z-[1]">
               <div className="mb-4">
-                <h1 className="text-white font-bold text-2xl tracking-wide" style={{ color: '#4a9fd8' }}>ENVIROLYTICS</h1>
-                <p className="text-white text-[10px] tracking-wider font-light" style={{ opacity: 0.8 }}>SUSTAINABILITY PRIVATE LIMITED</p>
+                <h1 className="env-brand text-2xl" style={{ color: '#4a9fd8' }}>ENVIROLYTICS</h1>
+                <p className="env-brand-sub text-white text-[10px] font-light mt-1" style={{ opacity: 0.7 }}>SUSTAINABILITY  ·  PRIVATE  ·  LIMITED</p>
               </div>
             </div>
 
-            <h2 className="text-white text-center text-lg mb-6">Sign in to your account!</h2>
+            <h2 className="text-white text-center text-lg mb-6 font-medium relative z-[1] tracking-normal">Sign in to your account</h2>
 
             {error && (
-              <div className="bg-red-500 text-white text-sm px-4 py-2 rounded mb-4 text-center" data-testid="login-error">
+              <div className="bg-red-500/95 text-white text-sm px-4 py-2 rounded mb-4 text-center relative z-[1] shadow-lg" data-testid="login-error">
                 {error}
               </div>
             )}
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} className="relative z-[1]">
               <div className="mb-4">
-                <Label htmlFor="email" className="text-white text-sm mb-2 block">Email</Label>
+                <Label htmlFor="email" className="text-white/90 text-xs uppercase tracking-wider mb-2 block font-semibold">Email</Label>
                 <Input
                   id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-white border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-sm"
+                  className="w-full text-sm px-3 py-2 rounded-md"
                   placeholder="admin@envirolytics.com"
                   data-testid="login-email-input"
                   autoComplete="email"
@@ -204,14 +245,14 @@ const Login = () => {
               </div>
 
               <div className="mb-6">
-                <Label htmlFor="password" className="text-white text-sm mb-2 block">Password</Label>
+                <Label htmlFor="password" className="text-white/90 text-xs uppercase tracking-wider mb-2 block font-semibold">Password</Label>
                 <Input
                   id="password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-white border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-sm"
-                  placeholder=""
+                  className="w-full text-sm px-3 py-2 rounded-md"
+                  placeholder="••••••••"
                   data-testid="login-password-input"
                   autoComplete="current-password"
                 />
@@ -221,8 +262,7 @@ const Login = () => {
                 <Button
                   type="submit"
                   disabled={submitting}
-                  className="px-8 py-2 rounded-sm text-white font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
-                  style={{ backgroundColor: '#f5a623' }}
+                  className="env-submit text-white disabled:opacity-60"
                   data-testid="login-submit-button"
                 >
                   {submitting ? (
@@ -234,16 +274,16 @@ const Login = () => {
               </div>
             </form>
 
-            <div className="text-center mb-4">
-              <Link to="/policies" className="text-white text-sm inline-flex items-center gap-1 hover:underline">
+            <div className="text-center mb-3 relative z-[1]">
+              <Link to="/policies" className="text-white/85 text-sm inline-flex items-center gap-1 hover:text-white hover:underline transition-colors">
                 <FileText size={14} /> Policies
               </Link>
             </div>
 
-            <div className="text-center text-gray-400 text-xs">version 1.0</div>
+            <div className="text-center text-gray-400/80 text-[11px] tracking-wider relative z-[1]">VERSION 1.0  ·  SECURE LOGIN</div>
           </div>
-          <p className="mt-4 text-center text-[11px] text-gray-600 tracking-wide">
-            Real-time monitoring for soil · water · air · biodiversity
+          <p className="mt-4 text-center text-[11px] text-gray-700/70 tracking-wide font-medium">
+            Real-time monitoring for soil  ·  water  ·  air  ·  biodiversity
           </p>
         </div>
       </div>

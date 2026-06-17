@@ -1,127 +1,239 @@
-/* Animated environmental scene for the login page —
-   pure CSS, zero deps, GPU-accelerated (transform + opacity only).
+/* =====================================================================
+   Envirolytics Monitor — Cinematic Login Scene
+   Pure CSS + inline SVG, GPU-accelerated (transform + opacity only).
 
-   Storyline cycle (24 seconds total):
-     0-6s   : clear sky · seedlings · clouds drift in
-     6-12s  : rain falls from the clouds, water level rises
-     12-18s : plants grow into trees (post-rain)
-     18-24s : trees mature, leaves fall, then loop
-*/
+   24-second storyline cycle:
+     0-6s    : Dawn, clear sky, sun rises, birds fly, butterflies, fireflies
+     6-12s   : Storm clouds gather, rain falls with lightning, water rises
+     12-18s  : Rainbow appears, plants surge into trees, fish leap
+     18-24s  : Full mature ecosystem, wind turbine spins, then resets
+
+   All keyframes use transform/opacity for 60fps performance.
+   ===================================================================== */
 
 .env-scene {
   position: relative;
   min-height: 100vh;
   overflow: hidden;
   background:
-    radial-gradient(1200px 600px at 80% -10%, #cfeafd 0%, transparent 60%),
-    radial-gradient(900px  500px at -10% 110%, #d9efd0 0%, transparent 60%),
-    linear-gradient(180deg, #eaf6ff 0%, #f5f8e9 60%, #e7d9c3 100%);
+    /* warm dawn radial in the upper right */
+    radial-gradient(1400px 700px at 80% -10%, #ffe8c2 0%, transparent 55%),
+    /* cool meadow glow lower-left */
+    radial-gradient(1100px 600px at -10% 105%, #d9efd0 0%, transparent 60%),
+    /* sky → meadow → soil gradient */
+    linear-gradient(180deg, #d9eefb 0%, #eaf6ff 35%, #f5f8e9 65%, #e7d9c3 100%);
 }
 
-/* Sun ─────────────────────────────────────────────── */
+/* =====================================================================
+   Sun — pulsing core + animated god-rays
+   ===================================================================== */
 .env-sun {
   position: absolute;
   top: 6%;
-  right: 8%;
-  width: 110px;
-  height: 110px;
+  right: 10%;
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #fff7d6 0%, #f5b942 60%, #e08a18 100%);
-  box-shadow: 0 0 80px 20px rgba(245, 185, 66, 0.35);
-  animation: env-sun-pulse 6s ease-in-out infinite;
+  background: radial-gradient(circle at 32% 32%, #fff8d8 0%, #ffd166 40%, #f5a623 70%, #e08a18 100%);
+  box-shadow:
+    0 0 90px 24px rgba(255, 199, 100, 0.45),
+    0 0 180px 60px rgba(245, 185, 66, 0.18);
+  z-index: 2;
+  animation:
+    env-sun-pulse 6s ease-in-out infinite,
+    env-sun-dim 24s linear infinite;
 }
 @keyframes env-sun-pulse {
-  0%, 100% { transform: scale(1);   box-shadow: 0 0 80px 20px rgba(245, 185, 66, 0.35); }
-  50%      { transform: scale(1.05); box-shadow: 0 0 110px 26px rgba(245, 185, 66, 0.5); }
+  0%, 100% { transform: scale(1);   box-shadow: 0 0 90px 24px rgba(255, 199, 100, 0.45), 0 0 180px 60px rgba(245, 185, 66, 0.18); }
+  50%      { transform: scale(1.06); box-shadow: 0 0 120px 32px rgba(255, 199, 100, 0.6), 0 0 220px 80px rgba(245, 185, 66, 0.28); }
+}
+@keyframes env-sun-dim {
+  0%, 18%   { filter: brightness(1)    saturate(1); opacity: 1; }
+  24%, 46%  { filter: brightness(0.4)  saturate(0.6); opacity: 0.7; }
+  52%, 100% { filter: brightness(1)    saturate(1); opacity: 1; }
 }
 
-/* Clouds (air) ────────────────────────────────────── */
+/* Sun rays — conical light beams sweeping subtly */
+.env-sun-rays {
+  position: absolute;
+  top: 6%;
+  right: 10%;
+  width: 120px;
+  height: 120px;
+  pointer-events: none;
+  z-index: 1;
+  transform-origin: center;
+  animation:
+    env-rays-spin 60s linear infinite,
+    env-sun-dim 24s linear infinite;
+}
+.env-sun-rays::before,
+.env-sun-rays::after {
+  content: '';
+  position: absolute;
+  inset: -160px;
+  background:
+    conic-gradient(from 0deg,
+      transparent 0deg,
+      rgba(255, 220, 140, 0.16) 6deg,
+      transparent 12deg,
+      rgba(255, 220, 140, 0.10) 30deg,
+      transparent 38deg,
+      rgba(255, 220, 140, 0.18) 70deg,
+      transparent 76deg,
+      rgba(255, 220, 140, 0.12) 110deg,
+      transparent 118deg,
+      rgba(255, 220, 140, 0.16) 160deg,
+      transparent 168deg,
+      rgba(255, 220, 140, 0.10) 210deg,
+      transparent 218deg,
+      rgba(255, 220, 140, 0.16) 260deg,
+      transparent 268deg,
+      rgba(255, 220, 140, 0.12) 310deg,
+      transparent 318deg,
+      transparent 360deg);
+  border-radius: 50%;
+  filter: blur(4px);
+  mix-blend-mode: screen;
+}
+.env-sun-rays::after { animation: env-rays-spin 90s linear infinite reverse; opacity: 0.5; }
+@keyframes env-rays-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* =====================================================================
+   Clouds — multiple shapes & sizes
+   ===================================================================== */
 .env-cloud {
   position: absolute;
   top: var(--top, 10%);
-  left: -200px;
-  width: 180px;
-  height: 60px;
-  background: rgba(255, 255, 255, 0.85);
+  left: -240px;
+  width: var(--w, 200px);
+  height: var(--h, 64px);
+  background: rgba(255, 255, 255, 0.92);
   border-radius: 60px;
-  filter: drop-shadow(0 6px 14px rgba(70, 110, 150, 0.2));
-  animation: env-cloud-float var(--dur, 40s) linear infinite;
+  filter: drop-shadow(0 8px 16px rgba(70, 110, 150, 0.18));
+  animation: env-cloud-float var(--dur, 50s) linear infinite;
   animation-delay: var(--delay, 0s);
+  z-index: 3;
 }
 .env-cloud::before,
 .env-cloud::after {
   content: '';
   position: absolute;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.92);
   border-radius: 50%;
 }
 .env-cloud::before { width: 90px;  height: 90px; top: -38px; left: 24px;  }
 .env-cloud::after  { width: 70px;  height: 70px; top: -24px; left: 90px; }
 @keyframes env-cloud-float {
   0%   { transform: translateX(0); }
-  100% { transform: translateX(calc(100vw + 250px)); }
+  100% { transform: translateX(calc(100vw + 280px)); }
 }
 
-/* Soil / ground band ──────────────────────────────── */
+/* =====================================================================
+   Soil + Grass band
+   ===================================================================== */
 .env-soil {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 80px;
+  height: 90px;
+  z-index: 4;
   background:
-    radial-gradient(circle at 20% 30%, rgba(0,0,0,0.10) 0 6px, transparent 7px),
-    radial-gradient(circle at 60% 60%, rgba(0,0,0,0.08) 0 4px, transparent 5px),
-    radial-gradient(circle at 85% 20%, rgba(0,0,0,0.10) 0 5px, transparent 6px),
-    linear-gradient(180deg, #b08956 0%, #7c5a36 100%);
+    radial-gradient(circle at 18% 32%, rgba(0,0,0,0.10) 0 6px, transparent 7px),
+    radial-gradient(circle at 60% 62%, rgba(0,0,0,0.08) 0 4px, transparent 5px),
+    radial-gradient(circle at 85% 22%, rgba(0,0,0,0.10) 0 5px, transparent 6px),
+    linear-gradient(180deg, #b48a55 0%, #845a2e 100%);
   background-size: 60px 60px, 40px 40px, 80px 80px, 100% 100%;
 }
 
-/* Grass ───────────────────────────────────────────── */
 .env-grass {
   position: absolute;
-  bottom: 60px;
+  bottom: 70px;
   left: 0;
   right: 0;
-  height: 30px;
+  height: 34px;
   pointer-events: none;
+  z-index: 5;
   background:
     linear-gradient(to top,
       transparent 0%,
-      transparent 65%,
-      #5fa14a 65%,
-      #5fa14a 70%,
-      transparent 70%);
-  background-size: 8px 100%;
+      transparent 60%,
+      #5fa14a 60%,
+      #5fa14a 68%,
+      transparent 68%);
+  background-size: 9px 100%;
   filter: drop-shadow(0 -1px 0 rgba(0,0,0,0.05));
   animation: env-grass-sway 5s ease-in-out infinite alternate;
   transform-origin: bottom center;
 }
 @keyframes env-grass-sway {
-  0%   { transform: skewX(-1.5deg); }
-  100% { transform: skewX(1.5deg);  }
+  0%   { transform: skewX(-1.8deg); }
+  100% { transform: skewX(1.8deg);  }
 }
 
-/* Plants ──────────────────────────────────────────── */
+/* =====================================================================
+   Plants + Trees (grow with storyline)
+   ===================================================================== */
 .env-plant {
   position: absolute;
-  bottom: 60px;
+  bottom: 70px;
   width: 70px;
   height: 100px;
   pointer-events: none;
   transform-origin: bottom center;
-  animation: env-plant-sway 4s ease-in-out infinite alternate;
+  z-index: 6;
+  animation:
+    env-plant-sway 4s ease-in-out infinite alternate,
+    env-plant-grow 24s ease-in-out infinite;
 }
 .env-plant.p1 { left: 8%;  animation-delay: -0.6s; }
 .env-plant.p2 { left: 22%; transform: scale(0.85); animation-delay: -1.4s; }
 .env-plant.p3 { right: 15%; animation-delay: -2.1s; }
-.env-plant.p4 { right: 6%; transform: scale(0.7); animation-delay: -0.3s; }
+.env-plant.p4 { right: 6%;  transform: scale(0.7); animation-delay: -0.3s; }
 @keyframes env-plant-sway {
   0%   { transform: rotate(-3deg); }
   100% { transform: rotate(3deg);  }
 }
+@keyframes env-plant-grow {
+  0%, 25%  { transform: scale(0.55) translateY(0) rotate(0deg); }
+  45%      { transform: scale(0.7)  translateY(0); }
+  60%      { transform: scale(0.95) translateY(0); }
+  75%, 95% { transform: scale(1)    translateY(0); }
+  100%     { transform: scale(0.55) translateY(0); }
+}
 
-/* Falling leaves ──────────────────────────────────── */
+.env-tree {
+  position: absolute;
+  bottom: 70px;
+  width: 140px;
+  height: 200px;
+  pointer-events: none;
+  transform-origin: bottom center;
+  opacity: 0;
+  z-index: 6;
+  animation:
+    env-tree-emerge 24s ease-in-out infinite,
+    env-plant-sway   6s ease-in-out infinite alternate;
+  filter: drop-shadow(0 10px 18px rgba(0,0,0,0.25));
+}
+.env-tree.t1 { left:  3%; }
+.env-tree.t2 { left: 19%; }
+.env-tree.t3 { right: 13%; }
+.env-tree.t4 { right: 2%; }
+@keyframes env-tree-emerge {
+  0%, 55%   { opacity: 0; transform: scale(0.55) translateY(20px); }
+  68%       { opacity: 0.8; }
+  75%, 95%  { opacity: 1; transform: scale(1) translateY(0); }
+  100%      { opacity: 0; transform: scale(0.55) translateY(20px); }
+}
+
+/* =====================================================================
+   Falling leaves
+   ===================================================================== */
 .env-leaf {
   position: absolute;
   top: -40px;
@@ -130,17 +242,18 @@
   background: #5fa14a;
   border-radius: 0 100% 0 100%;
   opacity: 0.85;
+  z-index: 7;
   animation:
     env-leaf-fall var(--fall-dur, 12s) linear infinite,
     env-leaf-spin var(--spin-dur,  3s) linear infinite;
   animation-delay: var(--delay, 0s);
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18));
 }
-.env-leaf.l1 { left:  8%;  --fall-dur: 14s; --spin-dur: 3.2s; --delay: -1s;   background: #5fa14a; }
-.env-leaf.l2 { left: 25%;  --fall-dur: 11s; --spin-dur: 2.6s; --delay: -4s;   background: #7ab050; }
-.env-leaf.l3 { left: 45%;  --fall-dur: 16s; --spin-dur: 3.8s; --delay: -8s;   background: #a3b744; }
-.env-leaf.l4 { left: 65%;  --fall-dur: 13s; --spin-dur: 2.9s; --delay: -3s;   background: #4f8b3f; }
-.env-leaf.l5 { left: 82%;  --fall-dur: 12s; --spin-dur: 3.4s; --delay: -6s;   background: #6cb24a; }
+.env-leaf.l1 { left:  8%; --fall-dur: 14s; --spin-dur: 3.2s; --delay: -1s;  background: #5fa14a; }
+.env-leaf.l2 { left: 25%; --fall-dur: 11s; --spin-dur: 2.6s; --delay: -4s;  background: #7ab050; }
+.env-leaf.l3 { left: 45%; --fall-dur: 16s; --spin-dur: 3.8s; --delay: -8s;  background: #a3b744; }
+.env-leaf.l4 { left: 65%; --fall-dur: 13s; --spin-dur: 2.9s; --delay: -3s;  background: #4f8b3f; }
+.env-leaf.l5 { left: 82%; --fall-dur: 12s; --spin-dur: 3.4s; --delay: -6s;  background: #6cb24a; }
 @keyframes env-leaf-fall {
   0%   { transform: translate(0, -40px); }
   100% { transform: translate(60px, calc(100vh + 40px)); }
@@ -150,15 +263,18 @@
   100% { rotate: 360deg; }
 }
 
-/* Water waves at the bottom of the soil band ─────── */
+/* =====================================================================
+   Water (waves + horizontal flow + animated ripples)
+   ===================================================================== */
 .env-water {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 60px;
+  height: 70px;
   overflow: hidden;
   pointer-events: none;
+  z-index: 8;
 }
 .env-water-band {
   position: absolute;
@@ -166,13 +282,13 @@
   left: -50%;
   width: 200%;
   height: 100%;
-  background: linear-gradient(180deg, rgba(74, 159, 216, 0.55), rgba(39, 116, 174, 0.75));
+  background: linear-gradient(180deg, rgba(74, 159, 216, 0.6), rgba(39, 116, 174, 0.85));
   border-radius: 45% 45% 0 0 / 30% 30% 0 0;
   animation: env-water-wave var(--dur, 9s) ease-in-out infinite;
 }
 .env-water-band.w2 {
   bottom: -10px;
-  background: linear-gradient(180deg, rgba(74, 159, 216, 0.35), rgba(20, 90, 150, 0.65));
+  background: linear-gradient(180deg, rgba(74, 159, 216, 0.4), rgba(20, 90, 150, 0.7));
   --dur: 12s;
   animation-delay: -3s;
 }
@@ -181,23 +297,90 @@
   50%      { transform: translateX(2%)   scaleY(1.05); }
 }
 
-/* Floating air particles (pollen / sparkle) ──────── */
+/* Horizontal stream sparkles */
+.env-water-flow {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  height: 30px;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 0.75;
+  z-index: 9;
+}
+.env-water-flow::before,
+.env-water-flow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(8px 4px at  20px 12px, rgba(255,255,255,0.7), transparent 60%),
+    radial-gradient(10px 4px at  80px 18px, rgba(255,255,255,0.55), transparent 60%),
+    radial-gradient(6px  3px at 160px 10px, rgba(255,255,255,0.65), transparent 60%),
+    radial-gradient(12px 4px at 240px 16px, rgba(255,255,255,0.5),  transparent 60%),
+    radial-gradient(8px  3px at 320px 12px, rgba(255,255,255,0.75), transparent 60%);
+  background-repeat: repeat-x;
+  background-size: 400px 30px;
+  animation: env-water-stream 12s linear infinite;
+}
+.env-water-flow::after {
+  animation-duration: 20s;
+  opacity: 0.6;
+  transform: translateY(8px);
+}
+@keyframes env-water-stream {
+  0%   { background-position-x: 0; }
+  100% { background-position-x: 400px; }
+}
+
+/* Expanding ripple rings on the water surface */
+.env-ripple {
+  position: absolute;
+  bottom: 24px;
+  width: 20px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 9;
+  animation: env-ripple-expand var(--dur, 4s) ease-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+.env-ripple.r1 { left: 18%; --dur: 4s;   --delay: -0.5s; }
+.env-ripple.r2 { left: 38%; --dur: 5s;   --delay: -2.2s; }
+.env-ripple.r3 { left: 58%; --dur: 4.6s; --delay: -1.0s; }
+.env-ripple.r4 { left: 78%; --dur: 5.4s; --delay: -3.0s; }
+.env-ripple.r5 { left: 28%; --dur: 6s;   --delay: -1.7s; }
+.env-ripple.r6 { left: 68%; --dur: 4.2s; --delay: -3.6s; }
+@keyframes env-ripple-expand {
+  0%   { transform: scale(0.4); opacity: 0; border-width: 2px; }
+  20%  { opacity: 0.85; }
+  100% { transform: scale(4);   opacity: 0; border-width: 0.5px; }
+}
+
+/* =====================================================================
+   Air particles (pollen / fireflies)
+   ===================================================================== */
 .env-particle {
   position: absolute;
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 6px 2px rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 8px 3px rgba(255, 255, 255, 0.65);
   top: 100vh;
+  pointer-events: none;
+  z-index: 7;
   animation: env-particle-rise var(--dur, 18s) linear infinite;
   animation-delay: var(--delay, 0s);
 }
 .env-particle.x1 { left:  5%; --dur: 20s; --delay: -2s; }
 .env-particle.x2 { left: 18%; --dur: 16s; --delay: -7s; }
-.env-particle.x3 { left: 35%; --dur: 22s; --delay: -3s; background: rgba(245, 185, 66, 0.85); }
+.env-particle.x3 { left: 35%; --dur: 22s; --delay: -3s; background: rgba(255, 220, 120, 0.95); box-shadow: 0 0 10px 4px rgba(255, 220, 120, 0.7); }
 .env-particle.x4 { left: 58%; --dur: 14s; --delay: -10s; }
-.env-particle.x5 { left: 78%; --dur: 19s; --delay: -5s; background: rgba(95, 161, 74, 0.85); }
+.env-particle.x5 { left: 78%; --dur: 19s; --delay: -5s; background: rgba(140, 220, 140, 0.95); box-shadow: 0 0 10px 4px rgba(140, 220, 140, 0.7); }
 .env-particle.x6 { left: 90%; --dur: 24s; --delay: -1s; }
 @keyframes env-particle-rise {
   0%   { transform: translate(0,  0)    scale(1);   opacity: 0; }
@@ -206,32 +389,286 @@
   100% { transform: translate(40px, -110vh) scale(0.5); opacity: 0; }
 }
 
-/* Reduce motion ───────────────────────────────────── */
-@media (prefers-reduced-motion: reduce) {
-  .env-sun,
-  .env-cloud,
-  .env-grass,
-  .env-plant,
-  .env-leaf,
-  .env-water-band,
-  .env-particle,
-  .env-rain,
-  .env-tree {
-    animation: none !important;
-  }
+/* =====================================================================
+   Fireflies (slow drift, gentle blink) — only visible in dim parts of cycle
+   ===================================================================== */
+.env-firefly {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff3a8;
+  box-shadow: 0 0 10px 4px rgba(255, 230, 130, 0.8);
+  pointer-events: none;
+  z-index: 7;
+  opacity: 0;
+  animation:
+    env-firefly-drift var(--dur, 14s) ease-in-out infinite,
+    env-firefly-blink 2.4s ease-in-out infinite,
+    env-firefly-cycle 24s linear infinite;
+  animation-delay: var(--delay, 0s), var(--blink-delay, 0s), var(--cycle-delay, 0s);
+}
+.env-firefly.f1 { left: 12%; top: 55%; --dur: 16s; --delay: -1s;  --blink-delay: -0.5s; }
+.env-firefly.f2 { left: 30%; top: 62%; --dur: 14s; --delay: -4s;  --blink-delay: -1.1s; }
+.env-firefly.f3 { left: 48%; top: 50%; --dur: 18s; --delay: -2s;  --blink-delay: -1.8s; }
+.env-firefly.f4 { left: 66%; top: 60%; --dur: 15s; --delay: -6s;  --blink-delay: -0.3s; }
+.env-firefly.f5 { left: 84%; top: 58%; --dur: 17s; --delay: -3s;  --blink-delay: -1.4s; }
+@keyframes env-firefly-drift {
+  0%, 100% { transform: translate(0, 0); }
+  25%      { transform: translate(20px, -14px); }
+  50%      { transform: translate(-12px, -28px); }
+  75%      { transform: translate(14px, -10px); }
+}
+@keyframes env-firefly-blink {
+  0%, 100% { box-shadow: 0 0 6px 2px rgba(255, 230, 130, 0.45); }
+  50%      { box-shadow: 0 0 14px 6px rgba(255, 230, 130, 0.95); }
+}
+@keyframes env-firefly-cycle {
+  /* Fireflies fade in during the dim/storm phase */
+  0%, 18%  { opacity: 0; }
+  24%, 50% { opacity: 1; }
+  56%, 100%{ opacity: 0; }
 }
 
-/* =================================================== */
-/* Storm overlay — darkens the whole scene during rain  */
-/* =================================================== */
+/* =====================================================================
+   Birds — proper seagull silhouettes via SVG mask, fly across the sky
+   ===================================================================== */
+.env-bird {
+  position: absolute;
+  top: var(--top, 15%);
+  left: -60px;
+  width: 36px;
+  height: 18px;
+  pointer-events: none;
+  z-index: 3;
+  background-color: #2c3e50;
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 18'><path d='M0 14 C 6 4, 12 1, 18 8 C 24 1, 30 4, 36 14 C 30 9, 24 10, 18 12 C 12 10, 6 9, 0 14 Z'/></svg>");
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 18'><path d='M0 14 C 6 4, 12 1, 18 8 C 24 1, 30 4, 36 14 C 30 9, 24 10, 18 12 C 12 10, 6 9, 0 14 Z'/></svg>");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  animation: env-bird-fly var(--dur, 28s) linear infinite, env-bird-flap 0.45s ease-in-out infinite alternate;
+  animation-delay: var(--delay, 0s), 0s;
+  transform: scale(var(--scale, 1));
+}
+.env-bird.b1 { --top: 14%; --dur: 30s; --delay: -2s;  --scale: 1; }
+.env-bird.b2 { --top: 22%; --dur: 38s; --delay: -10s; --scale: 0.65; }
+.env-bird.b3 { --top: 18%; --dur: 34s; --delay: -18s; --scale: 0.85; }
+.env-bird.b4 { --top: 11%; --dur: 42s; --delay: -25s; --scale: 0.55; }
+@keyframes env-bird-fly {
+  0%   { transform: translate(0, 0) scale(var(--scale, 1)); }
+  50%  { transform: translate(50vw, -12px) scale(var(--scale, 1)); }
+  100% { transform: translate(112vw, 30px) scale(var(--scale, 1)); }
+}
+@keyframes env-bird-flap {
+  0%   { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 18'><path d='M0 14 C 6 4, 12 1, 18 8 C 24 1, 30 4, 36 14 C 30 9, 24 10, 18 12 C 12 10, 6 9, 0 14 Z'/></svg>");
+          mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 18'><path d='M0 14 C 6 4, 12 1, 18 8 C 24 1, 30 4, 36 14 C 30 9, 24 10, 18 12 C 12 10, 6 9, 0 14 Z'/></svg>"); }
+  100% { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 18'><path d='M0 10 C 6 11, 12 11, 18 9 C 24 11, 30 11, 36 10 C 30 13, 24 12, 18 13 C 12 12, 6 13, 0 10 Z'/></svg>");
+          mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 18'><path d='M0 10 C 6 11, 12 11, 18 9 C 24 11, 30 11, 36 10 C 30 13, 24 12, 18 13 C 12 12, 6 13, 0 10 Z'/></svg>"); }
+}
+
+/* =====================================================================
+   Butterflies (zigzag flight)
+   ===================================================================== */
+.env-butterfly {
+  position: absolute;
+  top: var(--top, 50%);
+  left: var(--left, 10%);
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  z-index: 7;
+  animation: env-butterfly-path var(--dur, 18s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+.env-butterfly::before,
+.env-butterfly::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  width: 11px;
+  height: 16px;
+  border-radius: 70% 30% 70% 30%;
+  background: var(--c, #ff7eb6);
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.25));
+  transform-origin: right center;
+  animation: env-butterfly-wing 0.18s ease-in-out infinite alternate;
+}
+.env-butterfly::before { left: 0;  transform: scaleX(-1); }
+.env-butterfly::after  { right: 0; }
+.env-butterfly.bf1 { --top: 55%; --left:  6%; --dur: 16s; --delay: -1s;  --c: #ff7eb6; }
+.env-butterfly.bf2 { --top: 60%; --left: 28%; --dur: 20s; --delay: -7s;  --c: #f5a623; }
+.env-butterfly.bf3 { --top: 52%; --left: 70%; --dur: 18s; --delay: -3s;  --c: #6ad7c6; }
+@keyframes env-butterfly-path {
+  0%   { transform: translate(0, 0); }
+  20%  { transform: translate(80px, -40px); }
+  40%  { transform: translate(160px, 20px); }
+  60%  { transform: translate(240px, -30px); }
+  80%  { transform: translate(320px, 10px); }
+  100% { transform: translate(400px, -20px); }
+}
+@keyframes env-butterfly-wing {
+  0%   { transform: scaleX(1)   rotate(-10deg); }
+  100% { transform: scaleX(0.4) rotate(-10deg); }
+}
+.env-butterfly::before { animation: env-butterfly-wing-left 0.18s ease-in-out infinite alternate; }
+@keyframes env-butterfly-wing-left {
+  0%   { transform: scaleX(-1)   rotate(10deg); }
+  100% { transform: scaleX(-0.4) rotate(10deg); }
+}
+
+/* =====================================================================
+   Wind turbine (eco icon, slowly spinning behind trees)
+   ===================================================================== */
+.env-turbine {
+  position: absolute;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 110px;
+  background: linear-gradient(180deg, #d4dce7 0%, #98a3b5 100%);
+  border-radius: 6px 6px 2px 2px;
+  z-index: 5;
+  opacity: 0;
+  animation: env-turbine-appear 24s linear infinite;
+}
+.env-turbine-head {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  background: #6b7689;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+}
+.env-turbine-blades {
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  width: 80px;
+  height: 80px;
+  transform: translate(-50%, -100%);
+  animation: env-turbine-spin 3s linear infinite;
+  pointer-events: none;
+}
+.env-turbine-blades::before,
+.env-turbine-blades::after,
+.env-turbine-blade-3 {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 40px;
+  background: linear-gradient(180deg, #f0f3f8 0%, #b6c0cf 100%);
+  border-radius: 4px 4px 1px 1px;
+  transform-origin: bottom center;
+}
+.env-turbine-blades::before { transform: translate(-50%, -100%) rotate(0deg); }
+.env-turbine-blades::after  { transform: translate(-50%, -100%) rotate(120deg); }
+.env-turbine-blade-3 {
+  display: block;
+  transform: translate(-50%, -100%) rotate(240deg);
+}
+@keyframes env-turbine-spin {
+  from { transform: translate(-50%, -100%) rotate(0deg); }
+  to   { transform: translate(-50%, -100%) rotate(360deg); }
+}
+@keyframes env-turbine-appear {
+  0%, 60%   { opacity: 0; }
+  72%, 96%  { opacity: 0.85; }
+  100%      { opacity: 0; }
+}
+
+/* =====================================================================
+   Rainbow — appears as the rain ends
+   ===================================================================== */
+.env-rainbow {
+  position: absolute;
+  top: 8%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80vw;
+  height: 40vw;
+  max-width: 1100px;
+  max-height: 550px;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+  background:
+    radial-gradient(ellipse at center bottom,
+      transparent 60%,
+      rgba(255, 100, 100, 0.18) 60.5%,
+      rgba(255, 165, 60,  0.18) 63%,
+      rgba(255, 230, 100, 0.18) 65.5%,
+      rgba(120, 220, 120, 0.18) 68%,
+      rgba(100, 170, 230, 0.18) 70.5%,
+      rgba(160, 130, 230, 0.18) 73%,
+      transparent 75%);
+  filter: blur(1.5px);
+  animation: env-rainbow-appear 24s ease-in-out infinite;
+}
+@keyframes env-rainbow-appear {
+  0%, 48%   { opacity: 0; }
+  56%       { opacity: 1; }
+  72%       { opacity: 1; }
+  82%, 100% { opacity: 0; }
+}
+
+/* =====================================================================
+   Jumping fish (small arc leap from water)
+   ===================================================================== */
+.env-fish {
+  position: absolute;
+  bottom: 50px;
+  left: var(--left, 35%);
+  width: 18px;
+  height: 8px;
+  background: linear-gradient(180deg, #6ec6ff 0%, #1976d2 100%);
+  border-radius: 60% 20% 60% 20%;
+  pointer-events: none;
+  z-index: 9;
+  opacity: 0;
+  animation: env-fish-leap var(--dur, 8s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+.env-fish::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: 0;
+  width: 8px;
+  height: 8px;
+  background: #1976d2;
+  clip-path: polygon(0 50%, 100% 0, 100% 100%);
+}
+.env-fish.fi1 { --left: 28%; --dur: 9s;  --delay: -3s; }
+.env-fish.fi2 { --left: 52%; --dur: 11s; --delay: -7s; }
+.env-fish.fi3 { --left: 76%; --dur: 8s;  --delay: -1s; }
+@keyframes env-fish-leap {
+  0%, 70%   { opacity: 0; transform: translate(0, 0) rotate(0deg); }
+  74%       { opacity: 1; transform: translate(8px,  -10px) rotate(-15deg); }
+  78%       { opacity: 1; transform: translate(20px, -22px) rotate(-30deg); }
+  82%       { opacity: 1; transform: translate(34px, -10px) rotate(30deg); }
+  86%       { opacity: 0; transform: translate(48px,  6px) rotate(45deg); }
+  100%      { opacity: 0; transform: translate(48px,  6px) rotate(45deg); }
+}
+
+/* =====================================================================
+   Storm overlay + Rain + Lightning  (unchanged structure, slightly punchier)
+   ===================================================================== */
 .env-storm-overlay {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(40, 55, 80, 0.55) 0%, rgba(20, 30, 50, 0.6) 60%, rgba(10, 18, 35, 0.7) 100%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(40, 55, 80, 0.55) 0%, rgba(20, 30, 50, 0.62) 60%, rgba(10, 18, 35, 0.72) 100%);
   opacity: 0;
-  z-index: 1;
+  z-index: 4;
   animation: env-storm-cycle 24s linear infinite;
 }
 @keyframes env-storm-cycle {
@@ -241,26 +678,13 @@
   52%, 100% { opacity: 0; }
 }
 
-/* Sun dims during rain via the same cycle */
-.env-sun {
-  animation: env-sun-pulse 6s ease-in-out infinite, env-sun-dim 24s linear infinite;
-}
-@keyframes env-sun-dim {
-  0%, 18%   { filter: brightness(1)    saturate(1); }
-  24%, 46%  { filter: brightness(0.45) saturate(0.6); }
-  52%, 100% { filter: brightness(1)    saturate(1); }
-}
-
-/* =================================================== */
-/* Rainfall — drops fall from the cloud band            */
-/* =================================================== */
 .env-rain {
   position: absolute;
   inset: 0;
   pointer-events: none;
   animation: env-rain-cycle 24s linear infinite;
-  transform: skewX(-12deg);    /* gives the whole sheet a wind-blown tilt */
-  z-index: 2;
+  transform: skewX(-12deg);
+  z-index: 5;
 }
 @keyframes env-rain-cycle {
   0%, 20%   { opacity: 0; }
@@ -272,7 +696,7 @@
   position: absolute;
   top: -10vh;
   width: 1.5px;
-  height: 28px;
+  height: 30px;
   background: linear-gradient(180deg, rgba(180, 215, 240, 0) 0%, rgba(170, 210, 240, 0.85) 40%, rgba(120, 175, 220, 1) 100%);
   border-radius: 2px;
   animation: env-drop-fall var(--dur, 0.85s) linear infinite;
@@ -317,13 +741,12 @@
 .env-drop.d31 { left: 79%; --dur: 0.80s; --delay: -0.40s; }
 .env-drop.d32 { left: 91%; --dur: 0.95s; --delay: -0.65s; }
 
-/* Optional: occasional lightning flash */
 .env-lightning {
   position: absolute;
   inset: 0;
   background: rgba(220, 235, 255, 0);
   pointer-events: none;
-  z-index: 3;
+  z-index: 6;
   animation: env-flash 24s linear infinite;
 }
 @keyframes env-flash {
@@ -331,88 +754,105 @@
   28.5%, 32.5%, 40.5%, 44.5%   { background: rgba(255, 255, 255, 0.55); }
 }
 
-/* =================================================== */
-/* Plant → Tree growth                                  */
-/* The .env-plant elements get a 24s growth animation:  */
-/*   0-30%  : seedling (small)                          */
-/*   30-50% : during rain                               */
-/*   50-75% : grows tall                                */
-/*   75-100%: full tree, then loops back                */
-/* The tree silhouette is layered on top and fades in.  */
-/* =================================================== */
-.env-plant {
-  animation:
-    env-plant-sway 4s ease-in-out infinite alternate,
-    env-plant-grow 24s ease-in-out infinite;
-}
-@keyframes env-plant-grow {
-  0%, 25%  { transform: scale(0.55) translateY(0) rotate(0deg); }
-  45%      { transform: scale(0.7)  translateY(0); }
-  60%      { transform: scale(0.95) translateY(0); }
-  75%, 95% { transform: scale(1)    translateY(0); }
-  100%     { transform: scale(0.55) translateY(0); }
-}
-
-/* Tree silhouette — same anchor points as plants, becomes visible 60-95% */
-.env-tree {
-  position: absolute;
-  bottom: 60px;
-  width: 140px;
-  height: 200px;
-  pointer-events: none;
-  transform-origin: bottom center;
-  opacity: 0;
-  animation:
-    env-tree-emerge 24s ease-in-out infinite,
-    env-plant-sway   6s ease-in-out infinite alternate;
-  filter: drop-shadow(0 8px 16px rgba(0,0,0,0.25));
-}
-.env-tree.t1 { left:  4%; }
-.env-tree.t2 { left: 20%; }
-.env-tree.t3 { right: 13%; }
-.env-tree.t4 { right: 3%; }
-@keyframes env-tree-emerge {
-  0%, 55%   { opacity: 0; transform: scale(0.55) translateY(20px); }
-  68%       { opacity: 0.8; }
-  75%, 95%  { opacity: 1; transform: scale(1) translateY(0); }
-  100%      { opacity: 0; transform: scale(0.55) translateY(20px); }
-}
-
-/* =================================================== */
-/* Flowing water — horizontal stream effect over the    */
-/* existing wave band                                   */
-/* =================================================== */
-.env-water-flow {
-  position: absolute;
-  bottom: 10px;
-  left: 0;
-  right: 0;
-  height: 30px;
-  pointer-events: none;
+/* =====================================================================
+   Login Card — premium glass-morphism w/ subtle neon border
+   ===================================================================== */
+.env-login-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(26, 35, 50, 0.94) 0%, rgba(36, 48, 70, 0.94) 100%);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border-radius: 18px;
+  padding: 36px 32px 28px;
+  box-shadow:
+    0 24px 60px -12px rgba(15, 25, 45, 0.55),
+    0 8px 22px -8px rgba(15, 25, 45, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   overflow: hidden;
-  opacity: 0.7;
 }
-.env-water-flow::before,
-.env-water-flow::after {
+.env-login-card::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(8px 4px at  20px 12px, rgba(255,255,255,0.7), transparent 60%),
-    radial-gradient(10px 4px at  80px 18px, rgba(255,255,255,0.55), transparent 60%),
-    radial-gradient(6px  3px at 160px 10px, rgba(255,255,255,0.65), transparent 60%),
-    radial-gradient(12px 4px at 240px 16px, rgba(255,255,255,0.5),  transparent 60%),
-    radial-gradient(8px  3px at 320px 12px, rgba(255,255,255,0.75), transparent 60%);
-  background-repeat: repeat-x;
-  background-size: 400px 30px;
-  animation: env-water-stream 12s linear infinite;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(135deg, rgba(74, 159, 216, 0.55), rgba(245, 166, 35, 0.35) 50%, rgba(95, 161, 74, 0.45));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.85;
 }
-.env-water-flow::after {
-  animation-duration: 20s;
-  opacity: 0.6;
-  transform: translateY(8px);
+
+.env-login-card .env-brand {
+  letter-spacing: 0.12em;
+  font-family: var(--font-display, "Plus Jakarta Sans", system-ui, sans-serif);
+  font-weight: 800;
 }
-@keyframes env-water-stream {
-  0%   { background-position-x: 0; }
-  100% { background-position-x: 400px; }
+.env-login-card .env-brand-sub {
+  letter-spacing: 0.32em;
+}
+
+/* Premium pill submit button */
+.env-submit {
+  background: linear-gradient(135deg, #f5a623 0%, #f59023 100%);
+  border-radius: 999px;
+  padding: 10px 28px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: 0 6px 18px -4px rgba(245, 166, 35, 0.6);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+.env-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px -4px rgba(245, 166, 35, 0.7);
+  filter: brightness(1.05);
+}
+.env-submit:active:not(:disabled) { transform: translateY(0); }
+
+/* Inputs */
+.env-login-card input {
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid transparent;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.env-login-card input:focus {
+  border-color: #4a9fd8;
+  box-shadow: 0 0 0 3px rgba(74, 159, 216, 0.25);
+  outline: none;
+}
+
+/* =====================================================================
+   Reduce-motion accessibility
+   ===================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .env-sun,
+  .env-sun-rays,
+  .env-cloud,
+  .env-grass,
+  .env-plant,
+  .env-leaf,
+  .env-water-band,
+  .env-water-flow::before,
+  .env-water-flow::after,
+  .env-ripple,
+  .env-particle,
+  .env-firefly,
+  .env-bird,
+  .env-bird::before,
+  .env-butterfly,
+  .env-butterfly::before,
+  .env-butterfly::after,
+  .env-turbine,
+  .env-turbine-blades,
+  .env-rainbow,
+  .env-fish,
+  .env-storm-overlay,
+  .env-rain,
+  .env-drop,
+  .env-lightning,
+  .env-tree {
+    animation: none !important;
+  }
 }
