@@ -198,38 +198,22 @@
   0%   { transform: rotate(-3deg); }
   100% { transform: rotate(3deg);  }
 }
+/* Plants grow modestly during/after rainfall — they get a bit bigger but never become trees */
 @keyframes env-plant-grow {
-  0%, 25%  { transform: scale(0.55) translateY(0) rotate(0deg); }
-  45%      { transform: scale(0.7)  translateY(0); }
-  60%      { transform: scale(0.95) translateY(0); }
-  75%, 95% { transform: scale(1)    translateY(0); }
-  100%     { transform: scale(0.55) translateY(0); }
+  0%, 22%  { transform: scale(0.60); }
+  40%      { transform: scale(0.78); }   /* during rain */
+  60%      { transform: scale(0.95); }   /* just after rain */
+  72%, 92% { transform: scale(1.05); }   /* mature lush phase */
+  100%     { transform: scale(0.60); }
 }
 
-.env-tree {
-  position: absolute;
-  bottom: 70px;
-  width: 140px;
-  height: 200px;
-  pointer-events: none;
-  transform-origin: bottom center;
-  opacity: 0;
-  z-index: 6;
-  animation:
-    env-tree-emerge 24s ease-in-out infinite,
-    env-plant-sway   6s ease-in-out infinite alternate;
-  filter: drop-shadow(0 10px 18px rgba(0,0,0,0.25));
-}
-.env-tree.t1 { left:  3%; }
-.env-tree.t2 { left: 19%; }
-.env-tree.t3 { right: 13%; }
-.env-tree.t4 { right: 2%; }
-@keyframes env-tree-emerge {
-  0%, 55%   { opacity: 0; transform: scale(0.55) translateY(20px); }
-  68%       { opacity: 0.8; }
-  75%, 95%  { opacity: 1; transform: scale(1) translateY(0); }
-  100%      { opacity: 0; transform: scale(0.55) translateY(20px); }
-}
+/* Extra plant positions */
+.env-plant.p5 { left: 35%; transform: scale(0.8); animation-delay: -1.8s; }
+.env-plant.p6 { left: 48%; transform: scale(0.72); animation-delay: -3.2s; }
+.env-plant.p7 { right: 30%; transform: scale(0.92); animation-delay: -2.6s; }
+.env-plant.p8 { right: 42%; transform: scale(0.78); animation-delay: -0.9s; }
+
+.env-tree { display: none !important; }
 
 /* =====================================================================
    Falling leaves
@@ -519,70 +503,258 @@
 }
 
 /* =====================================================================
-   Wind turbine (eco icon, slowly spinning behind trees)
+   Mountain range (background, far horizon)
    ===================================================================== */
-.env-turbine {
+.env-mountains {
   position: absolute;
-  bottom: 100px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 8px;
-  height: 110px;
-  background: linear-gradient(180deg, #d4dce7 0%, #98a3b5 100%);
-  border-radius: 6px 6px 2px 2px;
-  z-index: 5;
-  opacity: 0;
-  animation: env-turbine-appear 24s linear infinite;
+  bottom: 140px;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 280px;
+  pointer-events: none;
+  z-index: 2;
+  filter: drop-shadow(0 6px 10px rgba(15, 25, 45, 0.25));
+  animation: env-mtn-fade 24s linear infinite;
 }
-.env-turbine-head {
+@keyframes env-mtn-fade {
+  /* Mountains dim during the storm phase, brighten back when sky clears */
+  0%, 18%   { filter: drop-shadow(0 6px 10px rgba(15, 25, 45, 0.25)) brightness(1); }
+  28%, 46%  { filter: drop-shadow(0 6px 10px rgba(15, 25, 45, 0.45)) brightness(0.72); }
+  56%, 100% { filter: drop-shadow(0 6px 10px rgba(15, 25, 45, 0.25)) brightness(1.05); }
+}
+
+/* =====================================================================
+   Waterfall — cascades from the tall mountain peak
+   ===================================================================== */
+.env-waterfall {
   position: absolute;
-  top: -6px;
+  bottom: 140px;
+  left: 49%;
+  width: 30px;
+  height: 200px;
+  pointer-events: none;
+  z-index: 3;
+  transform: translateX(-50%);
+}
+.env-fall-stream {
+  position: absolute;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(225, 240, 252, 0.85) 10%,
+    rgba(180, 215, 240, 0.95) 50%,
+    rgba(140, 195, 232, 1) 100%);
+  filter: blur(0.5px);
+  animation: env-fall-flow 1.6s linear infinite;
+  opacity: 0.92;
+}
+.env-fall-stream.s1 { left: 6px;  animation-delay: 0s;    width: 5px; }
+.env-fall-stream.s2 { left: 13px; animation-delay: -0.5s; width: 7px; }
+.env-fall-stream.s3 { left: 21px; animation-delay: -1.0s; width: 5px; }
+@keyframes env-fall-flow {
+  0%   { background-position: 0 -100%; }
+  100% { background-position: 0 200%; }
+}
+/* Mist at the foot of the waterfall */
+.env-fall-mist {
+  position: absolute;
+  bottom: -14px;
+  left: -22px;
+  width: 80px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.25) 60%, transparent 100%);
+  filter: blur(3px);
+  animation: env-mist-pulse 3s ease-in-out infinite alternate;
+}
+@keyframes env-mist-pulse {
+  0%   { transform: scale(0.85); opacity: 0.6; }
+  100% { transform: scale(1.15); opacity: 0.95; }
+}
+
+/* River — flowing stream connecting the waterfall foot to the foreground lake */
+.env-river {
+  position: absolute;
+  bottom: 70px;
+  left: 38%;
+  width: 24%;
+  height: 70px;
+  pointer-events: none;
+  z-index: 3;
+  background:
+    linear-gradient(180deg,
+      rgba(140, 195, 232, 0.9) 0%,
+      rgba(74, 159, 216, 0.95) 60%,
+      rgba(39, 116, 174, 1) 100%);
+  clip-path: polygon(40% 0, 60% 0, 100% 100%, 0 100%);
+  overflow: hidden;
+}
+.env-river::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(6px 3px at 30% 20%, rgba(255,255,255,0.7), transparent 60%),
+    radial-gradient(8px 3px at 70% 40%, rgba(255,255,255,0.55), transparent 60%),
+    radial-gradient(5px 2px at 50% 70%, rgba(255,255,255,0.6), transparent 60%);
+  background-size: 100% 60px;
+  animation: env-river-flow 3s linear infinite;
+}
+@keyframes env-river-flow {
+  0%   { background-position: 0 -60px; }
+  100% { background-position: 0 60px;  }
+}
+
+/* =====================================================================
+   Back-grass — additional lush grass layer behind the front grass
+   ===================================================================== */
+.env-grass-back {
+  position: absolute;
+  bottom: 80px;
+  left: 0;
+  right: 0;
+  height: 22px;
+  pointer-events: none;
+  z-index: 4;
+  background:
+    linear-gradient(to top,
+      transparent 0%,
+      transparent 55%,
+      #4f8b3f 55%,
+      #4f8b3f 70%,
+      transparent 70%);
+  background-size: 7px 100%;
+  opacity: 0.85;
+  animation: env-grass-sway-2 7s ease-in-out infinite alternate;
+  transform-origin: bottom center;
+}
+@keyframes env-grass-sway-2 {
+  0%   { transform: skewX(2deg); }
+  100% { transform: skewX(-2deg);  }
+}
+
+/* =====================================================================
+   Windmills (wind farm) — 3 turbines, prominent eco icon
+   ===================================================================== */
+.env-windmill {
+  position: absolute;
+  bottom: 80px;
+  pointer-events: none;
+  z-index: 6;
+  transform-origin: bottom center;
+}
+.env-windmill.wm1 { left: 18%; --height: 140px; --blade-len: 46px; opacity: 1; }
+.env-windmill.wm2 { left: 30%; --height: 110px; --blade-len: 36px; opacity: 0.95; }
+.env-windmill.wm3 { right: 22%; --height: 130px; --blade-len: 42px; opacity: 0.97; }
+
+.env-wm-tower {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 6px;
+  height: var(--height, 130px);
+  background: linear-gradient(180deg, #f0f4fa 0%, #c2cbd9 60%, #8b97ac 100%);
+  border-radius: 4px 4px 1px 1px;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,0.2));
+}
+.env-wm-tower::after {
+  /* tower base concrete pad */
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  width: 18px;
+  height: 4px;
+  background: #5a6478;
+  border-radius: 2px;
+  transform: translateX(-50%);
+}
+
+.env-wm-blades {
+  position: absolute;
+  bottom: var(--height, 130px);
   left: 50%;
   width: 14px;
   height: 14px;
-  background: #6b7689;
-  border-radius: 50%;
-  transform: translateX(-50%);
-  z-index: 1;
+  transform: translate(-50%, 50%);
+  animation: env-wm-spin 2.4s linear infinite;
 }
-.env-turbine-blades {
-  position: absolute;
-  top: -2px;
-  left: 50%;
-  width: 80px;
-  height: 80px;
-  transform: translate(-50%, -100%);
-  animation: env-turbine-spin 3s linear infinite;
-  pointer-events: none;
-}
-.env-turbine-blades::before,
-.env-turbine-blades::after,
-.env-turbine-blade-3 {
+.env-wm-blades::before {
+  /* hub */
   content: '';
   position: absolute;
-  left: 50%;
   top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  background: #4d586c;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+.env-wm-blades > span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   width: 4px;
-  height: 40px;
-  background: linear-gradient(180deg, #f0f3f8 0%, #b6c0cf 100%);
+  height: var(--blade-len, 42px);
+  background: linear-gradient(180deg, #ffffff 0%, #d0d8e4 80%, #98a3b5 100%);
   border-radius: 4px 4px 1px 1px;
-  transform-origin: bottom center;
+  transform-origin: top center;
+  transform: translate(-50%, -100%);
 }
-.env-turbine-blades::before { transform: translate(-50%, -100%) rotate(0deg); }
-.env-turbine-blades::after  { transform: translate(-50%, -100%) rotate(120deg); }
-.env-turbine-blade-3 {
-  display: block;
-  transform: translate(-50%, -100%) rotate(240deg);
+.env-wm-blades > span:nth-child(2) { transform: translate(-50%, -100%) rotate(120deg); transform-origin: top center; }
+.env-wm-blades > span:nth-child(3) { transform: translate(-50%, -100%) rotate(240deg); transform-origin: top center; }
+/* Rotate the whole assembly; the rotate() on individual blades is the starting offset */
+.env-wm-blades { animation: env-wm-spin 2.4s linear infinite; }
+@keyframes env-wm-spin {
+  from { transform: translate(-50%, 50%) rotate(0deg); }
+  to   { transform: translate(-50%, 50%) rotate(360deg); }
 }
-@keyframes env-turbine-spin {
-  from { transform: translate(-50%, -100%) rotate(0deg); }
-  to   { transform: translate(-50%, -100%) rotate(360deg); }
+.env-windmill.wm2 .env-wm-blades { animation-duration: 1.8s; }
+.env-windmill.wm3 .env-wm-blades { animation-duration: 2.9s; animation-direction: reverse; }
+
+/* =====================================================================
+   Solar panels — small array next to the windmills
+   ===================================================================== */
+.env-solar {
+  position: absolute;
+  bottom: 80px;
+  right: 8%;
+  width: 90px;
+  height: 30px;
+  display: flex;
+  gap: 4px;
+  z-index: 6;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18));
 }
-@keyframes env-turbine-appear {
-  0%, 60%   { opacity: 0; }
-  72%, 96%  { opacity: 0.85; }
-  100%      { opacity: 0; }
+.env-solar span {
+  flex: 1;
+  background:
+    linear-gradient(135deg, #2c4a78 0%, #1e3556 50%, #142544 100%);
+  border: 1px solid #0e1c33;
+  border-radius: 2px;
+  position: relative;
+  transform: skewX(-12deg);
+  box-shadow: inset 0 0 0 1px rgba(120, 170, 220, 0.25);
 }
+.env-solar span::before, .env-solar span::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border: 1px solid rgba(120, 170, 220, 0.3);
+  border-width: 1px 0 1px 0;
+}
+.env-solar span::after {
+  inset: 8px 2px;
+  border-width: 1px 0;
+}
+
 
 /* =====================================================================
    Rainbow — appears as the rain ends
@@ -831,6 +1003,7 @@
   .env-sun-rays,
   .env-cloud,
   .env-grass,
+  .env-grass-back,
   .env-plant,
   .env-leaf,
   .env-water-band,
@@ -840,19 +1013,20 @@
   .env-particle,
   .env-firefly,
   .env-bird,
-  .env-bird::before,
   .env-butterfly,
   .env-butterfly::before,
   .env-butterfly::after,
-  .env-turbine,
-  .env-turbine-blades,
+  .env-mountains,
+  .env-fall-stream,
+  .env-fall-mist,
+  .env-river::before,
+  .env-wm-blades,
   .env-rainbow,
   .env-fish,
   .env-storm-overlay,
   .env-rain,
   .env-drop,
-  .env-lightning,
-  .env-tree {
+  .env-lightning {
     animation: none !important;
   }
 }

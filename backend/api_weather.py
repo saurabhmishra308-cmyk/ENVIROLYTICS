@@ -1,13 +1,16 @@
-"""Nearest water body lookup for the live dashboard "water flow direction" badge.
+"""Nearest water body lookup + Live weather proxy for the dashboard.
 
 Given a (lat, lon), find the closest river / sea / dam from a curated list and
-return the compass bearing from the user's site to that water body. This is
-what the WeatherCard renders next to the rainfall/wind details.
+return the compass bearing from the user's site to that water body. Also
+proxies Open-Meteo (free, no API key) to supply live weather data in an
+OpenWeatherMap-compatible shape so the dashboard WeatherCard updates without
+the user having to configure a third-party API key.
 """
 import math
 from typing import Optional, List, Dict
 
-from fastapi import APIRouter, Depends, Query
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth import get_current_user
 
@@ -124,4 +127,71 @@ async def waterbody(
         "distance_km": nearest["distance_km"],
         "from": {"lat": lat, "lon": lon},
         "to":   {"lat": nearest["lat"], "lon": nearest["lon"]},
+    }
+
+
+# ============================================================
+# Live weather proxy (Open-Meteo — free, no API key required)
+# ============================================================
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+
+
+@router.get("/live")
+async def live_weather(
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None),
+    user: dict = Depends(get_current_user),
+):
+    """Return current weather in OpenWeatherMap-compatible shape.
+
+    Source: Open-Meteo (https://open-meteo.com) — free, no API key.
+    Falls back to the user's profile lat/lon when query params are omitted.
+    """
+    if lat is None or lon is None:
+        lat = float(user.get("latitude") or 26.8467)
+        lon = float(user.get("longitude") or 80.9462)
+
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "current": ",".join([
+            "temperature_2m",
+            "relative_humidity_2m",
+            "apparent_temperature",
+            "wind_speed_10m",
+            "wind_direction_10m",
+            "pressure_msl",
+            "rain",
+            "weather_code",
+        ]),
+        "timezone": "auto",
+        "wind_speed_unit": "ms",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(OPEN_METEO_URL, params=params)
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Weather upstream error: {e}")
+
+    cur = data.get("current") or {}
+    # Shape to match what the frontend WeatherCard already consumes (OWM-like).
+    return {
+        "coord": {"lat": lat, "lon": lon},
+        "name": "Site",
+        "dt": cur.get("time"),
+        "main": {
+            "temp": cur.get("temperature_2m"),
+            "feels_like": cur.get("apparent_temperature"),
+            "humidity": cur.get("relative_humidity_2m"),
+            "pressure": int(cur.get("pressure_msl")) if cur.get("pressure_msl") is not None else None,
+        },
+        "wind": {
+            "speed": cur.get("wind_speed_10m"),
+            "deg": cur.get("wind_direction_10m"),
+        },
+        "rain": {"1h": cur.get("rain") or 0},
+        "weather_code": cur.get("weather_code"),
+        "source": "open-meteo",
     }

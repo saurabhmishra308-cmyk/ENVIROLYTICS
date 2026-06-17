@@ -21,51 +21,7 @@ const PlantSvg = () => (
   </svg>
 );
 
-// Realistic deciduous tree SVG — irregular canopy, thick trunk, branch shadows
-const TreeSvg = () => (
-  <svg viewBox="0 0 140 200" xmlns="http://www.w3.org/2000/svg" width="140" height="200" aria-hidden>
-    <defs>
-      <radialGradient id="canopyShade" cx="50%" cy="35%" r="65%">
-        <stop offset="0%"  stopColor="#7ab250" />
-        <stop offset="55%" stopColor="#4f8b3f" />
-        <stop offset="100%" stopColor="#2e5e25" />
-      </radialGradient>
-      <linearGradient id="trunkShade" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%"  stopColor="#4a2e15" />
-        <stop offset="50%" stopColor="#7a4a22" />
-        <stop offset="100%" stopColor="#3d2410" />
-      </linearGradient>
-    </defs>
-    {/* ground shadow */}
-    <ellipse cx="70" cy="196" rx="48" ry="4" fill="rgba(0,0,0,0.18)" />
-    {/* main trunk — twisted, with bark stripes */}
-    <path d="M62 198 C 60 170, 56 150, 64 120 C 58 100, 60 80, 66 65 L78 65 C 84 80, 86 100, 80 120 C 88 150, 84 170, 82 198 Z"
-          fill="url(#trunkShade)" />
-    <path d="M68 180 C 70 160, 72 140, 70 120" stroke="#3d2410" strokeWidth="1.5" fill="none" />
-    <path d="M76 180 C 74 160, 78 140, 74 120" stroke="#3d2410" strokeWidth="1.2" fill="none" />
-    {/* branches */}
-    <path d="M68 110 C 50 100, 35 85, 22 70"  stroke="#4a2e15" strokeWidth="5" fill="none" strokeLinecap="round" />
-    <path d="M74 105 C 90 95, 105 80, 118 70" stroke="#4a2e15" strokeWidth="5" fill="none" strokeLinecap="round" />
-    <path d="M70 95 C 60 85, 50 70, 45 55"    stroke="#4a2e15" strokeWidth="3" fill="none" strokeLinecap="round" />
-    <path d="M72 92 C 85 80, 95 65, 100 50"   stroke="#4a2e15" strokeWidth="3" fill="none" strokeLinecap="round" />
-    {/* dark canopy backdrop */}
-    <ellipse cx="70" cy="60" rx="58" ry="48" fill="#2e5e25" opacity="0.85" />
-    {/* main leafy clusters */}
-    <ellipse cx="40" cy="65" rx="28" ry="26" fill="url(#canopyShade)" />
-    <ellipse cx="100" cy="60" rx="30" ry="28" fill="url(#canopyShade)" />
-    <ellipse cx="70" cy="38" rx="34" ry="26" fill="url(#canopyShade)" />
-    <ellipse cx="55" cy="45" rx="18" ry="16" fill="#6cb24a" />
-    <ellipse cx="88" cy="45" rx="18" ry="16" fill="#6cb24a" />
-    <ellipse cx="70" cy="55" rx="14" ry="13" fill="#7ab250" opacity="0.85" />
-    {/* foliage highlights */}
-    <ellipse cx="48" cy="40" rx="8" ry="7" fill="#a3d76d" opacity="0.6" />
-    <ellipse cx="92" cy="38" rx="9" ry="7" fill="#a3d76d" opacity="0.55" />
-    <ellipse cx="70" cy="28" rx="10" ry="6" fill="#bce28c" opacity="0.5" />
-    {/* a few stray leaves on the lower trunk */}
-    <ellipse cx="58" cy="125" rx="9" ry="5" fill="#5fa14a" opacity="0.85" transform="rotate(-25 58 125)" />
-    <ellipse cx="86" cy="135" rx="8" ry="4" fill="#5fa14a" opacity="0.85" transform="rotate(20 86 135)" />
-  </svg>
-);
+// Removed TreeSvg — replaced with mountains & waterfall in the scene
 
 const Login = () => {
   const navigate = useNavigate();
@@ -162,24 +118,84 @@ const Login = () => {
         <div className="env-drop d31" /><div className="env-drop d32" />
       </div>
 
+      {/* Mountain range with snow caps — far horizon, behind clouds-water */}
+      <svg className="env-mountains" viewBox="0 0 1600 320" preserveAspectRatio="none" aria-hidden xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="mtnFar" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"  stopColor="#7c93b3" />
+            <stop offset="100%" stopColor="#4d6184" />
+          </linearGradient>
+          <linearGradient id="mtnMid" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"  stopColor="#5d7a9f" />
+            <stop offset="100%" stopColor="#36486a" />
+          </linearGradient>
+          <linearGradient id="mtnNear" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"  stopColor="#48648d" />
+            <stop offset="100%" stopColor="#283c5d" />
+          </linearGradient>
+        </defs>
+        {/* far range */}
+        <path d="M0 250 L120 160 L200 200 L320 110 L420 180 L560 130 L680 200 L820 90 L960 180 L1080 140 L1220 200 L1340 120 L1460 190 L1600 150 L1600 320 L0 320 Z" fill="url(#mtnFar)" opacity="0.85" />
+        {/* mid range */}
+        <path d="M0 270 L100 220 L210 260 L340 170 L460 240 L600 200 L740 260 L880 160 L1020 240 L1160 210 L1290 260 L1410 200 L1520 250 L1600 220 L1600 320 L0 320 Z" fill="url(#mtnMid)" />
+        {/* near big mountain with snow cap & waterfall source */}
+        <path d="M540 320 L640 230 L720 130 L780 70 L840 130 L920 230 L1020 320 Z" fill="url(#mtnNear)" />
+        {/* snow cap on the tall mountain */}
+        <path d="M740 130 L780 70 L820 120 L800 130 L788 120 L770 130 L755 122 Z" fill="#f6fbff" />
+        <path d="M740 130 L755 122 L770 130 L780 124 L788 132 L800 128 L820 120 L815 134 L800 142 L785 138 L772 144 L760 138 L748 142 Z" fill="#dfeaf6" opacity="0.6" />
+        {/* second smaller snow cap */}
+        <path d="M640 230 L660 215 L680 222 L700 210 L720 228 Z" fill="#eef4fb" />
+      </svg>
+
+      {/* Waterfall — cascading down from the tall mountain */}
+      <div className="env-waterfall" aria-hidden>
+        <span className="env-fall-stream s1" />
+        <span className="env-fall-stream s2" />
+        <span className="env-fall-stream s3" />
+        <span className="env-fall-mist" />
+      </div>
+
+      {/* River — connects waterfall to foreground water */}
+      <div className="env-river" aria-hidden />
+
       {/* Storm darkening overlay (under the rain but above the sky) */}
       <div className="env-storm-overlay" aria-hidden />
       {/* Occasional lightning flash */}
       <div className="env-lightning" aria-hidden />
 
-      {/* Ground band: soil → grass → plants → trees → water */}
+      {/* Ground band: soil → grass → many plants → wind farm → water */}
       <div className="env-soil" aria-hidden />
       <div className="env-grass" aria-hidden />
+      <div className="env-grass-back" aria-hidden />
+
+      {/* Wind farm — 3 turbines of varying size, prominent against the meadow */}
+      <div className="env-windmill wm1" aria-hidden>
+        <div className="env-wm-tower" />
+        <div className="env-wm-blades"><span /><span /><span /></div>
+      </div>
+      <div className="env-windmill wm2" aria-hidden>
+        <div className="env-wm-tower" />
+        <div className="env-wm-blades"><span /><span /><span /></div>
+      </div>
+      <div className="env-windmill wm3" aria-hidden>
+        <div className="env-wm-tower" />
+        <div className="env-wm-blades"><span /><span /><span /></div>
+      </div>
+
+      {/* Solar panels — additional eco touch */}
+      <div className="env-solar" aria-hidden>
+        <span /><span /><span />
+      </div>
+
+      {/* Plants — many more, growing slightly bigger after rain (no trees) */}
       <div className="env-plant p1" aria-hidden><PlantSvg /></div>
       <div className="env-plant p2" aria-hidden><PlantSvg /></div>
       <div className="env-plant p3" aria-hidden><PlantSvg /></div>
       <div className="env-plant p4" aria-hidden><PlantSvg /></div>
-
-      {/* Trees — emerge after the rain phase of the cycle */}
-      <div className="env-tree t1" aria-hidden><TreeSvg /></div>
-      <div className="env-tree t2" aria-hidden><TreeSvg /></div>
-      <div className="env-tree t3" aria-hidden><TreeSvg /></div>
-      <div className="env-tree t4" aria-hidden><TreeSvg /></div>
+      <div className="env-plant p5" aria-hidden><PlantSvg /></div>
+      <div className="env-plant p6" aria-hidden><PlantSvg /></div>
+      <div className="env-plant p7" aria-hidden><PlantSvg /></div>
+      <div className="env-plant p8" aria-hidden><PlantSvg /></div>
 
       <div className="env-water" aria-hidden>
         <div className="env-water-band"    />
@@ -200,12 +216,6 @@ const Login = () => {
       <div className="env-fish fi1" aria-hidden />
       <div className="env-fish fi2" aria-hidden />
       <div className="env-fish fi3" aria-hidden />
-
-      {/* Wind turbine — appears after the storm with mature ecosystem */}
-      <div className="env-turbine" aria-hidden>
-        <div className="env-turbine-head" />
-        <div className="env-turbine-blades"><span className="env-turbine-blade-3" /></div>
-      </div>
 
       {/* Foreground login card */}
       <div className="relative z-10 min-h-screen flex items-center justify-center px-4 py-12">

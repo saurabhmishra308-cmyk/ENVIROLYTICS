@@ -86,13 +86,13 @@ const EnhancedDashboard = () => {
   const WEATHER_API_KEY = useMemo(() => process.env.REACT_APP_WEATHER_API_KEY, []);
 
   const fetchWeather = useCallback(async () => {
-    if (!WEATHER_API_KEY) { setLoadingWeather(false); return; }
     try {
-      const r = await axios.get(`https://api.openweathermap.org/data/2.5/weather?lat=${LATITUDE}&lon=${LONGITUDE}&appid=${WEATHER_API_KEY}&units=metric`);
+      // Use backend proxy (Open-Meteo, no key required) — updates live every refresh.
+      const r = await api.get('/api/weather/live');
       setWeather(r.data);
     } catch (e) { logError(e, 'weather'); }
     finally { setLoadingWeather(false); }
-  }, [LATITUDE, LONGITUDE, WEATHER_API_KEY]);
+  }, []);
 
   const fetchLive = useCallback(async () => {
     try {
@@ -144,7 +144,9 @@ const EnhancedDashboard = () => {
     fetchLive();
     fetchLocations();
     const t = setInterval(fetchLive, POLL_MS);
-    return () => clearInterval(t);
+    // Refresh weather every 5 minutes so the "Live Weather Data" card stays current
+    const tw = setInterval(fetchWeather, 5 * 60 * 1000);
+    return () => { clearInterval(t); clearInterval(tw); };
   }, [navigate, fetchWeather, fetchLive, fetchLocations]);
 
   if (!user) return null;
