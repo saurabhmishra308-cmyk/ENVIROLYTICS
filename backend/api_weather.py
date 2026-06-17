@@ -7,6 +7,7 @@ OpenWeatherMap-compatible shape so the dashboard WeatherCard updates without
 the user having to configure a third-party API key.
 """
 import math
+import os
 from typing import Optional, List, Dict
 
 import httpx
@@ -131,52 +132,50 @@ async def waterbody(
 
 
 # ============================================================
-# Live weather proxy (Open-Meteo — free, no API key required)
+# Live weather proxy — OpenWeatherMap (preferred) → Open-Meteo (fallback)
 # ============================================================
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+OWM_URL = "https://api.openweathermap.org/data/2.5/weather"
 
 
-@router.get("/live")
-async def live_weather(
-    lat: Optional[float] = Query(None),
-    lon: Optional[float] = Query(None),
-    user: dict = Depends(get_current_user),
-):
-    """Return current weather in OpenWeatherMap-compatible shape.
+async def _fetch_openweather(lat: float, lon: float) -> Optional[Dict]:
+    """Call OpenWeatherMap when an API key is configured. Returns OWM JSON
+    (which already matches what the frontend expects) or None on failure."""
+    key = os.environ.get("OPENWEATHER_API_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(OWM_URL, params={
+                "lat": lat,
+                "lon": lon,
+                "appid": key,
+                "units": "metric",
+            })
+            r.raise_for_status()
+            return r.json()
+    except httpx.HTTPError:
+        return None
 
-    Source: Open-Meteo (https://open-meteo.com) — free, no API key.
-    Falls back to the user's profile lat/lon when query params are omitted.
-    """
-    if lat is None or lon is None:
-        lat = float(user.get("latitude") or 26.8467)
-        lon = float(user.get("longitude") or 80.9462)
 
+async def _fetch_open_meteo(lat: float, lon: float) -> Dict:
+    """Fallback: Open-Meteo (free, no key). Reshape into OWM-compatible shape."""
     params = {
         "latitude": lat,
         "longitude": lon,
         "current": ",".join([
-            "temperature_2m",
-            "relative_humidity_2m",
-            "apparent_temperature",
-            "wind_speed_10m",
-            "wind_direction_10m",
-            "pressure_msl",
-            "rain",
+            "temperature_2m", "relative_humidity_2m", "apparent_temperature",
+            "wind_speed_10m", "wind_direction_10m", "pressure_msl", "rain",
             "weather_code",
         ]),
         "timezone": "auto",
         "wind_speed_unit": "ms",
     }
-    try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            r = await client.get(OPEN_METEO_URL, params=params)
-            r.raise_for_status()
-            data = r.json()
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"Weather upstream error: {e}")
-
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        r = await client.get(OPEN_METEO_URL, params=params)
+        r.raise_for_status()
+        data = r.json()
     cur = data.get("current") or {}
-    # Shape to match what the frontend WeatherCard already consumes (OWM-like).
     return {
         "coord": {"lat": lat, "lon": lon},
         "name": "Site",
@@ -195,3 +194,31 @@ async def live_weather(
         "weather_code": cur.get("weather_code"),
         "source": "open-meteo",
     }
+
+
+@router.get("/live")
+async def live_weather(
+    lat: Optional[float] = Query(None),
+    lon: Optional[float] = Query(None),
+    user: dict = Depends(get_current_user),
+):
+    """Current weather for `lat`/`lon` (defaults to the user's profile location).
+
+    Prefers OpenWeatherMap when `OPENWEATHER_API_KEY` is set; otherwise falls
+    back to Open-Meteo. Response shape is OpenWeatherMap-compatible so the
+    frontend WeatherCard stays unchanged.
+    """
+    if lat is None or lon is None:
+        lat = float(user.get("latitude") or 26.8467)
+        lon = float(user.get("longitude") or 80.9462)
+
+    owm = await _fetch_openweather(lat, lon)
+    if owm is not None:
+        owm.setdefault("coord", {"lat": lat, "lon": lon})
+        owm["source"] = "openweathermap"
+        return owm
+
+    try:
+        return await _fetch_open_meteo(lat, lon)
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Weather upstream error: {e}")

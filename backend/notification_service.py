@@ -5,12 +5,15 @@
   OFFLINE_ALERT_INTERVAL_MIN minutes. For each device that has been silent for
   >= 2 h, we send an email (once per device, then a OFFLINE_ALERT_COOLDOWN_HOURS
   cooldown) to every configured recipient.
-- Resend SDK is sync, so we wrap with `asyncio.to_thread`.
-- Disabled when `RESEND_API_KEY` is empty (UI still works for managing recipients).
+- Prefers SMTP (Zoho / any provider) when `SMTP_HOST` is set. Falls back to
+  Resend SDK when `RESEND_API_KEY` is set. UI still works either way.
 """
 import asyncio
 import logging
 import os
+import smtplib
+import ssl
+from email.message import EmailMessage
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
@@ -45,6 +48,56 @@ def _device_key(d: dict) -> str:
 
 def _resend_configured() -> bool:
     return bool(os.environ.get("RESEND_API_KEY", "").strip())
+
+
+def _smtp_configured() -> bool:
+    return bool(os.environ.get("SMTP_HOST", "").strip()) and bool(os.environ.get("SMTP_USERNAME", "").strip())
+
+
+def _email_configured() -> bool:
+    return _smtp_configured() or _resend_configured()
+
+
+def _smtp_sender() -> str:
+    sender = os.environ.get("SENDER_EMAIL", "").strip()
+    if sender:
+        return sender
+    return os.environ.get("SMTP_USERNAME", "noreply@envirolytics.in")
+
+
+def _send_via_smtp(recipients: List[str], subject: str, html: str) -> dict:
+    """Send email via standard SMTP. SSL on port 465, STARTTLS on 587."""
+    host = os.environ["SMTP_HOST"].strip()
+    port = int(os.environ.get("SMTP_PORT", "465"))
+    username = os.environ["SMTP_USERNAME"].strip()
+    password = os.environ.get("SMTP_PASSWORD", "")
+    use_ssl = os.environ.get("SMTP_USE_SSL", "true").lower() in ("1", "true", "yes")
+
+    msg = EmailMessage()
+    msg["From"] = _smtp_sender()
+    msg["To"] = ", ".join(recipients)
+    msg["Subject"] = subject
+    msg.set_content("This email requires an HTML-capable client to view.")
+    msg.add_alternative(html, subtype="html")
+
+    context = ssl.create_default_context()
+    try:
+        if use_ssl or port == 465:
+            with smtplib.SMTP_SSL(host, port, context=context, timeout=20) as srv:
+                srv.login(username, password)
+                srv.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port, timeout=20) as srv:
+                srv.ehlo()
+                srv.starttls(context=context)
+                srv.ehlo()
+                srv.login(username, password)
+                srv.send_message(msg)
+        logger.info(f"[notify] SMTP email sent to {recipients} via {host}:{port}")
+        return {"sent": True, "transport": "smtp"}
+    except Exception as e:
+        logger.error(f"[notify] SMTP send failed via {host}:{port}: {e}")
+        return {"sent": False, "reason": f"smtp: {e}"}
 
 
 # --------------------------------------------------------------------------- recipients store
@@ -129,22 +182,27 @@ def _build_email_html(devices: List[dict]) -> str:
 
 # --------------------------------------------------------------------------- send
 async def _send(recipients: List[str], subject: str, html: str) -> dict:
-    if not _resend_configured():
-        return {"sent": False, "reason": "RESEND_API_KEY not configured"}
     if not recipients:
         return {"sent": False, "reason": "no recipients configured"}
+    if not _email_configured():
+        return {"sent": False, "reason": "No email transport configured (set SMTP_HOST or RESEND_API_KEY)"}
 
+    # Prefer SMTP (e.g. Zoho)
+    if _smtp_configured():
+        return await asyncio.to_thread(_send_via_smtp, recipients, subject, html)
+
+    # Fallback: Resend SDK
     resend.api_key = os.environ["RESEND_API_KEY"]
     sender = os.environ.get("SENDER_EMAIL", "Envirolytics Monitor <onboarding@resend.dev>")
     params = {"from": sender, "to": recipients, "subject": subject, "html": html}
     try:
         resp = await asyncio.to_thread(resend.Emails.send, params)
         eid = resp.get("id") if isinstance(resp, dict) else None
-        logger.info(f"[notify] Sent offline-alert email to {recipients} (id={eid})")
-        return {"sent": True, "email_id": eid}
+        logger.info(f"[notify] Resend email sent to {recipients} (id={eid})")
+        return {"sent": True, "transport": "resend", "email_id": eid}
     except Exception as e:
-        logger.error(f"[notify] Failed to send email: {e}")
-        return {"sent": False, "reason": str(e)}
+        logger.error(f"[notify] Resend send failed: {e}")
+        return {"sent": False, "reason": f"resend: {e}"}
 
 
 async def send_test_email(db) -> dict:

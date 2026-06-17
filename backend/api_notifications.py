@@ -28,7 +28,7 @@ async def list_emails(admin: dict = Depends(require_admin)):
     return {
         "emails": emails,
         "max": svc.MAX_RECIPIENTS,
-        "provider_configured": bool(os.environ.get("RESEND_API_KEY", "").strip()),
+        "provider_configured": svc._email_configured(),
     }
 
 

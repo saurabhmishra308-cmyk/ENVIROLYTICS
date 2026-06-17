@@ -103,7 +103,7 @@ const AddRecipientForm = ({ draft, setDraft, onAdd, onTest, saving, testing, atM
       onClick={onTest}
       disabled={testing || !hasRecipients || !providerOn}
       data-testid="notification-test-btn"
-      title={!providerOn ? 'Configure RESEND_API_KEY first' : 'Send a test email'}
+      title={!providerOn ? 'Configure SMTP_HOST / RESEND_API_KEY first' : 'Send a test email'}
     >
       <Send className="h-4 w-4 mr-1" /> {testing ? 'Sending…' : 'Send test'}
     </Button>
@@ -237,7 +237,7 @@ const NotificationRecipientsCard = ({ isDarkMode }) => {
 
         <p className={`text-[11px] ${muted}`}>
           {emails.length} / {MAX} recipients used.
-          {!providerOn && ' Set RESEND_API_KEY in backend/.env to enable actual sending.'}
+          {!providerOn && ' Set SMTP_HOST (or RESEND_API_KEY) in backend/.env to enable actual sending.'}
         </p>
       </div>
     </section>
