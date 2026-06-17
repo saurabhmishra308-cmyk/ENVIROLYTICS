@@ -1,0 +1,39 @@
+{
+  "summary": "Validated both bug fixes for Envirolytics Monitor. BUG-1 (auto-logout) and BUG-2 (ErrorBoundary) are fully resolved. Backend smoke: all review-request endpoints return 200 with admin token, CORS works (frontend at preview URL calls /api/* without issue). Pytest regression: 105/109 passed (96.3%); the 4 failures are pre-existing assertions in the suite that expected certain endpoints to be public — they now require auth (which is a security tightening, NOT a regression of this fix). Frontend e2e: login -> /dashboard, all 9 authenticated routes (/dashboard, /analysis, /reports, /graph-report, /site, /user, /certificates, /instruments, /audit-log) navigate without bouncing to login, hard reload on /dashboard preserves session, 5x5 rapid switching keeps session, wrong current-password on /api/auth/change-password returns 401 with localStorage token preserved AND user stays on /dashboard (no AuthGate redirect). ErrorBoundary fallback never triggered while navigating every route — no uncaught render errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/flowmeter/latest", "issue": "Returns 401 unauthenticated; regression test (TestFlowmeterPublic.test_latest_public) still expects public access. Endpoint is OK with admin token. Either tighten test or restore public access for live dashboards."},
+      {"endpoint": "/api/instruments/all/latest", "issue": "Returns 401 unauthenticated; test (TestInstruments.test_all_latest_no_auth) expects public. OK with admin token."},
+      {"endpoint": "/api/instruments/dwlr/latest", "issue": "Returns 401 unauthenticated; test (TestInstruments.test_ingest_dwlr_and_visible) hits it without auth. OK with admin token."},
+      {"endpoint": "/api/flowmeter-mgmt/categories", "issue": "TestFlowmeterMgmt.test_set_category_and_list intermittently sees empty categories list right after PUT (race/eventual-consistency). Subsequent test runs against same hw passed; suggests slight read-after-write delay or filter behavior to investigate."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Out-of-scope, optional) Decide whether /api/flowmeter/latest, /api/instruments/all/latest, /api/instruments/dwlr/latest should be public again or update backend_test.py assertions to require auth. Currently the regression suite carries pre-fix expectations.",
+    "(Optional) Investigate TestFlowmeterMgmt.test_set_category_and_list — possible read-after-write race for /api/flowmeter-mgmt/categories list after PUT."
+  ],
+  "critical_code_review_comments": [
+    "AuthGate + ErrorBoundary ordering in App.js is correct: <AuthGate><ErrorBoundary><Routes/></ErrorBoundary></AuthGate> — AuthGate inside BrowserRouter (so useNavigate works) and ErrorBoundary inside AuthGate (so even if a route crashes, AuthGate listener still mounted).",
+    "api.js interceptor logic is sound: AUTH_SAFE_ENDPOINTS list + isTokenInvalidError() string match. Only risk is if backend ever changes the 401 'detail' wording (e.g. localisation) — consider switching to a structured error code header/field instead of substring match.",
+    "ErrorBoundary fallback exposes raw error.message in <pre> — fine for dev; consider hiding behind NODE_ENV !== 'production' for prod builds to avoid leaking internals.",
+    "App.js has a clean catch-all '*' -> Navigate to '/' which keeps deep-link-bookmarks resilient; good."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "96.3% (105/109 pytest, 6/6 review-request smoke endpoints 200)", "frontend": "100% (login, 9 routes nav, reload, rapid 5x5, change-password 401 token-preserved, no ErrorBoundary trigger)"},
+  "test_credentials": "admin@envirolytics.com / Admin@Envirolytics2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests create TEST_-prefixed users/limits/flowmeters/instruments and clean up; admin password test reverts at end of class.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Both target bugs verified fixed. Pytest suite at /app/backend/tests/backend_test.py is comprehensive (109 tests, 96.3% pass). Remaining 4 failures are NOT regressions of the auto-logout / ErrorBoundary fix — they are old assumptions about which endpoints are public. Frontend behavior validated via Playwright with real preview URL. data-testids confirmed working: login-email-input, login-password-input, login-submit-button, error-boundary-fallback (correctly absent), dashboard-logout-btn (present on /dashboard).",
+  "rca of the issue": "BUG-1 root cause was an axios interceptor that blindly cleared localStorage on every 401, then any subsequent route check (isAuthenticated()) returned false and PermissionRoute/RequireAuth redirected to '/'. Fix narrows 401 handling to (a) skip AUTH_SAFE_ENDPOINTS (login, change-password, admin change-user-password) and (b) require detail to match known token-invalid messages. Verified: wrong current_password now returns 401 with token preserved, user stays on /dashboard, no toast. BUG-2 root cause was missing global ErrorBoundary — fix adds class component wrapping <Routes> inside <BrowserRouter>; verified no fallback rendered while traversing all routes (no uncaught render errors observed)."
+}

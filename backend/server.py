@@ -1,0 +1,190 @@
+from dotenv import load_dotenv
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / '.env')
+
+from fastapi import FastAPI, APIRouter
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+import os
+import asyncio
+import logging
+from pydantic import BaseModel, Field, ConfigDict
+from typing import List
+import uuid
+from datetime import datetime, timezone
+
+# Import services and routers
+from mqtt_service import MQTTFlowmeterService
+from api_flowmeter import router as flowmeter_router
+import api_flowmeter
+from api_admin import router as admin_router
+import api_admin
+from api_auth import router as auth_router, seed_admin
+import api_auth
+from api_instruments import router as instruments_router
+import api_instruments
+from api_certificates import router as certificates_router
+import api_certificates
+from api_flowmeter_mgmt import router as flowmeter_mgmt_router
+import api_flowmeter_mgmt
+from api_audit import router as audit_router
+import api_audit
+from api_alerts import router as alerts_router
+import api_alerts
+from api_notifications import router as notifications_router
+import api_notifications
+import notification_service
+import field_simulator
+from api_reports import router as reports_router
+import api_reports
+from api_subusers import router as subusers_router
+import api_subusers
+from api_weather import router as weather_router
+from api_limits import router as limits_router
+import api_limits
+from api_renewals import router as renewals_router
+import api_renewals
+from api_instrument_registry import router as instrument_registry_router
+import api_instrument_registry
+import auth as auth_module
+
+
+# MongoDB connection
+mongo_url = os.environ['MONGO_URL']
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ['DB_NAME']]
+
+# Initialize MQTT Service
+mqtt_service = MQTTFlowmeterService(client, os.environ['DB_NAME'])
+api_flowmeter.mqtt_service = mqtt_service
+api_admin.db = db
+api_auth.set_db(db)
+api_instruments.set_db(db)
+api_instruments.set_mqtt(mqtt_service)
+api_certificates.set_db(db)
+api_flowmeter_mgmt.set_db(db)
+api_audit.set_db(db)
+api_alerts.set_db(db)
+api_notifications.set_db(db)
+api_reports.set_db(db)
+api_subusers.set_db(db)
+api_limits.set_db(db)
+api_renewals.set_db(db)
+api_instrument_registry.set_db(db)
+api_instrument_registry.set_mqtt(mqtt_service)
+auth_module.set_db(db)
+
+# Create the main app
+app = FastAPI(title="Envirolytics Monitor API")
+
+# Create a router with the /api prefix
+api_router = APIRouter(prefix="/api")
+
+
+class StatusCheck(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    client_name: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class StatusCheckCreate(BaseModel):
+    client_name: str
+
+
+@api_router.get("/")
+async def root():
+    return {"message": "Envirolytics Monitor API"}
+
+
+@api_router.post("/status", response_model=StatusCheck)
+async def create_status_check(input: StatusCheckCreate):
+    status_dict = input.model_dump()
+    status_obj = StatusCheck(**status_dict)
+    doc = status_obj.model_dump()
+    doc['timestamp'] = doc['timestamp'].isoformat()
+    await db.status_checks.insert_one(doc)
+    return status_obj
+
+
+@api_router.get("/status", response_model=List[StatusCheck])
+async def get_status_checks():
+    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
+    for check in status_checks:
+        if isinstance(check['timestamp'], str):
+            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
+    return status_checks
+
+
+# Mount routers
+app.include_router(api_router)
+app.include_router(auth_router)
+app.include_router(flowmeter_router)
+app.include_router(admin_router)
+app.include_router(instruments_router)
+app.include_router(certificates_router)
+app.include_router(flowmeter_mgmt_router)
+app.include_router(audit_router)
+app.include_router(alerts_router)
+app.include_router(notifications_router)
+app.include_router(reports_router)
+app.include_router(subusers_router)
+app.include_router(weather_router)
+app.include_router(limits_router)
+app.include_router(renewals_router)
+app.include_router(instrument_registry_router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Starting Envirolytics Monitor API...")
+    # Seed admin user
+    await seed_admin(db)
+    # Register asyncio loop with MQTT service so callbacks can schedule coroutines
+    mqtt_service.set_event_loop(asyncio.get_event_loop())
+    # Connect to MQTT broker (non-blocking)
+    mqtt_service.connect()
+    # Background loop for offline-device email notifications
+    app.state.notify_task = asyncio.create_task(notification_service.background_loop(db))
+    # Optional live field-data simulator (env-gated)
+    app.state.simulator_task = asyncio.create_task(field_simulator.background_loop(mqtt_service))
+    # Background loop for abstract-limit checks
+    app.state.limits_task = asyncio.create_task(api_limits.background_loop())
+    # Background loop for service-renewal reminders
+    app.state.renewals_task = asyncio.create_task(api_renewals.background_loop())
+    logger.info("Startup complete")
+
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    mqtt_service.disconnect()
+    task = getattr(app.state, "notify_task", None)
+    if task:
+        task.cancel()
+    sim = getattr(app.state, "simulator_task", None)
+    if sim:
+        sim.cancel()
+    lim = getattr(app.state, "limits_task", None)
+    if lim:
+        lim.cancel()
+    ren = getattr(app.state, "renewals_task", None)
+    if ren:
+        ren.cancel()
+    client.close()
+    logger.info("Services shut down")
