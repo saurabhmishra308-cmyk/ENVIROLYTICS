@@ -240,7 +240,7 @@ class MQTTFlowmeterService:
         return reading
 
     async def get_all_latest_readings(self) -> List[Dict]:
-        cursor = self.db.flowmeter_latest.find({})
+        cursor = self.db.flowmeter_latest.find({}).limit(100)
         readings = await cursor.to_list(length=100)
         for r in readings:
             r["_id"] = str(r["_id"])

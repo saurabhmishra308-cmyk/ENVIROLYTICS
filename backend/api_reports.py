@@ -96,7 +96,7 @@ async def flow_vs_level(
     fm_cursor = db.flowmeter_readings.find(
         {"hardware_id": hardware_id, "timestamp": {"$gte": start.isoformat()}},
         {"_id": 0, "timestamp": 1, "flow_rate_lph": 1},
-    )
+    ).limit(10000)
     async for r in fm_cursor:
         b = _bucket_hourly(r["timestamp"])
         agg = flow_buckets.setdefault(b, {"sum": 0.0, "n": 0})
@@ -110,7 +110,7 @@ async def flow_vs_level(
             {"instrument_type": "dwlr", "hardware_id": dwlr_id,
              "timestamp": {"$gte": start.isoformat()}},
             {"_id": 0, "timestamp": 1, "values": 1},
-        )
+        ).limit(10000)
         async for r in dw_cursor:
             v = r.get("values", {}) or {}
             level = v.get("LEVEL") if isinstance(v.get("LEVEL"), (int, float)) else v.get("level")

@@ -55,7 +55,7 @@ async def offline_devices(hours: float = Query(2.0, ge=0.1, le=720)):
     offline: List[dict] = []
 
     # ---- Flowmeters
-    fm_cursor = db.flowmeter_latest.find({}, {"_id": 0})
+    fm_cursor = db.flowmeter_latest.find({}, {"_id": 0}).limit(1000)
     async for doc in fm_cursor:
         last_seen = _parse_iso(doc.get("received_at")) or _parse_iso(doc.get("timestamp"))
         if last_seen is None or last_seen >= cutoff:
@@ -69,7 +69,7 @@ async def offline_devices(hours: float = Query(2.0, ge=0.1, le=720)):
         })
 
     # ---- Generic instruments (DWLR, pH, TDS, conductivity, …)
-    inst_cursor = db.instrument_latest.find({}, {"_id": 0})
+    inst_cursor = db.instrument_latest.find({}, {"_id": 0}).limit(1000)
     async for doc in inst_cursor:
         last_seen = _parse_iso(doc.get("received_at")) or _parse_iso(doc.get("timestamp"))
         if last_seen is None or last_seen >= cutoff:

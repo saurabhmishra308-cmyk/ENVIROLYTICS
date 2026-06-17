@@ -3,6 +3,32 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Cloud, Thermometer, Droplet, Wind, CloudRain, Activity, Navigation } from 'lucide-react';
 import api from '../lib/api';
 
+/**
+ * Small pulsing dot + "LIVE" pill — sits next to the WeatherCard title so the
+ * demo audience instantly sees that the data is real and ticking. Uses a
+ * relative + absolute layered span pair: solid green dot in front, ping ring
+ * behind. CSS-only animation (no JS timer).
+ */
+const LivePulse = ({ loading = false }) => (
+  <span
+    className="ml-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-widest"
+    style={{ background: loading ? 'rgba(245,158,11,0.12)' : 'rgba(16,185,129,0.12)', color: loading ? '#b45309' : '#047857' }}
+    data-testid="weather-live-pill"
+  >
+    <span className="relative flex h-2 w-2">
+      <span
+        className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
+        style={{ background: loading ? '#f59e0b' : '#10b981' }}
+      />
+      <span
+        className="relative inline-flex h-2 w-2 rounded-full"
+        style={{ background: loading ? '#f59e0b' : '#10b981' }}
+      />
+    </span>
+    {loading ? 'LOADING' : 'LIVE'}
+  </span>
+);
+
 const WeatherItem = ({ Icon, color, label, value, subtext, bgColor, textMuted, textColor }) => (
   <div className="p-4 rounded-lg" style={{ backgroundColor: bgColor }}>
     <div className="flex items-center gap-2 mb-2">
@@ -111,6 +137,7 @@ const WeatherCard = ({ weather, loading, isDarkMode, getWaterFlowDirection }) =>
           <CardTitle className={`flex items-center gap-2 ${textColor}`}>
             <Cloud className="h-5 w-5" />
             Live Weather Data - Lucknow
+            <LivePulse loading />
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -142,6 +169,7 @@ const WeatherCard = ({ weather, loading, isDarkMode, getWaterFlowDirection }) =>
         <CardTitle className={`flex items-center gap-2 ${textColor}`}>
           <Cloud className="h-5 w-5" />
           Live Weather Data - Lucknow
+          <LivePulse />
         </CardTitle>
       </CardHeader>
       <CardContent>
