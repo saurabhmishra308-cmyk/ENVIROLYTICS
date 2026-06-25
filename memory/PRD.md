@@ -18,12 +18,8 @@ Production bug-fix + polish on the Envirolytics Monitor web app (React + FastAPI
 - 2026-06-25 — **Bug-1 (auto-logout)**: Smart 401 interceptor in `lib/api.js` only wipes the token + fires `envirolytics:auth-expired` event when the 401 actually indicates a token problem; ignores user-action 401s (change-password etc). Added `AuthGate` component to handle the event with a clean navigate to "/" + toast.
 - 2026-06-25 — **Bug-2 (random crashes)**: Class-based `ErrorBoundary` wrapping `<Routes>` at the App root so any render error surfaces a recovery UI instead of blanking the app.
 - 2026-06-25 — **Polish — branding/typography/login scene/weather** (see prior PRD).
-- 2026-07 — **Phase 1: Create User + Add Instruments wizard** — `User.jsx` now opens a 2-step dialog:
-  - Step 1: User info (email, name, password, role, company, phone, location, lat/lng) — existing form
-  - Step 2: Multi-row instrument list (hardware_id, type, label, category for flowmeter, location, lat/lng) — admin can add/remove rows
-  - Submit: POST `/api/admin/users/create` → loop POST `/api/instrument-registry` with the new `owner_user_id` per instrument
-  - Toast feedback shows success / partial failure
-  - Each instrument's location defaults to the user's location for convenience
+- 2026-07 — **Cleanup — demo / orphan data**: Called `/api/instrument-registry/wipe-demo` + `/purge-orphans` on the live DB; all `flowmeter_*` / `instrument_*` collections are now empty. With per-user scoping in place, admin + clients will only ever see telemetry from instruments registered through the Create User wizard.
+- 2026-07 — **DWLR page real data**: Re-wrote `WaterLevelRecorder.jsx` to consume `/api/instrument-registry?instrument_type=dwlr` + `/api/instruments/dwlr/latest` + the new `/api/flowmeter-mgmt/dwlr/{hw}/daily?days=30` endpoint. Displays level in **mWC** and ground-water temperature (°C) from the actual instrument payload (or shows "never reported" tile when none received yet).
 
 ## Verified flows
 - Login → dashboard → all-route navigation → hard refresh: session persists (verified iteration_1 + manual)

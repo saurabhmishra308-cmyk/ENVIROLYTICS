@@ -148,11 +148,20 @@ class UpdateInstrumentRequest(BaseModel):
 
 # ---------------------------------------------------------------- routes
 @router.get("")
-async def list_instruments(user: dict = Depends(get_current_user)):
-    """List registered instruments. Admin sees all; client sees only their own."""
+async def list_instruments(
+    instrument_type: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """List registered instruments. Admin sees all; client sees only their own.
+
+    Optional filter `instrument_type` narrows to a single device type
+    (flowmeter | dwlr | ph | tds | conductivity).
+    """
     query: Dict = {}
     if user.get("role") != "admin":
         query["owner_user_id"] = user.get("id")
+    if instrument_type:
+        query["instrument_type"] = _normalise_type(instrument_type)
     cursor = db.instrument_registry.find(query, {"_id": 0}).sort("created_at", -1)
     items = await cursor.to_list(length=2000)
     items = await _enrich_with_owner(items)

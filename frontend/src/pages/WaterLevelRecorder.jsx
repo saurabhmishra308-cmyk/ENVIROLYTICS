@@ -1,67 +1,115 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { isAuthenticated, getCurrentUser, mockLogout } from '../mockData';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
-import { LogOut, ArrowLeft, Waves, TrendingDown, TrendingUp, AlertTriangle, MapPin, Activity } from 'lucide-react';
+import { LogOut, ArrowLeft, Waves, MapPin, Activity, Thermometer, Inbox, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
+import api, { formatApiError } from '../lib/api';
+
+const fmt = (n, d = 2) => (typeof n === 'number' && !Number.isNaN(n) ? n.toFixed(d) : '—');
+
+const statusFor = (mwc) => {
+  if (typeof mwc !== 'number') return { label: 'No data', color: 'bg-gray-400', tone: '#94a3b8' };
+  if (mwc < 5) return { label: 'Critical Low', color: 'bg-red-500', tone: '#dc2626' };
+  if (mwc < 10) return { label: 'Low', color: 'bg-amber-500', tone: '#f59e0b' };
+  return { label: 'Normal', color: 'bg-green-500', tone: '#16a34a' };
+};
 
 const WaterLevelRecorder = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
-  const [waterLevel, setWaterLevel] = useState(15.8);
-  const [trend, setTrend] = useState('stable');
+  const [borewells, setBorewells] = useState([]); // [{hardware_id, label, level_mwc, temperature_c, last_seen, never_reported}]
+  const [selected, setSelected] = useState(null);
+  const [history, setHistory] = useState([]); // daily aggregated
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleLogout = useCallback(() => {
+    mockLogout();
+    navigate('/');
+  }, [navigate]);
+
+  const fetchData = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      // 1) Get user's DWLR registry entries (admin sees all)
+      const regRes = await api.get('/api/instrument-registry?instrument_type=dwlr');
+      const registered = regRes?.data?.instruments || [];
+
+      // 2) Get latest readings for DWLR
+      const latestRes = await api.get('/api/instruments/dwlr/latest').catch(() => ({ data: { instruments: [] } }));
+      const latestByHw = {};
+      for (const it of latestRes?.data?.instruments || []) {
+        latestByHw[it.hardware_id] = it;
+      }
+
+      // 3) Merge: every registered DWLR gets a tile (even if never reported)
+      const merged = registered.map((reg) => {
+        const lt = latestByHw[reg.hardware_id];
+        const vals = lt?.values || {};
+        const level = typeof vals.LEVEL === 'number' ? vals.LEVEL
+                    : typeof vals.level === 'number' ? vals.level
+                    : null;
+        const temp = typeof vals.TEMPER === 'number' ? vals.TEMPER
+                    : typeof vals.temperature === 'number' ? vals.temperature
+                    : null;
+        return {
+          hardware_id: reg.hardware_id,
+          label: reg.label || reg.hardware_id,
+          location_name: reg.location_name,
+          latitude: reg.latitude,
+          longitude: reg.longitude,
+          level_mwc: level,
+          temperature_c: temp,
+          received_at: lt?.received_at || lt?.timestamp || null,
+          never_reported: !lt,
+        };
+      });
+
+      setBorewells(merged);
+      if (merged.length && !selected) setSelected(merged[0].hardware_id);
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Failed to load DWLR data');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [selected]);
+
+  const fetchHistory = useCallback(async (hw) => {
+    if (!hw) { setHistory([]); return; }
+    try {
+      const { data } = await api.get(`/api/flowmeter-mgmt/dwlr/${encodeURIComponent(hw)}/daily?days=30`);
+      setHistory(data?.series || []);
+    } catch (e) {
+      setHistory([]);
+      if (process.env.NODE_ENV === 'development') console.warn('[dwlr daily]', e?.response?.status);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated()) {
       navigate('/');
-    } else {
-      setUser(getCurrentUser());
+      return;
     }
+    setUser(getCurrentUser());
+    fetchData();
+    const i = setInterval(fetchData, 60000);
+    return () => clearInterval(i);
+  }, [navigate, fetchData]);
 
-    // Simulate water level updates
-    const interval = setInterval(() => {
-      setWaterLevel(prev => {
-        const change = (Math.random() - 0.5) * 0.3;
-        const newLevel = prev + change;
-        if (change > 0.1) setTrend('rising');
-        else if (change < -0.1) setTrend('falling');
-        else setTrend('stable');
-        return Math.max(10, Math.min(25, newLevel));
-      });
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [navigate]);
-
-  const handleLogout = () => {
-    mockLogout();
-    navigate('/');
-  };
+  useEffect(() => {
+    if (selected) fetchHistory(selected);
+  }, [selected, fetchHistory]);
 
   if (!user) return null;
 
-  const borewells = [
-    { id: 'DWLR-BW-01', location: 'Borewell A - North Sector', depth: 45, level: 15.8, status: 'Normal', quality: 'Good', temp: 23.5 },
-    { id: 'DWLR-BW-02', location: 'Borewell B - East Sector', depth: 52, level: 22.3, status: 'Low', quality: 'Fair', temp: 24.1 },
-    { id: 'DWLR-BW-03', location: 'Borewell C - South Sector', depth: 38, level: 12.5, status: 'Normal', quality: 'Good', temp: 22.8 },
-    { id: 'DWLR-BW-04', location: 'Borewell D - West Sector', depth: 48, level: 18.2, status: 'Normal', quality: 'Excellent', temp: 23.2 },
-  ];
-
-  const alerts = [
-    { time: '2 hours ago', message: 'Water level dropped below 20m in DWLR-BW-02', severity: 'warning' },
-    { time: '1 day ago', message: 'Maintenance scheduled for DWLR-BW-01', severity: 'info' },
-    { time: '2 days ago', message: 'Heavy rainfall detected - water level rising', severity: 'info' },
-  ];
-
-  const historicalData = [
-    { date: 'Jan 1', level: 18.2 },
-    { date: 'Jan 8', level: 17.5 },
-    { date: 'Jan 15', level: 16.8 },
-    { date: 'Jan 22', level: 16.2 },
-    { date: 'Jan 29', level: 15.8 },
-  ];
+  const activeWell = borewells.find((b) => b.hardware_id === selected);
+  const lvl = activeWell?.level_mwc;
+  const lvlStatus = statusFor(lvl);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#f5f5f5' }}>
@@ -84,24 +132,17 @@ const WaterLevelRecorder = () => {
               <p className="font-medium">{user.fullName}</p>
               <p className="text-gray-300 text-xs">{user.username}</p>
             </div>
-            <Button
-              onClick={handleLogout}
-              variant="outline"
-              className="border-white text-white hover:text-white transition-colors"
-              style={{ backgroundColor: '#f5a623', borderColor: '#f5a623' }}
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              Logout
+            <Button onClick={handleLogout} variant="outline" className="border-white text-white hover:text-white">
+              <LogOut className="h-4 w-4 mr-2" /> Logout
             </Button>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         {/* Page Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
+        <div className="mb-6 flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
             <div className="p-3 rounded-lg" style={{ backgroundColor: '#27ae60' }}>
               <Waves className="h-8 w-8 text-white" />
             </div>
@@ -109,210 +150,213 @@ const WaterLevelRecorder = () => {
               <h2 className="text-3xl font-bold" style={{ color: '#1a2332' }}>
                 Digital Water Level Recorder (DWLR)
               </h2>
-              <p className="text-gray-600">Groundwater monitoring and borewell management system</p>
+              <p className="text-gray-600">Live groundwater levels in mWC + ground-water temperature for your assigned borewells.</p>
             </div>
           </div>
+          <Button variant="outline" size="sm" onClick={fetchData} disabled={refreshing} data-testid="dwlr-refresh">
+            <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+          </Button>
         </div>
 
-        {/* Primary Monitoring Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Live Water Level */}
-          <Card className="border-t-4" style={{ borderTopColor: '#27ae60' }}>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span style={{ color: '#1a2332' }}>Live Water Level - DWLR-BW-01</span>
-                <Badge className="bg-blue-500 text-white">LIVE</Badge>
-              </CardTitle>
-              <CardDescription>Borewell A - North Sector</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                <div className="text-center py-4">
-                  <div className="inline-flex items-baseline gap-2 mb-2">
-                    <span className="text-6xl font-bold" style={{ color: '#27ae60' }}>
-                      {waterLevel.toFixed(2)}
-                    </span>
-                    <span className="text-2xl font-semibold text-gray-600">meters</span>
-                  </div>
-                  <div className="flex items-center justify-center gap-2 mt-2">
-                    {trend === 'rising' && <TrendingUp className="text-green-500" />}
-                    {trend === 'falling' && <TrendingDown className="text-red-500" />}
-                    <span className="text-sm text-gray-600 capitalize">
-                      {trend === 'rising' ? 'Water level rising' : trend === 'falling' ? 'Water level falling' : 'Level stable'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-600">Depth Percentage</span>
-                      <span className="font-medium" style={{ color: '#1a2332' }}>
-                        {((waterLevel / 45) * 100).toFixed(1)}%
+        {loading ? (
+          <p className="text-gray-500">Loading DWLR data…</p>
+        ) : borewells.length === 0 ? (
+          <Card className="border-dashed">
+            <CardContent className="py-10 text-center">
+              <Inbox className="h-10 w-10 mx-auto text-gray-300" />
+              <p className="text-sm text-gray-600 mt-2">
+                No DWLR instruments are assigned to your account yet.
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Ask your administrator to register a DWLR instrument under your account from the User Management → Add User wizard.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Primary Monitoring + Live tile selector */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+              <Card className="border-t-4" style={{ borderTopColor: '#27ae60' }} data-testid="dwlr-live-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span style={{ color: '#1a2332' }}>{activeWell?.label || 'Borewell'}</span>
+                    <Badge className={`${lvlStatus.color} text-white`}>{lvlStatus.label}</Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    {activeWell?.location_name || activeWell?.hardware_id}
+                    {activeWell?.received_at && (
+                      <span className="ml-2 text-xs text-gray-400">
+                        · Last seen {new Date(activeWell.received_at).toLocaleString()}
                       </span>
+                    )}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center py-4">
+                    <div className="inline-flex items-baseline gap-2 mb-2">
+                      <span className="text-6xl font-bold tabular-nums" style={{ color: lvlStatus.tone }}>
+                        {fmt(lvl)}
+                      </span>
+                      <span className="text-2xl font-semibold text-gray-600">mWC</span>
                     </div>
-                    <Progress value={(waterLevel / 45) * 100} className="h-3" />
+                    {activeWell?.never_reported && (
+                      <p className="text-xs text-amber-700 mt-1">No telemetry received yet for this borewell.</p>
+                    )}
                   </div>
-                  
-                  <div className="grid grid-cols-2 gap-3">
+
+                  <div className="grid grid-cols-2 gap-3 mt-4">
                     <div className="p-3 bg-blue-50 rounded-lg">
-                      <p className="text-xs text-gray-600 mb-1">Total Depth</p>
-                      <p className="text-xl font-bold" style={{ color: '#1a2332' }}>45.0 m</p>
+                      <p className="text-xs text-gray-600 mb-1 flex items-center gap-1">
+                        <Thermometer className="h-3 w-3" /> Ground-water Temperature
+                      </p>
+                      <p className="text-xl font-bold tabular-nums" style={{ color: '#1a2332' }}>
+                        {typeof activeWell?.temperature_c === 'number' ? `${fmt(activeWell.temperature_c, 1)} °C` : '—'}
+                      </p>
                     </div>
                     <div className="p-3 bg-green-50 rounded-lg">
-                      <p className="text-xs text-gray-600 mb-1">Water Quality</p>
-                      <p className="text-xl font-bold" style={{ color: '#27ae60' }}>Good</p>
+                      <p className="text-xs text-gray-600 mb-1">Hardware ID</p>
+                      <p className="text-sm font-mono break-all" style={{ color: '#27ae60' }}>{activeWell?.hardware_id}</p>
                     </div>
                   </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
 
-          {/* Alerts & Notifications */}
-          <Card className="border-t-4" style={{ borderTopColor: '#f5a623' }}>
-            <CardHeader>
-              <CardTitle style={{ color: '#1a2332' }}>Alerts & Notifications</CardTitle>
-              <CardDescription>Recent system alerts and updates</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {alerts.map((alert) => (
-                  <div
-                    key={`${alert.time}-${alert.message}`}
-                    className="flex gap-3 p-3 rounded-lg border-l-4"
-                    style={{
-                      backgroundColor: alert.severity === 'warning' ? '#fff8f0' : '#f0f8ff',
-                      borderLeftColor: alert.severity === 'warning' ? '#f5a623' : '#4a9fd8'
-                    }}
-                  >
-                    <AlertTriangle
-                      className="h-5 w-5 flex-shrink-0 mt-0.5"
-                      style={{ color: alert.severity === 'warning' ? '#f5a623' : '#4a9fd8' }}
-                    />
-                    <div className="flex-1">
-                      <p className="text-sm font-medium" style={{ color: '#1a2332' }}>
-                        {alert.message}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">{alert.time}</p>
+              <Card className="border-t-4" style={{ borderTopColor: '#4a9fd8' }}>
+                <CardHeader>
+                  <CardTitle style={{ color: '#1a2332' }}>System Health</CardTitle>
+                  <CardDescription>Operational summary for your assigned borewells</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Total borewells</span>
+                      <span className="font-semibold tabular-nums">{borewells.length}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Reporting</span>
+                      <span className="font-semibold tabular-nums">{borewells.filter((b) => !b.never_reported).length}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Never reported</span>
+                      <span className="font-semibold tabular-nums">{borewells.filter((b) => b.never_reported).length}</span>
                     </div>
                   </div>
-                ))}
-              </div>
-
-              <div className="mt-6 p-4 rounded-lg" style={{ backgroundColor: '#e8f5e9' }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Activity className="h-5 w-5" style={{ color: '#27ae60' }} />
-                  <span className="font-semibold" style={{ color: '#1a2332' }}>System Health</span>
-                </div>
-                <p className="text-sm text-gray-600">All sensors operational. Data sync: Normal</p>
-                <Progress value={98} className="h-2 mt-2" />
-                <p className="text-xs text-gray-500 mt-1">98% uptime in last 30 days</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* All Borewells Overview */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle style={{ color: '#1a2332' }}>All Borewell Locations</CardTitle>
-            <CardDescription>Comprehensive groundwater monitoring across sites</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {borewells.map((well) => (
-                <div
-                  key={well.id}
-                  className="p-4 rounded-lg border hover:shadow-md transition-all"
-                  style={{ 
-                    backgroundColor: well.status === 'Low' ? '#fff8f0' : '#ffffff',
-                    borderColor: well.status === 'Low' ? '#f5a623' : '#e0e0e0',
-                    borderWidth: '2px'
-                  }}
-                >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                      <MapPin className="h-5 w-5 mt-1" style={{ color: '#27ae60' }} />
-                      <div>
-                        <h3 className="font-bold text-lg" style={{ color: '#1a2332' }}>{well.id}</h3>
-                        <p className="text-sm text-gray-600">{well.location}</p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 flex-1">
-                      <div>
-                        <p className="text-xs text-gray-500">Water Level</p>
-                        <p className="text-lg font-bold" style={{ color: '#27ae60' }}>{well.level}m</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Total Depth</p>
-                        <p className="text-lg font-bold" style={{ color: '#1a2332' }}>{well.depth}m</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Quality</p>
-                        <p className="text-lg font-bold" style={{ color: '#4a9fd8' }}>{well.quality}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Temperature</p>
-                        <p className="text-lg font-bold" style={{ color: '#1a2332' }}>{well.temp}°C</p>
-                      </div>
-                      <div className="flex items-center">
-                        <Badge className={well.status === 'Normal' ? 'bg-green-500' : 'bg-yellow-500'}>
-                          {well.status}
-                        </Badge>
-                      </div>
-                    </div>
+                  <div className="mt-6 p-4 rounded-lg flex items-center gap-2" style={{ backgroundColor: '#e8f5e9' }}>
+                    <Activity className="h-5 w-5" style={{ color: '#27ae60' }} />
+                    <p className="text-sm text-gray-700">
+                      Telemetry alerts for these borewells will be sent automatically to <strong>{user.username}</strong>.
+                    </p>
                   </div>
-                </div>
-              ))}
+                </CardContent>
+              </Card>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Historical Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle style={{ color: '#1a2332' }}>Historical Water Level Trend</CardTitle>
-            <CardDescription>Monthly average water levels - DWLR-BW-01</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {historicalData.map((data) => (
-                <div key={data.date} className="flex items-center gap-4">
-                  <div className="w-24 text-sm font-medium" style={{ color: '#1a2332' }}>
-                    {data.date}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="h-8 rounded transition-all"
-                        style={{ 
-                          width: `${(data.level / 25) * 100}%`,
-                          backgroundColor: data.level < 16 ? '#f5a623' : '#27ae60'
+            {/* All Borewells */}
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle style={{ color: '#1a2332' }}>All Borewell Locations</CardTitle>
+                <CardDescription>Click a row to view its 30-day daily trend below.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3" data-testid="dwlr-borewell-list">
+                  {borewells.map((well) => {
+                    const s = statusFor(well.level_mwc);
+                    const isSel = well.hardware_id === selected;
+                    return (
+                      <button
+                        key={well.hardware_id}
+                        type="button"
+                        onClick={() => setSelected(well.hardware_id)}
+                        data-testid={`dwlr-row-${well.hardware_id}`}
+                        className={`w-full text-left p-4 rounded-lg border transition-all ${isSel ? 'ring-2 ring-blue-400' : 'hover:shadow-md'}`}
+                        style={{
+                          backgroundColor: well.never_reported ? '#fff8f0' : '#ffffff',
+                          borderColor: well.never_reported ? '#f5a623' : '#e0e0e0',
+                          borderWidth: '2px',
                         }}
-                      ></div>
-                      <span className="text-sm font-semibold" style={{ color: '#1a2332' }}>
-                        {data.level}m
-                      </span>
-                    </div>
-                  </div>
+                      >
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          <div className="flex items-start gap-3 min-w-0">
+                            <MapPin className="h-5 w-5 mt-1 shrink-0" style={{ color: '#27ae60' }} />
+                            <div className="min-w-0">
+                              <h3 className="font-bold text-lg truncate" style={{ color: '#1a2332' }}>{well.label}</h3>
+                              <p className="text-sm text-gray-600 truncate">{well.location_name || well.hardware_id}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
+                            <div>
+                              <p className="text-xs text-gray-500">Water Level</p>
+                              <p className="text-lg font-bold tabular-nums" style={{ color: s.tone }}>{fmt(well.level_mwc)} mWC</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500">Temperature</p>
+                              <p className="text-lg font-bold tabular-nums" style={{ color: '#1a2332' }}>
+                                {typeof well.temperature_c === 'number' ? `${fmt(well.temperature_c, 1)} °C` : '—'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500">Last Seen</p>
+                              <p className="text-sm font-medium" style={{ color: '#1a2332' }}>
+                                {well.received_at ? new Date(well.received_at).toLocaleString() : 'Never'}
+                              </p>
+                            </div>
+                            <div className="flex items-center">
+                              <Badge className={`${s.color} text-white`}>{s.label}</Badge>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-            <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-              <p className="text-sm" style={{ color: '#1a2332' }}>
-                <strong>Analysis:</strong> Water level shows a gradual declining trend over the past month. 
-                Recommended action: Monitor closely and consider water conservation measures.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+
+            {/* Historical Daily Trend */}
+            <Card>
+              <CardHeader>
+                <CardTitle style={{ color: '#1a2332' }}>Daily Trend — {activeWell?.label || selected}</CardTitle>
+                <CardDescription>UTC-day average for the last {history.length || 0} day{history.length === 1 ? '' : 's'}.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {history.length === 0 ? (
+                  <p className="text-sm text-gray-500 italic">No daily readings yet for this borewell.</p>
+                ) : (
+                  <div className="space-y-2" data-testid="dwlr-daily-list">
+                    {history.map((d) => {
+                      const s = statusFor(d.level_mwc);
+                      const pct = typeof d.level_mwc === 'number' ? Math.min(100, Math.max(2, d.level_mwc * 4)) : 0;
+                      return (
+                        <div key={d.date} className="flex items-center gap-4">
+                          <div className="w-28 text-sm font-medium" style={{ color: '#1a2332' }}>{d.date}</div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="h-7 rounded transition-all"
+                                style={{ width: `${pct}%`, backgroundColor: s.tone }}
+                              />
+                              <span className="text-sm font-semibold tabular-nums" style={{ color: '#1a2332' }}>
+                                {fmt(d.level_mwc)} mWC
+                                {typeof d.temperature_c === 'number' && (
+                                  <span className="text-xs text-gray-500 ml-2">· {fmt(d.temperature_c, 1)} °C</span>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </main>
 
-      {/* Footer */}
       <footer className="mt-12 py-4" style={{ backgroundColor: '#1a2332' }}>
         <div className="container mx-auto px-4 text-center text-white text-sm">
-          <p>© 2025 Envirolytics Sustainability Private Limited. All rights reserved.</p>
+          <p>© 2026 Envirolytics Sustainability Private Limited. All rights reserved.</p>
         </div>
       </footer>
     </div>
