@@ -88,7 +88,7 @@ async def upload_certificate(
         raise HTTPException(status_code=400, detail="Year out of range")
     if month is not None and (month < 1 or month > 12):
         raise HTTPException(status_code=400, detail="Month must be between 1 and 12")
-    ext = _validate_extension(file.filename or "upload.bin")
+    _validate_extension(file.filename or "upload.bin")
 
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:

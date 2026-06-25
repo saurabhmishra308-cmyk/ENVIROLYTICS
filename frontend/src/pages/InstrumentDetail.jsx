@@ -149,7 +149,7 @@ const InstrumentDetail = ({ type }) => {
               <h3 className="text-xl font-semibold text-gray-900 mb-2">No {meta.title.toLowerCase()} readings yet</h3>
               <p className="text-gray-600 max-w-xl mx-auto">
                 Subscribe a device via <code className="bg-gray-100 px-2 py-1 rounded text-sm">POST /api/instruments/subscribe</code> with
-                <span className="font-mono"> {"{"} "instrument_type": "{type}", "hardware_id": "…" {"}"}</span>
+                <span className="font-mono"> {`{ "instrument_type": "${type}", "hardware_id": "…" }`}</span>
                 or push a demo reading via <code className="bg-gray-100 px-2 py-1 rounded text-sm">POST /api/instruments/ingest?instrument_type={type}</code>.
               </p>
             </CardContent>

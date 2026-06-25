@@ -71,7 +71,7 @@ const RenewalsCard = () => {
             <CalendarClock className="h-5 w-5 text-blue-600" /> Subscription Renewal Reminders
           </CardTitle>
           <CardDescription>
-            Each user's online data-hosting subscription is automatically tracked from their account
+            Each user&apos;s online data-hosting subscription is automatically tracked from their account
             creation date plus the configured term (default 1 year). An email reminder fires once when
             the user enters the {window}-day renewal window.
           </CardDescription>

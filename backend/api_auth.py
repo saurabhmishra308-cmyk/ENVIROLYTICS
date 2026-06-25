@@ -224,7 +224,7 @@ async def seed_admin(database):
         # Backfill location if missing
         if existing.get("latitude") is None or existing.get("longitude") is None:
             await database.users.update_one({"email": admin_email}, {"$set": lucknow_loc})
-            print(f"[seed] Admin location backfilled (Lucknow)")
+            print("[seed] Admin location backfilled (Lucknow)")
 
     # Indexes
     try:

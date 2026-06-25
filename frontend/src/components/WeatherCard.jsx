@@ -128,7 +128,7 @@ const WeatherCard = ({ weather, loading, isDarkMode, getWaterFlowDirection }) =>
         bgColor: isDarkMode ? '#374151' : '#fce7f3'
       }
     ];
-  }, [weather, isDarkMode, getWaterFlowDirection, flowDirValue, flowDirSub]);
+  }, [weather, isDarkMode, flowDirValue, flowDirSub]);
 
   if (loading) {
     return (

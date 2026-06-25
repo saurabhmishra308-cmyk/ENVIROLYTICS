@@ -426,4 +426,36 @@ agent_communication:
       - Client gets 403 for unowned DWLR
       
       All scenarios from the review request verified successfully.
+  
+  - agent: "testing"
+    message: |
+      ✅ SMOKE TEST AFTER LINT CLEANUP PASSED (20/20 tests)
+      
+      Post-lint verification completed successfully. All critical paths verified:
+      
+      **Auth & Seeding**
+      - Backend startup logs show correct "[seed] Admin user exists: admin@envirolytics.com" (no f-string error)
+      - POST /api/auth/login returns 200 with valid JWT
+      
+      **Certificates (api_certificates.py)**
+      - POST /api/certificates/upload with PDF validates extension correctly (removed unused `ext` variable did NOT break validation)
+      - GET /api/certificates/list returns uploaded certificate
+      
+      **Per-User Scoping (Quick Re-verification)**
+      - Created temp client + 2 instruments (flowmeter + dwlr)
+      - Client sees exactly their 2 instruments (GET /api/instrument-registry)
+      - GET /api/alerts/offline returns 200 (scoped)
+      - GET /api/alerts/limit-breaches returns 200 (scoped)
+      - GET /api/flowmeter-mgmt/export?format=csv returns 200 with text/csv
+      - GET /api/flowmeter-mgmt/dwlr/{hw_id}/daily?days=7 returns 200
+      
+      **Renewals & Notifications**
+      - GET /api/renewals returns 200
+      - GET /api/notifications/emails returns 200 (admin only)
+      
+      **Backend Logs**
+      - No errors or exceptions in recent logs
+      - Only WatchFiles reload warnings (expected from lint file changes)
+      
+      CONCLUSION: Lint cleanup changes are SAFE. No logic broken. Codebase is deployment-ready.
 

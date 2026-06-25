@@ -73,8 +73,7 @@ const LocationMap = ({ locations = [], center = [22.9734, 78.6569], zoom = 6, he
         mapRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- map is initialised once with the first center/zoom
 
   useEffect(() => {
     if (!markersLayerRef.current || !window.L) return;
