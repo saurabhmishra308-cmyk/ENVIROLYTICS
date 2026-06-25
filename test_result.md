@@ -101,3 +101,78 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Per-user instrument scoping. When admin creates a user, the dialog should also ask
+  to register the instruments installed at the client location. The created user
+  should then only see their own instruments on the dashboard, can only download
+  data of their own instruments, and receives telemetry alerts (offline + limit
+  breach) on their login email automatically. Admin can additionally set up to 4
+  global ops recipients but the device owner is the default. All other instruments
+  must be hidden from the user until added in their account.
+
+frontend:
+  - task: "Create User + Add Instruments 2-step wizard"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/User.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Replaced the single-page Create User dialog with a 2-step wizard:
+          Step 1 = user info (existing fields), Step 2 = multi-row instruments list
+          with hardware_id, type, label, flowmeter-category, location_name, lat/lng.
+          On submit it POSTs /api/admin/users/create, then for each row POSTs
+          /api/instrument-registry with owner_user_id = new user id. Toast feedback
+          for full / partial success. Lint clean.
+
+backend:
+  - task: "/api/admin/users/create endpoint"
+    implemented: true
+    working: true
+    file: "backend/api_admin.py"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Unchanged. Returns {success, user{id,...}} as before."
+
+  - task: "/api/instrument-registry (POST) — owner-scoped registration"
+    implemented: true
+    working: true
+    file: "backend/api_instrument_registry.py"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Already existed and is used by the wizard. No change."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 0
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Create User + Add Instruments 2-step wizard"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Phase 1 implemented: Create User wizard now collects instruments in step 2.
+      Backend endpoints unchanged — frontend chains POST user → POST each
+      instrument with owner_user_id. Ready for admin to test from User Management
+      page. Phases 2 (per-owner email alerts), 3 (flow min/max limit UI + admin
+      activation), 4 (DWLR mWC + temperature display) pending user go-ahead.

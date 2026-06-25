@@ -15,13 +15,15 @@ Production bug-fix + polish on the Envirolytics Monitor web app (React + FastAPI
 - Sub-user (gated by per-permission keys: dashboard, reports, analysis, certificates, audit, limits)
 
 ## What's been implemented
-- 2026-06-17 — Cloned repo into /app, set up backend `.env` (JWT_SECRET, ADMIN_*), installed Python deps (paho-mqtt, resend, reportlab, openpyxl), `yarn install`-ed frontend.
-- 2026-06-17 — **Bug-1 (auto-logout)**: Smart 401 interceptor in `lib/api.js` only wipes the token + fires `envirolytics:auth-expired` event when the 401 actually indicates a token problem; ignores user-action 401s (change-password etc). Added `AuthGate` component to handle the event with a clean navigate to "/" + toast.
-- 2026-06-17 — **Bug-2 (random crashes)**: Class-based `ErrorBoundary` wrapping `<Routes>` at the App root so any render error surfaces a recovery UI instead of blanking the app. Added `RequireAuth` wrapper for routes that previously had no guard.
-- 2026-06-17 — **Polish 1 — branding**: Removed "Made with Emergent" badge + emergent-main.js script + PostHog analytics from `public/index.html`.
-- 2026-06-17 — **Polish 2 — typography**: Loaded Plus Jakarta Sans (display) + Inter (body) + JetBrains Mono (data numerals); refined CSS variables (`--font-display`, `--font-body`, `--font-mono`); h1/h2/h3 typography rules; dashboard KPI tiles use `tabular-nums`.
-- 2026-06-17 — **Polish 3 — login scene v2**: Cinematic 24s storyline — mountains with snow caps, waterfall cascading from peak, river to foreground, 3 windmills + solar panels (no trees), sun rays, seagulls, butterflies, fireflies, water ripples, rainbow, leaping fish, glass-morphism `.env-login-card` with neon border, premium pill submit button.
-- 2026-06-17 — **Polish 4 — Live Weather backend proxy**: Added `GET /api/weather/live` (free Open-Meteo, no key needed) returning OWM-compatible shape; Dashboard `fetchWeather` now uses the backend endpoint + auto-refresh every 5 min.
+- 2026-06-25 — **Bug-1 (auto-logout)**: Smart 401 interceptor in `lib/api.js` only wipes the token + fires `envirolytics:auth-expired` event when the 401 actually indicates a token problem; ignores user-action 401s (change-password etc). Added `AuthGate` component to handle the event with a clean navigate to "/" + toast.
+- 2026-06-25 — **Bug-2 (random crashes)**: Class-based `ErrorBoundary` wrapping `<Routes>` at the App root so any render error surfaces a recovery UI instead of blanking the app.
+- 2026-06-25 — **Polish — branding/typography/login scene/weather** (see prior PRD).
+- 2026-07 — **Phase 1: Create User + Add Instruments wizard** — `User.jsx` now opens a 2-step dialog:
+  - Step 1: User info (email, name, password, role, company, phone, location, lat/lng) — existing form
+  - Step 2: Multi-row instrument list (hardware_id, type, label, category for flowmeter, location, lat/lng) — admin can add/remove rows
+  - Submit: POST `/api/admin/users/create` → loop POST `/api/instrument-registry` with the new `owner_user_id` per instrument
+  - Toast feedback shows success / partial failure
+  - Each instrument's location defaults to the user's location for convenience
 
 ## Verified flows
 - Login → dashboard → all-route navigation → hard refresh: session persists (verified iteration_1 + manual)
