@@ -156,6 +156,25 @@ async def startup_event():
     logger.info("Starting Envirolytics Monitor API...")
     # Seed admin user
     await seed_admin(db)
+    # Ensure performance indexes on hot collections (idempotent — safe on every restart)
+    try:
+        await db.flowmeter_latest.create_index("hardware_id", unique=True)
+        await db.instrument_latest.create_index("hardware_id", unique=True)
+        await db.flowmeter_readings.create_index([("hardware_id", 1), ("timestamp", -1)])
+        await db.instrument_readings.create_index([("hardware_id", 1), ("timestamp", -1)])
+        await db.instrument_readings.create_index([("instrument_type", 1), ("timestamp", -1)])
+        await db.instrument_registry.create_index("hardware_id", unique=True)
+        await db.instrument_registry.create_index("owner_user_id")
+        await db.flow_limits.create_index("hardware_id", unique=True)
+        await db.limit_alerts_state.create_index([("hardware_id", 1), ("month", 1), ("kind", 1)], unique=True)
+        await db.notification_state.create_index("device_key", unique=True)
+        await db.audit_log.create_index([("timestamp", -1)])
+        await db.audit_log.create_index([("entity_type", 1), ("entity_id", 1)])
+        await db.certificates.create_index([("user_id", 1), ("cert_type", 1)])
+        await db.renewals.create_index("user_id")
+        logger.info("MongoDB indexes ensured")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Index creation skipped/failed (non-fatal): {e}")
     # Register asyncio loop with MQTT service so callbacks can schedule coroutines
     mqtt_service.set_event_loop(asyncio.get_event_loop())
     # Connect to MQTT broker (non-blocking)
