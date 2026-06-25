@@ -84,9 +84,10 @@ frontend/node_modules/.cache/default-development/6.pack
 frontend/node_modules/.cache/default-development/7.pack
 frontend/node_modules/.cache/default-development/5.pack
 frontend/node_modules/.cache/default-development/8.pack
-.env
-.env.*
-*.env
+# NOTE: .env files are intentionally TRACKED in this repo because Emergent's
+# deploy pipeline (MANAGE_SECRETS step) needs them to discover the env-var
+# schema. Production values are injected by the platform at deploy time —
+# never put real production credentials here.
 credentials.json
 *.key
 .credentials
