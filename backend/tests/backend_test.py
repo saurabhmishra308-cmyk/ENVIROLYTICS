@@ -1290,3 +1290,482 @@ class TestLoginPermissions:
             assert k in perms, f"missing permission {k} in admin login payload"
             assert perms[k] is True
 
+
+# ============================
+# Iteration 6 — Per-user instrument scoping + alerts
+# ============================
+class TestInstrumentRegistry:
+    """Test instrument registry CRUD and per-user scoping."""
+    
+    @pytest.fixture(scope="class")
+    def test_client_with_instruments(self, session, admin_headers):
+        """Create a client user with 3 registered instruments."""
+        # 1. Create client user with location
+        email = f"TEST_client_{uuid.uuid4().hex[:6]}@envirolytics.com"
+        user_payload = {
+            "email": email,
+            "password": "ClientPass123!",
+            "full_name": "Test Client User",
+            "role": "client",
+            "location_name": "Test Site Mumbai",
+            "latitude": 19.076,
+            "longitude": 72.877,
+        }
+        r = session.post(f"{API}/admin/users/create", headers=admin_headers, json=user_payload)
+        assert r.status_code == 200, f"User creation failed: {r.text}"
+        user = r.json()["user"]
+        user_id = user["id"]
+        
+        # 2. Register 3 instruments for this user
+        instruments = [
+            {
+                "hardware_id": f"FM_TEST_GW_{uuid.uuid4().hex[:6]}",
+                "instrument_type": "flowmeter",
+                "category": "groundwater_abstraction",
+                "label": "Test BW#1",
+                "owner_user_id": user_id,
+            },
+            {
+                "hardware_id": f"DWLR_TEST_{uuid.uuid4().hex[:6]}",
+                "instrument_type": "dwlr",
+                "label": "Test DWLR",
+                "owner_user_id": user_id,
+            },
+            {
+                "hardware_id": f"PH_TEST_{uuid.uuid4().hex[:6]}",
+                "instrument_type": "ph",
+                "label": "Test pH",
+                "owner_user_id": user_id,
+            },
+        ]
+        
+        created_instruments = []
+        for inst in instruments:
+            r = session.post(f"{API}/instrument-registry", headers=admin_headers, json=inst)
+            assert r.status_code == 200, f"Instrument registration failed: {r.text}"
+            created_instruments.append(r.json()["instrument"])
+        
+        # 3. Login as client to get token
+        login_r = session.post(f"{API}/auth/login", json={"email": email, "password": "ClientPass123!"})
+        assert login_r.status_code == 200, f"Client login failed: {login_r.text}"
+        client_token = login_r.json()["access_token"]
+        client_headers = {"Authorization": f"Bearer {client_token}", "Content-Type": "application/json"}
+        
+        yield {
+            "user_id": user_id,
+            "email": email,
+            "password": "ClientPass123!",
+            "instruments": created_instruments,
+            "client_headers": client_headers,
+        }
+        
+        # Cleanup: delete instruments and user
+        for inst in created_instruments:
+            session.delete(f"{API}/instrument-registry/{inst['hardware_id']}", headers=admin_headers)
+        session.delete(f"{API}/admin/users/{user_id}", headers=admin_headers)
+    
+    def test_admin_can_create_instrument_with_owner(self, session, admin_headers, test_user):
+        """Admin can register an instrument and assign it to a user."""
+        hw_id = f"TEST_INST_{uuid.uuid4().hex[:6]}"
+        payload = {
+            "hardware_id": hw_id,
+            "instrument_type": "flowmeter",
+            "category": "groundwater_abstraction",
+            "label": "Test Instrument",
+            "owner_user_id": test_user["id"],
+        }
+        r = session.post(f"{API}/instrument-registry", headers=admin_headers, json=payload)
+        assert r.status_code == 200, r.text
+        inst = r.json()["instrument"]
+        assert inst["hardware_id"] == hw_id
+        assert inst["owner_user_id"] == test_user["id"]
+        # Cleanup
+        session.delete(f"{API}/instrument-registry/{hw_id}", headers=admin_headers)
+    
+    def test_client_sees_only_own_instruments(self, test_client_with_instruments):
+        """Client user sees only their own registered instruments."""
+        data = test_client_with_instruments
+        r = requests.get(f"{API}/instrument-registry", headers=data["client_headers"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["count"] == 3, f"Expected 3 instruments, got {body['count']}"
+        
+        # Verify all returned instruments belong to this user
+        hw_ids = {inst["hardware_id"] for inst in data["instruments"]}
+        for inst in body["instruments"]:
+            assert inst["hardware_id"] in hw_ids, f"Unexpected instrument {inst['hardware_id']}"
+            assert inst["owner_user_id"] == data["user_id"]
+    
+    def test_admin_sees_all_instruments(self, session, admin_headers, test_client_with_instruments):
+        """Admin sees all registered instruments including client's."""
+        data = test_client_with_instruments
+        r = session.get(f"{API}/instrument-registry", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        
+        # Admin should see at least the 3 test instruments
+        hw_ids = {inst["hardware_id"] for inst in body["instruments"]}
+        for inst in data["instruments"]:
+            assert inst["hardware_id"] in hw_ids, f"Admin cannot see instrument {inst['hardware_id']}"
+    
+    def test_instruments_all_latest_scoped(self, test_client_with_instruments):
+        """GET /api/instruments/all/latest returns only owned instruments."""
+        data = test_client_with_instruments
+        r = requests.get(f"{API}/instruments/all/latest", headers=data["client_headers"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        
+        # Should only contain readings from owned instruments
+        owned_hw_ids = {inst["hardware_id"] for inst in data["instruments"]}
+        for itype, readings in body.get("by_type", {}).items():
+            for reading in readings:
+                hw = reading.get("hardware_id")
+                if hw:
+                    assert hw in owned_hw_ids, f"Client sees unowned instrument {hw}"
+    
+    def test_instruments_dwlr_latest_scoped(self, test_client_with_instruments):
+        """GET /api/instruments/dwlr/latest returns only owned DWLR."""
+        data = test_client_with_instruments
+        r = requests.get(f"{API}/instruments/dwlr/latest", headers=data["client_headers"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        
+        owned_dwlr = [inst["hardware_id"] for inst in data["instruments"] if inst["instrument_type"] == "dwlr"]
+        for reading in body.get("readings", []):
+            hw = reading.get("hardware_id")
+            if hw:
+                assert hw in owned_dwlr, f"Client sees unowned DWLR {hw}"
+
+
+class TestLimitsVisibility:
+    """Test limits min/max + visible_to_client toggle."""
+    
+    @pytest.fixture(scope="class")
+    def client_with_limit(self, session, admin_headers):
+        """Create client + instrument + limit with visible_to_client=false."""
+        # Create client
+        email = f"TEST_lim_client_{uuid.uuid4().hex[:6]}@envirolytics.com"
+        user_r = session.post(f"{API}/admin/users/create", headers=admin_headers, json={
+            "email": email,
+            "password": "ClientPass123!",
+            "full_name": "Limit Test Client",
+            "role": "client",
+        })
+        assert user_r.status_code == 200
+        user_id = user_r.json()["user"]["id"]
+        
+        # Register flowmeter
+        hw_id = f"FM_TEST_LIM_{uuid.uuid4().hex[:6]}"
+        inst_r = session.post(f"{API}/instrument-registry", headers=admin_headers, json={
+            "hardware_id": hw_id,
+            "instrument_type": "flowmeter",
+            "category": "groundwater_abstraction",
+            "label": "Test Limit FM",
+            "owner_user_id": user_id,
+        })
+        assert inst_r.status_code == 200
+        
+        # Create limit with visible_to_client=false
+        limit_r = session.post(f"{API}/limits", headers=admin_headers, json={
+            "hardware_id": hw_id,
+            "monthly_limit_kl": 100.0,
+            "min_limit_kl": 10.0,
+            "customer_email": "client@example.com",
+            "visible_to_client": False,
+            "label": "Test Limit",
+        })
+        assert limit_r.status_code == 200, limit_r.text
+        
+        # Login as client
+        login_r = session.post(f"{API}/auth/login", json={"email": email, "password": "ClientPass123!"})
+        assert login_r.status_code == 200
+        client_token = login_r.json()["access_token"]
+        client_headers = {"Authorization": f"Bearer {client_token}", "Content-Type": "application/json"}
+        
+        yield {
+            "user_id": user_id,
+            "hw_id": hw_id,
+            "client_headers": client_headers,
+            "admin_headers": admin_headers,
+        }
+        
+        # Cleanup
+        session.delete(f"{API}/limits/{hw_id}", headers=admin_headers)
+        session.delete(f"{API}/instrument-registry/{hw_id}", headers=admin_headers)
+        session.delete(f"{API}/admin/users/{user_id}", headers=admin_headers)
+    
+    def test_client_cannot_see_hidden_limit(self, client_with_limit):
+        """Client cannot see limit when visible_to_client=false."""
+        r = requests.get(f"{API}/limits", headers=client_with_limit["client_headers"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        
+        # Should be empty since visible_to_client=false
+        hw_ids = [lim["hardware_id"] for lim in body["limits"]]
+        assert client_with_limit["hw_id"] not in hw_ids, "Client sees hidden limit"
+    
+    def test_admin_can_toggle_visibility(self, session, client_with_limit):
+        """Admin can toggle visible_to_client to true."""
+        hw_id = client_with_limit["hw_id"]
+        r = session.put(f"{API}/limits/{hw_id}", 
+                       headers=client_with_limit["admin_headers"],
+                       json={"visible_to_client": True})
+        assert r.status_code == 200, r.text
+        assert r.json()["visible_to_client"] is True
+    
+    def test_client_sees_limit_after_toggle(self, client_with_limit):
+        """Client can see limit after visible_to_client=true."""
+        # First toggle to visible
+        hw_id = client_with_limit["hw_id"]
+        requests.put(f"{API}/limits/{hw_id}",
+                    headers=client_with_limit["admin_headers"],
+                    json={"visible_to_client": True})
+        
+        # Now client should see it
+        r = requests.get(f"{API}/limits", headers=client_with_limit["client_headers"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        
+        hw_ids = [lim["hardware_id"] for lim in body["limits"]]
+        assert hw_id in hw_ids, "Client cannot see visible limit"
+        
+        # Verify limit details
+        limit = [lim for lim in body["limits"] if lim["hardware_id"] == hw_id][0]
+        assert limit["monthly_limit_kl"] == 100.0
+        assert limit["min_limit_kl"] == 10.0
+        assert limit["visible_to_client"] is True
+    
+    def test_limit_has_min_and_max_fields(self, session, admin_headers):
+        """Limits support both min_limit_kl and monthly_limit_kl."""
+        hw_id = f"TEST_MINMAX_{uuid.uuid4().hex[:6]}"
+        r = session.post(f"{API}/limits", headers=admin_headers, json={
+            "hardware_id": hw_id,
+            "monthly_limit_kl": 200.0,
+            "min_limit_kl": 50.0,
+            "customer_email": "test@example.com",
+        })
+        assert r.status_code == 200, r.text
+        limit = r.json()
+        assert limit["monthly_limit_kl"] == 200.0
+        assert limit["min_limit_kl"] == 50.0
+        assert "exceeded" in limit
+        assert "below_minimum" in limit
+        # Cleanup
+        session.delete(f"{API}/limits/{hw_id}", headers=admin_headers)
+
+
+class TestAlertsScoping:
+    """Test offline alerts and limit-breach alerts are scoped per-user."""
+    
+    @pytest.fixture(scope="class")
+    def client_with_instruments_for_alerts(self, session, admin_headers):
+        """Create client with instruments for alert testing."""
+        email = f"TEST_alert_client_{uuid.uuid4().hex[:6]}@envirolytics.com"
+        user_r = session.post(f"{API}/admin/users/create", headers=admin_headers, json={
+            "email": email,
+            "password": "ClientPass123!",
+            "full_name": "Alert Test Client",
+            "role": "client",
+        })
+        assert user_r.status_code == 200
+        user_id = user_r.json()["user"]["id"]
+        
+        # Register instruments
+        hw_ids = []
+        for i, itype in enumerate(["flowmeter", "dwlr"]):
+            hw_id = f"TEST_ALERT_{itype.upper()}_{uuid.uuid4().hex[:6]}"
+            inst_r = session.post(f"{API}/instrument-registry", headers=admin_headers, json={
+                "hardware_id": hw_id,
+                "instrument_type": itype,
+                "label": f"Test Alert {itype}",
+                "owner_user_id": user_id,
+                "category": "groundwater_abstraction" if itype == "flowmeter" else None,
+            })
+            assert inst_r.status_code == 200
+            hw_ids.append(hw_id)
+        
+        # Login as client
+        login_r = session.post(f"{API}/auth/login", json={"email": email, "password": "ClientPass123!"})
+        assert login_r.status_code == 200
+        client_token = login_r.json()["access_token"]
+        client_headers = {"Authorization": f"Bearer {client_token}", "Content-Type": "application/json"}
+        
+        yield {
+            "user_id": user_id,
+            "hw_ids": hw_ids,
+            "client_headers": client_headers,
+        }
+        
+        # Cleanup
+        for hw_id in hw_ids:
+            session.delete(f"{API}/instrument-registry/{hw_id}", headers=admin_headers)
+        session.delete(f"{API}/admin/users/{user_id}", headers=admin_headers)
+    
+    def test_offline_alerts_requires_auth(self, session):
+        """GET /api/alerts/offline requires authentication."""
+        r = session.get(f"{API}/alerts/offline?hours=2")
+        assert r.status_code in (401, 403)
+    
+    def test_offline_alerts_scoped_to_client(self, client_with_instruments_for_alerts):
+        """Client sees only their own offline devices."""
+        data = client_with_instruments_for_alerts
+        r = requests.get(f"{API}/alerts/offline?hours=2", headers=data["client_headers"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        
+        assert "offline" in body
+        assert "count" in body
+        assert "threshold_hours" in body
+        
+        # All offline devices should belong to this client
+        for device in body["offline"]:
+            hw = device.get("hardware_id")
+            if hw:
+                assert hw in data["hw_ids"], f"Client sees unowned offline device {hw}"
+    
+    def test_offline_alerts_includes_never_reported(self, client_with_instruments_for_alerts):
+        """Offline alerts include registered devices that never reported."""
+        data = client_with_instruments_for_alerts
+        r = requests.get(f"{API}/alerts/offline?hours=2", headers=data["client_headers"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        
+        # Since we just registered these devices without sending data, they should appear
+        # as never_reported or offline
+        hw_ids_in_response = {d["hardware_id"] for d in body["offline"]}
+        for hw_id in data["hw_ids"]:
+            assert hw_id in hw_ids_in_response, f"Never-reported device {hw_id} not in offline list"
+    
+    def test_limit_breaches_requires_auth(self, session):
+        """GET /api/alerts/limit-breaches requires authentication."""
+        r = session.get(f"{API}/alerts/limit-breaches")
+        assert r.status_code in (401, 403)
+    
+    def test_limit_breaches_scoped_to_client(self, client_with_instruments_for_alerts):
+        """Client sees only their own limit breaches."""
+        data = client_with_instruments_for_alerts
+        r = requests.get(f"{API}/alerts/limit-breaches", headers=data["client_headers"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        
+        assert "breaches" in body
+        assert "count" in body
+        
+        # All breaches should be for client's instruments
+        for breach in body["breaches"]:
+            hw = breach.get("hardware_id")
+            if hw:
+                assert hw in data["hw_ids"], f"Client sees unowned breach {hw}"
+    
+    def test_admin_sees_all_offline_devices(self, session, admin_headers):
+        """Admin sees all offline devices across all users."""
+        r = session.get(f"{API}/alerts/offline?hours=2", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "offline" in body
+        # Admin should see more devices than any single client
+
+
+class TestPerUserExport:
+    """Test per-user CSV/PDF export and DWLR daily endpoint."""
+    
+    @pytest.fixture(scope="class")
+    def client_with_flowmeter(self, session, admin_headers):
+        """Create client with a flowmeter for export testing."""
+        email = f"TEST_export_client_{uuid.uuid4().hex[:6]}@envirolytics.com"
+        user_r = session.post(f"{API}/admin/users/create", headers=admin_headers, json={
+            "email": email,
+            "password": "ClientPass123!",
+            "full_name": "Export Test Client",
+            "role": "client",
+        })
+        assert user_r.status_code == 200
+        user_id = user_r.json()["user"]["id"]
+        
+        # Register flowmeter
+        hw_id = f"FM_TEST_EXPORT_{uuid.uuid4().hex[:6]}"
+        inst_r = session.post(f"{API}/instrument-registry", headers=admin_headers, json={
+            "hardware_id": hw_id,
+            "instrument_type": "flowmeter",
+            "category": "groundwater_abstraction",
+            "label": "Test Export FM",
+            "owner_user_id": user_id,
+        })
+        assert inst_r.status_code == 200
+        
+        # Register DWLR
+        dwlr_id = f"DWLR_TEST_EXPORT_{uuid.uuid4().hex[:6]}"
+        dwlr_r = session.post(f"{API}/instrument-registry", headers=admin_headers, json={
+            "hardware_id": dwlr_id,
+            "instrument_type": "dwlr",
+            "label": "Test Export DWLR",
+            "owner_user_id": user_id,
+        })
+        assert dwlr_r.status_code == 200
+        
+        # Login as client
+        login_r = session.post(f"{API}/auth/login", json={"email": email, "password": "ClientPass123!"})
+        assert login_r.status_code == 200
+        client_token = login_r.json()["access_token"]
+        client_headers = {"Authorization": f"Bearer {client_token}", "Content-Type": "application/json"}
+        
+        yield {
+            "user_id": user_id,
+            "hw_id": hw_id,
+            "dwlr_id": dwlr_id,
+            "client_headers": client_headers,
+        }
+        
+        # Cleanup
+        session.delete(f"{API}/instrument-registry/{hw_id}", headers=admin_headers)
+        session.delete(f"{API}/instrument-registry/{dwlr_id}", headers=admin_headers)
+        session.delete(f"{API}/admin/users/{user_id}", headers=admin_headers)
+    
+    def test_export_csv_requires_auth(self, session):
+        """Export endpoint requires authentication."""
+        r = session.get(f"{API}/flowmeter-mgmt/export?format=csv")
+        assert r.status_code in (401, 403)
+    
+    def test_client_can_export_csv(self, client_with_flowmeter):
+        """Client can export CSV for their own instruments."""
+        r = requests.get(f"{API}/flowmeter-mgmt/export?format=csv",
+                        headers=client_with_flowmeter["client_headers"])
+        assert r.status_code == 200, r.text
+        assert "text/csv" in r.headers.get("content-type", "").lower()
+    
+    def test_client_cannot_export_unowned_instrument(self, client_with_flowmeter):
+        """Client gets 403 when trying to export unowned instrument."""
+        unowned_hw = "UNOWNED_FM_12345"
+        r = requests.get(f"{API}/flowmeter-mgmt/export?format=csv&hardware_id={unowned_hw}",
+                        headers=client_with_flowmeter["client_headers"])
+        assert r.status_code == 403, r.text
+    
+    def test_admin_can_export_all(self, session, admin_headers):
+        """Admin can export all instruments."""
+        r = session.get(f"{API}/flowmeter-mgmt/export?format=csv", headers=admin_headers)
+        assert r.status_code == 200, r.text
+        assert "text/csv" in r.headers.get("content-type", "").lower()
+    
+    def test_dwlr_daily_requires_auth(self, session, client_with_flowmeter):
+        """DWLR daily endpoint requires authentication."""
+        r = session.get(f"{API}/flowmeter-mgmt/dwlr/{client_with_flowmeter['dwlr_id']}/daily?days=7")
+        assert r.status_code in (401, 403)
+    
+    def test_client_can_access_own_dwlr_daily(self, client_with_flowmeter):
+        """Client can access DWLR daily data for their own instrument."""
+        r = requests.get(f"{API}/flowmeter-mgmt/dwlr/{client_with_flowmeter['dwlr_id']}/daily?days=7",
+                        headers=client_with_flowmeter["client_headers"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["hardware_id"] == client_with_flowmeter["dwlr_id"]
+        assert "series" in body
+        assert "count" in body
+        assert body["days"] == 7
+    
+    def test_client_cannot_access_unowned_dwlr_daily(self, client_with_flowmeter):
+        """Client gets 403 when accessing unowned DWLR daily data."""
+        unowned_dwlr = "DWLR_UNOWNED_12345"
+        r = requests.get(f"{API}/flowmeter-mgmt/dwlr/{unowned_dwlr}/daily?days=7",
+                        headers=client_with_flowmeter["client_headers"])
+        assert r.status_code == 403, r.text
+

@@ -5,13 +5,16 @@ Categories:
   - stp_inlet                (Water Quality tile)
   - stp_outlet               (Water Quality tile)
 """
+import io
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from auth import require_admin, get_current_user
 import api_instrument_registry
+from data_export_service import DataExportService
 
 router = APIRouter(prefix="/api/flowmeter-mgmt", tags=["flowmeter-management"])
 
@@ -297,12 +300,12 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
         if prev and req.reverse_totalizer < float(prev.get("reverse_totalizer", 0)) - 1e-6:
             raise HTTPException(
                 status_code=400,
-                detail=f"Reverse totaliser mismatch with previous reading.",
+                detail="Reverse totaliser mismatch with previous reading.",
             )
         if nxt and req.reverse_totalizer > float(nxt.get("reverse_totalizer", 0)) + 1e-6:
             raise HTTPException(
                 status_code=400,
-                detail=f"Reverse totaliser mismatch with next reading.",
+                detail="Reverse totaliser mismatch with next reading.",
             )
 
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
@@ -387,3 +390,114 @@ async def delete_instrument_reading(reading_id: str, admin: dict = Depends(requi
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Reading not found")
     return {"success": True}
+
+
+# ============================
+# Per-user data export — admin sees all; client/sub-user sees only owned devices.
+# ============================
+@router.get("/export")
+async def export_data_scoped(
+    format: str = Query(..., regex="^(csv|pdf)$"),
+    hardware_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Download CSV / PDF of flowmeter readings — scoped to the caller's owned
+    instruments. Admin still sees every registered device."""
+    is_admin = user.get("role") == "admin"
+    visible = await api_instrument_registry.visible_hardware_ids(user)
+    if not is_admin and not visible:
+        raise HTTPException(status_code=403, detail="You don't have any instruments assigned to your account yet.")
+
+    if hardware_id and not is_admin and hardware_id not in visible:
+        raise HTTPException(status_code=403, detail=f"Instrument '{hardware_id}' is not assigned to your account.")
+
+    if hardware_id:
+        query = {"hardware_id": hardware_id}
+    elif is_admin:
+        query = {}  # admin downloads everything
+    else:
+        query = {"hardware_id": {"$in": list(visible)}}
+    if start_date or end_date:
+        query["timestamp"] = {}
+        if start_date:
+            query["timestamp"]["$gte"] = start_date
+        if end_date:
+            query["timestamp"]["$lte"] = end_date
+
+    cursor = db.flowmeter_readings.find(query).sort("timestamp", -1).limit(5000)
+    readings = await cursor.to_list(length=5000)
+    for r in readings:
+        r.pop("_id", None)
+        r.pop("raw_data", None)
+
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    if format == "csv":
+        csv_data = DataExportService.to_csv(readings)
+        return StreamingResponse(
+            io.BytesIO(csv_data),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=flowmeter_data_{today}.csv"},
+        )
+    pdf_data = DataExportService.to_pdf(readings, "Flowmeter Readings Report")
+    return StreamingResponse(
+        io.BytesIO(pdf_data),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=flowmeter_report_{today}.pdf"},
+    )
+
+
+# ============================
+# Per-user DWLR daily aggregate (level mWC + temperature)
+# ============================
+@router.get("/dwlr/{hardware_id}/daily")
+async def dwlr_daily(
+    hardware_id: str,
+    days: int = Query(30, ge=1, le=365),
+    user: dict = Depends(get_current_user),
+):
+    """Return daily-averaged DWLR level (mWC) + temperature for the given hardware_id."""
+    is_admin = user.get("role") == "admin"
+    visible = await api_instrument_registry.visible_hardware_ids(user)
+    if not is_admin and hardware_id not in visible:
+        raise HTTPException(status_code=403, detail="Instrument not in your account.")
+
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+
+    buckets = {}
+    cursor = db.instrument_readings.find(
+        {"instrument_type": "dwlr", "hardware_id": hardware_id,
+         "timestamp": {"$gte": start.isoformat()}},
+        {"_id": 0, "timestamp": 1, "values": 1},
+    ).limit(20000)
+    async for r in cursor:
+        ts = r.get("timestamp")
+        if not isinstance(ts, str):
+            continue
+        try:
+            day = datetime.fromisoformat(ts.replace("Z", "+00:00")).date().isoformat()
+        except ValueError:
+            continue
+        v = r.get("values", {}) or {}
+        level = v.get("LEVEL") if isinstance(v.get("LEVEL"), (int, float)) else v.get("level")
+        temp = v.get("TEMPER") if isinstance(v.get("TEMPER"), (int, float)) else v.get("temperature")
+        agg = buckets.setdefault(day, {"level_sum": 0.0, "level_n": 0, "temp_sum": 0.0, "temp_n": 0})
+        if isinstance(level, (int, float)):
+            agg["level_sum"] += float(level)
+            agg["level_n"] += 1
+        if isinstance(temp, (int, float)):
+            agg["temp_sum"] += float(temp)
+            agg["temp_n"] += 1
+
+    series = []
+    for d in sorted(buckets.keys()):
+        a = buckets[d]
+        series.append({
+            "date": d,
+            "level_mwc": round(a["level_sum"] / a["level_n"], 3) if a["level_n"] else None,
+            "temperature_c": round(a["temp_sum"] / a["temp_n"], 2) if a["temp_n"] else None,
+            "samples": max(a["level_n"], a["temp_n"]),
+        })
+    return {"hardware_id": hardware_id, "days": days, "series": series, "count": len(series)}

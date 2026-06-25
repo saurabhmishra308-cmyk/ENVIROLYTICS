@@ -69,19 +69,22 @@ const Reports = () => {
   useEffect(() => { fetchReadings(); }, [fetchReadings]);
 
   const triggerDownload = async (format) => {
-    if (!admin) { toast.error('Admin only'); return; }
     try {
       const params = new URLSearchParams({ format });
       if (hardwareId) params.append('hardware_id', hardwareId);
       if (startDate) params.append('start_date', formatDate(startDate));
       if (endDate) params.append('end_date', formatDate(endDate));
-      const url = `${process.env.REACT_APP_BACKEND_URL}/api/admin/data/export?${params.toString()}`;
+      // Use per-user scoped endpoint (admin still sees all). Falls back to legacy admin route for compatibility.
+      const url = `${process.env.REACT_APP_BACKEND_URL}/api/flowmeter-mgmt/export?${params.toString()}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
-      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.detail || `Download failed: ${res.status}`);
+      }
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = format === 'csv' ? 'data.csv' : 'report.pdf';
+      a.download = format === 'csv' ? 'flowmeter_data.csv' : 'flowmeter_report.pdf';
       document.body.appendChild(a);
       a.click();
       a.remove();

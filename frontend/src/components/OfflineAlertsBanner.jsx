@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Radio, ShieldAlert } from 'lucide-react';
+import { Radio, ShieldAlert, AlertOctagon } from 'lucide-react';
 import api from '../lib/api';
 
 const POLL_MS = 60 * 1000;
@@ -20,28 +20,33 @@ const metaFor = (d) => {
 
 const OfflineAlertsBanner = ({ isDarkMode }) => {
   const [items, setItems] = useState([]);
+  const [breaches, setBreaches] = useState([]);
   const [error, setError] = useState(false);
 
-  const fetchOffline = useCallback(async () => {
+  const fetchAlerts = useCallback(async () => {
     try {
-      const { data } = await api.get(`/api/alerts/offline?hours=${THRESHOLD_HOURS}`);
-      setItems(data?.offline || []);
+      const [offlineRes, breachRes] = await Promise.all([
+        api.get(`/api/alerts/offline?hours=${THRESHOLD_HOURS}`),
+        api.get('/api/alerts/limit-breaches').catch(() => ({ data: { breaches: [] } })),
+      ]);
+      setItems(offlineRes?.data?.offline || []);
+      setBreaches(breachRes?.data?.breaches || []);
       setError(false);
     } catch (e) {
-      if (process.env.NODE_ENV === 'development') console.error('[offline-alerts]', e);
+      if (process.env.NODE_ENV === 'development') console.error('[alerts]', e);
       setError(true);
     }
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    const tick = () => { if (!cancelled) fetchOffline(); };
+    const tick = () => { if (!cancelled) fetchAlerts(); };
     const t = setTimeout(tick, 0);
     const i = setInterval(tick, POLL_MS);
     return () => { cancelled = true; clearTimeout(t); clearInterval(i); };
-  }, [fetchOffline]);
+  }, [fetchAlerts]);
 
-  if (error || items.length === 0) return null;
+  if (error || (items.length === 0 && breaches.length === 0)) return null;
 
   const surface       = isDarkMode ? 'bg-[#1a2332]'        : 'bg-white';
   const border        = isDarkMode ? 'border-red-900/60'   : 'border-red-200';
@@ -50,6 +55,8 @@ const OfflineAlertsBanner = ({ isDarkMode }) => {
   const chipBg        = isDarkMode ? 'bg-red-950/60'       : 'bg-red-50';
   const chipText      = isDarkMode ? 'text-red-100'        : 'text-red-900';
   const idText        = isDarkMode ? 'text-red-200/70'     : 'text-red-700/70';
+
+  const totalCount = items.length + breaches.length;
 
   return (
     <section
@@ -77,7 +84,13 @@ const OfflineAlertsBanner = ({ isDarkMode }) => {
                 data-testid="offline-alerts-title"
                 className={`text-base sm:text-lg font-semibold ${headlineText}`}
               >
-                {items.length} device{items.length === 1 ? '' : 's'} reporting offline
+                {items.length > 0 && (
+                  <span>{items.length} device{items.length === 1 ? '' : 's'} offline</span>
+                )}
+                {items.length > 0 && breaches.length > 0 && <span> · </span>}
+                {breaches.length > 0 && (
+                  <span>{breaches.length} limit breach{breaches.length === 1 ? '' : 'es'}</span>
+                )}
               </h3>
             </div>
           </div>
@@ -86,44 +99,76 @@ const OfflineAlertsBanner = ({ isDarkMode }) => {
             className={`inline-flex items-center gap-1.5 self-start sm:self-auto px-2.5 py-1 rounded-full text-[11px] font-medium uppercase tracking-wider ${chipBg} ${chipText} ring-1 ring-red-300/40`}
           >
             <Radio className="h-3 w-3" />
-            No signal
+            {totalCount} active
           </span>
         </div>
 
-        <ul
-          className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
-          data-testid="offline-alerts-list"
-        >
-          {items.map((d) => {
-            const m = metaFor(d);
-            return (
+        {items.length > 0 && (
+          <ul
+            className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
+            data-testid="offline-alerts-list"
+          >
+            {items.map((d) => {
+              const m = metaFor(d);
+              return (
+                <li
+                  key={`${d.kind}-${d.instrument_type}-${d.hardware_id}`}
+                  data-testid={`offline-alert-item-${d.hardware_id}`}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg ${chipBg} ring-1 ring-inset ring-red-200/30`}
+                >
+                  <span
+                    className="inline-block w-1.5 h-8 rounded-sm shrink-0"
+                    style={{ backgroundColor: m.accent }}
+                    aria-hidden
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-[10px] uppercase tracking-widest font-semibold ${subText}`}>
+                      {m.label}
+                    </p>
+                    <p className={`text-sm font-medium truncate ${chipText}`} title={d.hardware_id}>
+                      {d.hardware_id}
+                    </p>
+                  </div>
+                  <span
+                    className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md ring-1 ring-red-400/40 ${idText}`}
+                  >
+                    {d.never_reported ? 'No data' : 'Offline'}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {breaches.length > 0 && (
+          <ul
+            className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
+            data-testid="limit-breach-list"
+          >
+            {breaches.map((b) => (
               <li
-                key={`${d.kind}-${d.instrument_type}-${d.hardware_id}`}
-                data-testid={`offline-alert-item-${d.hardware_id}`}
+                key={`limit-${b.hardware_id}-${b.kind}`}
+                data-testid={`limit-breach-${b.hardware_id}`}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg ${chipBg} ring-1 ring-inset ring-red-200/30`}
               >
-                <span
-                  className="inline-block w-1.5 h-8 rounded-sm shrink-0"
-                  style={{ backgroundColor: m.accent }}
-                  aria-hidden
-                />
+                <AlertOctagon className="h-5 w-5 shrink-0 text-red-600" />
                 <div className="min-w-0 flex-1">
                   <p className={`text-[10px] uppercase tracking-widest font-semibold ${subText}`}>
-                    {m.label}
+                    {b.kind === 'exceeded' ? 'Limit exceeded' : 'Below minimum'}
                   </p>
-                  <p className={`text-sm font-medium truncate ${chipText}`} title={d.hardware_id}>
-                    {d.hardware_id}
+                  <p className={`text-sm font-medium truncate ${chipText}`} title={b.label}>
+                    {b.label} — {b.consumption_kl_this_month.toFixed(2)} / {b.kind === 'exceeded' ? b.monthly_limit_kl : b.min_limit_kl} KL
                   </p>
                 </div>
                 <span
                   className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md ring-1 ring-red-400/40 ${idText}`}
                 >
-                  Offline
+                  {b.kind === 'exceeded' ? 'Over' : 'Under'}
                 </span>
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   );

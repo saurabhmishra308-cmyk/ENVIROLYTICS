@@ -4,7 +4,8 @@
 - A background task scans `flowmeter_latest` + `instrument_latest` every
   OFFLINE_ALERT_INTERVAL_MIN minutes. For each device that has been silent for
   >= 2 h, we send an email (once per device, then a OFFLINE_ALERT_COOLDOWN_HOURS
-  cooldown) to every configured recipient.
+  cooldown) to the device's *owner* (looked up via the instrument registry)
+  PLUS every globally configured recipient (ops view).
 - Prefers SMTP (Zoho / any provider) when `SMTP_HOST` is set. Falls back to
   Resend SDK when `RESEND_API_KEY` is set. UI still works either way.
 """
@@ -15,7 +16,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple
 
 import resend
 
@@ -43,7 +44,8 @@ def _parse_iso(value) -> Optional[datetime]:
 
 def _device_key(d: dict) -> str:
     kind = d.get("kind") or d.get("instrument_type") or "device"
-    return f"{kind}:{d.get('hardware_id')}"
+    owner = d.get("owner_email") or "_no_owner_"
+    return f"{kind}:{d.get('hardware_id')}:{owner}"
 
 
 def _resend_configured() -> bool:
@@ -206,6 +208,7 @@ async def _send(recipients: List[str], subject: str, html: str) -> dict:
 
 
 async def send_test_email(db) -> dict:
+    """Sends a test alert to the configured global recipients (admin smoke-test only)."""
     recipients = await get_recipients(db)
     if not recipients:
         return {"sent": False, "reason": "no recipients configured"}
@@ -215,19 +218,40 @@ async def send_test_email(db) -> dict:
 
 
 # --------------------------------------------------------------------------- background scanner
+async def _owner_email_for(db, hardware_id: str) -> Tuple[Optional[str], Optional[str]]:
+    """Return (owner_user_id, owner_email) for a device based on instrument_registry."""
+    reg = await db.instrument_registry.find_one({"hardware_id": hardware_id})
+    if not reg or not reg.get("owner_user_id"):
+        return None, None
+    user = await db.users.find_one({"id": reg["owner_user_id"]}, {"_id": 0, "email": 1, "is_active": 1})
+    if not user or not user.get("email"):
+        return reg.get("owner_user_id"), None
+    if user.get("is_active") is False:
+        return reg.get("owner_user_id"), None
+    return reg.get("owner_user_id"), user.get("email")
+
+
 async def _find_offline(db) -> List[dict]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=OFFLINE_THRESHOLD_HOURS)
     out: List[dict] = []
     async for d in db.flowmeter_latest.find({}, {"_id": 0}):
         ls = _parse_iso(d.get("received_at")) or _parse_iso(d.get("timestamp"))
         if ls and ls < cutoff:
-            out.append({"kind": "flowmeter", "instrument_type": "flowmeter",
-                        "hardware_id": d.get("hardware_id"), "last_seen": ls})
+            owner_id, owner_email = await _owner_email_for(db, d.get("hardware_id"))
+            out.append({
+                "kind": "flowmeter", "instrument_type": "flowmeter",
+                "hardware_id": d.get("hardware_id"), "last_seen": ls,
+                "owner_user_id": owner_id, "owner_email": owner_email,
+            })
     async for d in db.instrument_latest.find({}, {"_id": 0}):
         ls = _parse_iso(d.get("received_at")) or _parse_iso(d.get("timestamp"))
         if ls and ls < cutoff:
-            out.append({"kind": "instrument", "instrument_type": d.get("instrument_type"),
-                        "hardware_id": d.get("hardware_id"), "last_seen": ls})
+            owner_id, owner_email = await _owner_email_for(db, d.get("hardware_id"))
+            out.append({
+                "kind": "instrument", "instrument_type": d.get("instrument_type"),
+                "hardware_id": d.get("hardware_id"), "last_seen": ls,
+                "owner_user_id": owner_id, "owner_email": owner_email,
+            })
     return out
 
 
@@ -261,22 +285,59 @@ async def _record_notified(db, devices: List[dict]):
 
 
 async def check_and_notify(db) -> dict:
-    """Run one offline-detection + email pass. Safe to call manually."""
-    recipients = await get_recipients(db)
-    if not recipients:
-        return {"checked": True, "skipped": "no recipients"}
+    """Run one offline-detection + email pass. Safe to call manually.
+
+    For every offline device we send an email to:
+      - the device owner (looked up via instrument_registry → users.email)  — primary
+      - PLUS every globally configured ops recipient (max 4) — copy
+
+    Each (device, recipient) pair has its own cooldown so the owner receives
+    one alert per device-cooldown window, and the ops mailbox is not spammed.
+    """
+    global_recipients = await get_recipients(db)
     offline = await _find_offline(db)
     fresh = await _devices_needing_notification(db, offline)
     if not fresh:
         return {"checked": True, "offline_count": len(offline), "emailed": 0}
-    html = _build_email_html(fresh)
-    subject = f"Envirolytics Alert — {len(fresh)} device{'' if len(fresh)==1 else 's'} offline"
-    result = await _send(recipients, subject, html)
-    if result.get("sent"):
-        await _record_notified(db, fresh)
-    return {"checked": True, "offline_count": len(offline),
-            "emailed": len(fresh) if result.get("sent") else 0,
-            "result": result}
+
+    # ----- Group fresh devices by owner_email (None bucket goes only to global recipients)
+    owner_groups: Dict[Optional[str], List[dict]] = {}
+    for d in fresh:
+        owner_groups.setdefault(d.get("owner_email"), []).append(d)
+
+    total_sent = 0
+    notified_pairs: List[dict] = []
+    sent_results: List[dict] = []
+
+    for owner_email, devices in owner_groups.items():
+        recipients: List[str] = []
+        if owner_email:
+            recipients.append(owner_email)
+        # always copy ops recipients
+        for r in global_recipients:
+            if r and r not in recipients:
+                recipients.append(r)
+        if not recipients:
+            logger.info(f"[notify] skipping {len(devices)} offline devices — no recipients (no owner email + no global recipients)")
+            continue
+
+        html = _build_email_html(devices)
+        subject = f"Envirolytics Alert — {len(devices)} device{'' if len(devices)==1 else 's'} offline"
+        result = await _send(recipients, subject, html)
+        sent_results.append({"owner": owner_email, "recipients": recipients, "result": result})
+        if result.get("sent"):
+            total_sent += len(devices)
+            notified_pairs.extend(devices)
+
+    if notified_pairs:
+        await _record_notified(db, notified_pairs)
+
+    return {
+        "checked": True,
+        "offline_count": len(offline),
+        "emailed": total_sent,
+        "results": sent_results,
+    }
 
 
 async def background_loop(db):
