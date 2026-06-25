@@ -3,7 +3,7 @@ after the frontend visual polish iteration (no backend changes expected)."""
 import os
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://enviro-crash-fix.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://carbon-track-24.preview.emergentagent.com").rstrip("/")
 ADMIN_EMAIL = "admin@envirolytics.com"
 ADMIN_PASSWORD = "Admin@Envirolytics2026"
 
