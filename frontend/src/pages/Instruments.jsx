@@ -8,7 +8,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../components/ui/dialog';
 import {
-  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle,
+  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw,
 } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
@@ -50,6 +50,30 @@ const Instruments = () => {
   const [wipeOpen, setWipeOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editTarget, setEditTarget] = useState(null);
+  const [keyTarget, setKeyTarget] = useState(null); // {hardware_id, label, device_key, instrument_type}
+
+  const copyToClipboard = async (text, label = 'Copied') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(label);
+    } catch (e) {
+      toast.error('Clipboard not available — please copy manually');
+    }
+  };
+
+  const rotateKey = async (hw) => {
+    if (!window.confirm(`Rotate device key for ${hw}? The old key will stop working immediately.`)) return;
+    try {
+      const { data } = await api.post(`/api/instrument-registry/${hw}/rotate-key`);
+      toast.success('New device key generated');
+      setKeyTarget((prev) => prev ? { ...prev, device_key: data.device_key } : prev);
+      refresh();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Failed to rotate key');
+    }
+  };
+
+  const backendUrl = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/$/, '');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -257,6 +281,9 @@ const Instruments = () => {
                       </td>
                       <td className="p-3">
                         <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => setKeyTarget(it)} data-testid={`key-instrument-${it.hardware_id}`} title="Show HTTPS ingestion key">
+                            <KeyRound className="h-3 w-3 mr-1" /> Key
+                          </Button>
                           <Button size="sm" variant="outline" onClick={() => openEdit(it)} data-testid={`edit-instrument-${it.hardware_id}`}>
                             <Edit3 className="h-3 w-3 mr-1" /> Edit
                           </Button>
@@ -371,6 +398,91 @@ const Instruments = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
             <Button onClick={handleEdit} data-testid="edit-instrument-submit">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Device key + HTTPS ingestion instructions */}
+      <Dialog open={!!keyTarget} onOpenChange={(o) => { if (!o) setKeyTarget(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-700">
+              <KeyRound className="h-5 w-5" /> HTTPS Ingestion — {keyTarget?.label || keyTarget?.hardware_id}
+            </DialogTitle>
+            <DialogDescription>
+              If your device can&apos;t reach the MQTT broker (firewall / NAT issues), publish
+              telemetry straight to your backend via this HTTPS endpoint instead.
+              The same processing pipeline runs — readings, alerts, limits, exports
+              all behave identically.
+            </DialogDescription>
+          </DialogHeader>
+          {keyTarget && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Hardware ID</span>
+                  <Button size="sm" variant="outline" className="h-7" onClick={() => copyToClipboard(keyTarget.hardware_id, 'Hardware ID copied')}>
+                    <Copy className="h-3 w-3 mr-1" /> Copy
+                  </Button>
+                </div>
+                <code className="block bg-white p-2 rounded text-sm font-mono break-all">{keyTarget.hardware_id}</code>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Device Key (secret — flash to instrument only)</span>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="outline" className="h-7" onClick={() => copyToClipboard(keyTarget.device_key, 'Device key copied')}>
+                      <Copy className="h-3 w-3 mr-1" /> Copy
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 text-red-600" onClick={() => rotateKey(keyTarget.hardware_id)} title="Rotate (invalidate the old key)">
+                      <RefreshCw className="h-3 w-3 mr-1" /> Rotate
+                    </Button>
+                  </div>
+                </div>
+                <code className="block bg-white p-2 rounded text-sm font-mono break-all">{keyTarget.device_key || '(none yet — click Rotate to generate)'}</code>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-gray-700 mb-1">Endpoint URL</p>
+                <code className="block bg-gray-100 p-2 rounded text-xs font-mono break-all">POST {backendUrl}/api/devices/ingest</code>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-gray-700 mb-1">Example curl (flowmeter payload)</p>
+                <pre className="bg-gray-900 text-green-300 text-xs p-3 rounded overflow-x-auto whitespace-pre-wrap">
+{`curl -X POST '${backendUrl}/api/devices/ingest' \\
+  -H 'X-Hardware-Id: ${keyTarget.hardware_id}' \\
+  -H 'X-Device-Key: ${keyTarget.device_key || '<key>'}' \\
+  -H 'Content-Type: application/json' \\
+  -d '${keyTarget.instrument_type === 'flowmeter'
+    ? '{"IMEI":"869895067123456","SIGNAL":24,"FLOW":1500.5,"TOT1":1234,"TOT2":56,"RTOT1":0,"RTOT2":0,"UNT":2,"POW":1,"TEMPER":28.5,"TIME":"2026-07-15T10:30:00Z","VER":"FW_v1"}'
+    : keyTarget.instrument_type === 'dwlr'
+      ? '{"LEVEL":12.45,"TEMPER":24.8,"TIME":"2026-07-15T10:30:00Z"}'
+      : keyTarget.instrument_type === 'ph'
+        ? '{"PH":7.42,"TEMPER":25.1,"TIME":"2026-07-15T10:30:00Z"}'
+        : keyTarget.instrument_type === 'tds'
+          ? '{"TDS":510,"TEMPER":25.1,"TIME":"2026-07-15T10:30:00Z"}'
+          : '{"COND":980,"TEMPER":25.1,"TIME":"2026-07-15T10:30:00Z"}'}'`}
+                </pre>
+                <Button size="sm" variant="outline" className="mt-2 h-7" onClick={() => copyToClipboard(
+                  `curl -X POST '${backendUrl}/api/devices/ingest' -H 'X-Hardware-Id: ${keyTarget.hardware_id}' -H 'X-Device-Key: ${keyTarget.device_key || '<key>'}' -H 'Content-Type: application/json' -d '${keyTarget.instrument_type === 'flowmeter' ? '{"IMEI":"869895067123456","SIGNAL":24,"FLOW":1500.5,"TOT1":1234,"TOT2":56,"RTOT1":0,"RTOT2":0,"UNT":2,"POW":1,"TEMPER":28.5,"TIME":"2026-07-15T10:30:00Z","VER":"FW_v1"}' : '{"LEVEL":12.45,"TEMPER":24.8,"TIME":"2026-07-15T10:30:00Z"}'}'`,
+                  'curl command copied'
+                )}>
+                  <Copy className="h-3 w-3 mr-1" /> Copy curl
+                </Button>
+              </div>
+
+              <div className="text-xs text-gray-500 border-t pt-2">
+                <strong className="text-gray-700">Tip:</strong> Hit{' '}
+                <code className="font-mono bg-gray-100 px-1 rounded">GET /api/devices/ingest/ping</code>{' '}
+                with the same headers to confirm credentials without publishing data.
+                If the device key ever leaks, click <strong>Rotate</strong> above to invalidate it.
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setKeyTarget(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

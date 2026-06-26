@@ -14,6 +14,7 @@ Endpoints (all require admin except `list` which is owner-scoped):
 Side-effects on create: auto-subscribes the MQTT client to the correct topic so
 real data starts flowing immediately when the field instrument publishes.
 """
+import secrets
 from datetime import datetime, timezone
 from typing import Optional, List, Set, Dict
 from fastapi import APIRouter, HTTPException, Depends
@@ -194,6 +195,7 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
         "latitude": req.latitude,
         "longitude": req.longitude,
         "category": category,
+        "device_key": secrets.token_urlsafe(24),  # for HTTPS ingestion auth
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": admin.get("id"),
     }
@@ -323,3 +325,33 @@ async def wipe_demo_data(admin: dict = Depends(require_admin)):
         }
     summary["device_count"] = len(DEMO_HARDWARE_IDS)
     return {"success": True, "wiped": summary}
+
+
+@router.post("/{hardware_id}/rotate-key")
+async def rotate_device_key(hardware_id: str, admin: dict = Depends(require_admin)):
+    """Generate a fresh device_key and invalidate the previous one. Use this when
+    a device is replaced or its key is suspected leaked."""
+    existing = await db.instrument_registry.find_one({"hardware_id": hardware_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+    new_key = secrets.token_urlsafe(24)
+    await db.instrument_registry.update_one(
+        {"hardware_id": hardware_id},
+        {"$set": {"device_key": new_key, "key_rotated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"success": True, "hardware_id": hardware_id, "device_key": new_key}
+
+
+@router.post("/backfill-keys")
+async def backfill_device_keys(admin: dict = Depends(require_admin)):
+    """One-shot: add a freshly-generated `device_key` to every legacy instrument
+    that doesn't have one yet. Safe to run multiple times."""
+    cursor = db.instrument_registry.find({"device_key": {"$in": [None, ""]}}, {"hardware_id": 1, "_id": 0})
+    updated = 0
+    async for doc in cursor:
+        await db.instrument_registry.update_one(
+            {"hardware_id": doc["hardware_id"]},
+            {"$set": {"device_key": secrets.token_urlsafe(24)}},
+        )
+        updated += 1
+    return {"success": True, "updated": updated}

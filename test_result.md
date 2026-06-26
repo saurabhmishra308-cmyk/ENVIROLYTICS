@@ -449,10 +449,90 @@ backend:
           MongoDB index changes are SAFE and production-ready. Deployment failure is confirmed
           to be Atlas infrastructure quota (GROUP_USERS_LIMIT_EXCEEDED 350 user cap), NOT a code issue.
 
+  - task: "HTTPS direct-ingestion endpoint (MQTT bypass)"
+    implemented: true
+    working: true
+    file: "backend/api_ingestion.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          NEW FEATURE: HTTPS direct-ingestion endpoint to bypass HiveMQ MQTT broker issues.
+          
+          **Implementation:**
+          1. Auto-generated device_key (24-byte URL-safe token via secrets.token_urlsafe) on every instrument registry creation
+          2. POST /api/instrument-registry/{hardware_id}/rotate-key — admin-only, invalidates old key
+          3. POST /api/instrument-registry/backfill-keys — admin-only, one-shot for legacy devices
+          4. New router api_ingestion.py mounted in server.py:
+             - POST /api/devices/ingest — accepts X-Hardware-Id + X-Device-Key headers, validates against registry
+             - Routes payload through same mqtt_service.process_flowmeter_data() / process_instrument_data() handlers
+             - GET /api/devices/ingest/ping — lightweight credential health-check
+          
+          **Benefits:**
+          - Works through standard HTTPS ingress (port 443), not subject to firewall issues
+          - Any device that can do curl https://... can publish telemetry
+          - Uses same storage pipeline as MQTT (identical behavior)
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ VERIFIED: ALL 22 TESTS PASSED - HTTPS direct-ingestion endpoint working perfectly.
+          
+          **Setup & Device Key Generation (Tests 1-4) ✅**
+          1. Admin login → 200 with JWT ✅
+          2. Create test user → 200 with user_id ✅
+          3. Register flowmeter ING_FM_T1 → 200, device_key length=32 ✅
+          4. Register DWLR ING_DWLR_T1 → 200, device_key length=32 ✅
+          
+          **Ingest Happy Paths (Tests 5-9) ✅**
+          5. GET /api/devices/ingest/ping with correct FM credentials → 200 {ok:true, hardware_id, instrument_type, label} ✅
+          6. POST /api/devices/ingest with FM data (FLOW=1500.5) → 200 {success:true, hardware_id, instrument_type} ✅
+          7. GET /api/flowmeter/latest → ING_FM_T1 present with flow_rate_lph=1500.5 ✅ (DATA LANDED IN MONGODB)
+          8. POST /api/devices/ingest with DWLR data (LEVEL=12.45) → 200 ✅
+          9. GET /api/instruments/dwlr/latest → ING_DWLR_T1 present with LEVEL=12.45 ✅ (DATA LANDED IN MONGODB)
+          
+          **Auth Failures (Tests 10-14) ✅**
+          10. POST /api/devices/ingest with NO headers → 401 ✅
+          11. POST /api/devices/ingest with WRONG device_key → 401 "Invalid device key" ✅
+          12. POST /api/devices/ingest with nonexistent hardware_id → 404 ✅
+          13. POST /api/devices/ingest with invalid JSON → 400 ✅
+          14. POST /api/devices/ingest with array body → 400 "must be a JSON object" ✅
+          
+          **Key Rotation (Tests 15-19) ✅**
+          15. POST /api/instrument-registry/ING_FM_T1/rotate-key as admin → 200 with new device_key ✅
+          16. POST /api/devices/ingest with OLD key → 401 (invalidated) ✅
+          17. POST /api/devices/ingest with NEW key → 200 (works) ✅
+          18. POST /api/instrument-registry/UNKNOWN_HW/rotate-key → 404 ✅
+          19. POST /api/instrument-registry/ING_FM_T1/rotate-key as client → 403 (admin-only) ✅
+          
+          **Backfill & Visibility (Tests 20-22) ✅**
+          20. POST /api/instrument-registry/backfill-keys as admin → 200 {success, updated:0} ✅
+          21. Login as client → GET /api/instrument-registry → 200, count=2, both with device_key visible ✅
+          22. Login as admin → GET /api/instrument-registry → 200, test instruments visible with device_keys ✅
+          
+          **Data Pipeline Verification:**
+          - Ingested flowmeter data routes through mqtt_service.process_flowmeter_data() ✅
+          - Data lands in flowmeter_readings + flowmeter_latest collections ✅
+          - Ingested DWLR data routes through mqtt_service.process_instrument_data() ✅
+          - Data lands in instrument_readings + instrument_latest collections ✅
+          - SAME storage pipeline as MQTT (identical behavior confirmed) ✅
+          
+          **Backend Logs:**
+          - No errors, exceptions, or tracebacks ✅
+          - Only expected warnings for bad device key attempts (tests 11, 16) ✅
+          - All services running correctly ✅
+          
+          **CONCLUSION:**
+          HTTPS direct-ingestion endpoint is PRODUCTION-READY and provides a reliable alternative
+          to MQTT for devices experiencing firewall issues. All authentication, authorization,
+          data routing, and storage mechanisms working correctly.
+
 metadata:
   created_by: "main_agent"
-  version: "1.5"
-  test_sequence: 5
+  version: "1.6"
+  test_sequence: 6
   run_ui: true
 
 test_plan:
@@ -743,4 +823,58 @@ agent_communication:
       Per-user instrument scoping is working perfectly - clients see ONLY their own data.
       All admin-only endpoints correctly reject non-admin access with 403.
       All unique constraints enforced gracefully with 409 Conflict (not 500 errors).
+  
+  - agent: "testing"
+    message: |
+      ✅ HTTPS DIRECT-INGESTION ENDPOINT TEST PASSED (22/22 tests)
+      
+      Comprehensive testing completed for the NEW HTTPS direct-ingestion endpoint that bypasses MQTT broker.
+      User reported HiveMQ MQTT not receiving data and requested an alternative path.
+      
+      **FEATURE SUMMARY:**
+      - device_key field auto-generated (24-byte URL-safe token) on instrument registry creation
+      - POST /api/instrument-registry/{hardware_id}/rotate-key — admin-only key rotation
+      - POST /api/instrument-registry/backfill-keys — admin-only one-shot for legacy devices
+      - POST /api/devices/ingest — accepts X-Hardware-Id + X-Device-Key headers, validates, routes through MQTT handlers
+      - GET /api/devices/ingest/ping — lightweight credential health-check
+      
+      **ALL 22 TESTS PASSED:**
+      ✅ Admin login + JWT
+      ✅ Create test user with client role
+      ✅ Register flowmeter ING_FM_T1 → device_key auto-generated (length 32)
+      ✅ Register DWLR ING_DWLR_T1 → device_key auto-generated (length 32)
+      ✅ Ping endpoint with correct credentials → 200 {ok, hardware_id, instrument_type, label}
+      ✅ Ingest flowmeter data (FLOW=1500.5) → 200 {success, hardware_id, instrument_type}
+      ✅ Verify flowmeter data in MongoDB → flow_rate_lph=1500.5 confirmed
+      ✅ Ingest DWLR data (LEVEL=12.45) → 200
+      ✅ Verify DWLR data in MongoDB → LEVEL=12.45 confirmed
+      ✅ Ingest with NO headers → 401
+      ✅ Ingest with WRONG key → 401 "Invalid device key"
+      ✅ Ingest with nonexistent hardware_id → 404
+      ✅ Ingest with invalid JSON → 400
+      ✅ Ingest with array body → 400 "must be a JSON object"
+      ✅ Rotate key → 200 with new device_key
+      ✅ Ingest with OLD key after rotation → 401 (invalidated)
+      ✅ Ingest with NEW key after rotation → 200 (works)
+      ✅ Rotate key for nonexistent hardware → 404
+      ✅ Rotate key as non-admin client → 403
+      ✅ Backfill keys → 200 {success, updated:0}
+      ✅ Client sees own device_keys in registry → 200, count=2
+      ✅ Admin sees all device_keys in registry → 200
+      
+      **DATA PIPELINE VERIFICATION:**
+      - Ingested data routes through SAME mqtt_service handlers (process_flowmeter_data, process_instrument_data)
+      - Data lands in SAME MongoDB collections (flowmeter_readings, flowmeter_latest, instrument_readings, instrument_latest)
+      - Identical behavior to MQTT ingestion confirmed
+      
+      **BACKEND LOGS:**
+      - No errors or exceptions
+      - Only expected warnings for bad device key attempts (tests 11, 16)
+      - All services running correctly
+      
+      **CONCLUSION:**
+      HTTPS direct-ingestion endpoint is PRODUCTION-READY and provides a reliable alternative
+      to MQTT for devices experiencing firewall issues. All authentication, authorization,
+      data routing, and storage mechanisms working correctly. User can now configure devices
+      to POST telemetry to https://.../api/devices/ingest with X-Hardware-Id and X-Device-Key headers.
 

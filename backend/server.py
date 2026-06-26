@@ -48,6 +48,8 @@ from api_renewals import router as renewals_router
 import api_renewals
 from api_instrument_registry import router as instrument_registry_router
 import api_instrument_registry
+from api_ingestion import router as ingestion_router
+import api_ingestion
 import auth as auth_module
 
 
@@ -74,6 +76,7 @@ api_limits.set_db(db)
 api_renewals.set_db(db)
 api_instrument_registry.set_db(db)
 api_instrument_registry.set_mqtt(mqtt_service)
+api_ingestion.set_db(db, mqtt_service)
 auth_module.set_db(db)
 
 # Create the main app
@@ -135,6 +138,7 @@ app.include_router(weather_router)
 app.include_router(limits_router)
 app.include_router(renewals_router)
 app.include_router(instrument_registry_router)
+app.include_router(ingestion_router)
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,666 +1,832 @@
 #!/usr/bin/env python3
 """
-Comprehensive Backend Regression Test Suite
-Full QA verification for Envirolytics Monitor API
-
-Tests all 25 critical endpoints as specified in the review request:
-- Auth & users (3 tests)
-- Instruments per-user scoping (5 tests)
-- Alerts (2 tests)
-- Limits (4 tests)
-- Notifications (4 tests)
-- Exports (3 tests)
-- Misc (4 tests)
-- Cleanup
+Backend API Test Suite for HTTPS Direct-Ingestion Endpoint
+Tests the new device_key authentication and /api/devices/ingest endpoint
 """
 import requests
-import sys
-from typing import Dict, Optional
+import json
+from datetime import datetime
 
-# Backend URL from environment
+# Backend URL from frontend/.env
 BASE_URL = "https://carbon-track-24.preview.emergentagent.com/api"
 
-# Test credentials
+# Test credentials from /app/memory/test_credentials.md
 ADMIN_EMAIL = "admin@envirolytics.com"
 ADMIN_PASSWORD = "Admin@Envirolytics2026"
 
-# Test data
-TEST_USER_EMAIL = "qa_regression_test@example.com"
-TEST_USER_PASSWORD = "QATest@2026!"
-TEST_USER_NAME = "QA Regression Test User"
+# Test state
+admin_token = None
+client_token = None
+test_user_id = None
+test_user_email = "ingestion_test_client@example.com"
+test_user_password = "TestPass123!"
 
-# Global state
-admin_token: Optional[str] = None
-client_token: Optional[str] = None
-test_user_id: Optional[str] = None
-
-# Test results tracking
-passed = 0
-failed = 0
-errors = []
+# Device keys captured during test
+fm_device_key = None
+dwlr_device_key = None
+new_fm_key = None
 
 
-def log(msg: str, level: str = "INFO"):
-    """Log test progress"""
-    prefix = {
-        "INFO": "ℹ️ ",
-        "PASS": "✅",
-        "FAIL": "❌",
-        "WARN": "⚠️ ",
-    }.get(level, "  ")
-    print(f"{prefix} {msg}")
+def log_test(test_num, description):
+    """Print test header"""
+    print(f"\n{'='*80}")
+    print(f"TEST {test_num}: {description}")
+    print('='*80)
 
 
-def assert_status(response: requests.Response, expected: int, test_name: str) -> bool:
-    """Assert response status code"""
-    global passed, failed, errors
-    if response.status_code == expected:
-        passed += 1
-        log(f"PASS: {test_name} → {response.status_code}", "PASS")
-        return True
-    else:
-        failed += 1
-        error_msg = f"FAIL: {test_name} → Expected {expected}, got {response.status_code}"
-        try:
-            error_msg += f" | Body: {response.json()}"
-        except:
-            error_msg += f" | Body: {response.text[:200]}"
-        log(error_msg, "FAIL")
-        errors.append(error_msg)
-        return False
+def log_result(passed, status_code=None, detail=None):
+    """Print test result"""
+    status = "✅ PASS" if passed else "❌ FAIL"
+    print(f"{status}", end="")
+    if status_code is not None:
+        print(f" | Status: {status_code}", end="")
+    if detail:
+        print(f" | {detail}", end="")
+    print()
 
-
-def assert_field(data: dict, field: str, test_name: str) -> bool:
-    """Assert field exists in response"""
-    global passed, failed, errors
-    if field in data:
-        passed += 1
-        log(f"PASS: {test_name} → Field '{field}' exists", "PASS")
-        return True
-    else:
-        failed += 1
-        error_msg = f"FAIL: {test_name} → Field '{field}' missing from response"
-        log(error_msg, "FAIL")
-        errors.append(error_msg)
-        return False
-
-
-def assert_count(data: dict, expected: int, test_name: str) -> bool:
-    """Assert count in response"""
-    global passed, failed, errors
-    actual = data.get("count", len(data.get("instruments", [])))
-    if actual == expected:
-        passed += 1
-        log(f"PASS: {test_name} → Count={actual}", "PASS")
-        return True
-    else:
-        failed += 1
-        error_msg = f"FAIL: {test_name} → Expected count={expected}, got {actual}"
-        log(error_msg, "FAIL")
-        errors.append(error_msg)
-        return False
-
-
-def assert_content_type(response: requests.Response, expected: str, test_name: str) -> bool:
-    """Assert content-type header"""
-    global passed, failed, errors
-    actual = response.headers.get("content-type", "")
-    if expected in actual:
-        passed += 1
-        log(f"PASS: {test_name} → Content-Type contains '{expected}'", "PASS")
-        return True
-    else:
-        failed += 1
-        error_msg = f"FAIL: {test_name} → Expected Content-Type to contain '{expected}', got '{actual}'"
-        log(error_msg, "FAIL")
-        errors.append(error_msg)
-        return False
-
-
-# ============================================================================
-# TEST SUITE
-# ============================================================================
 
 def test_1_admin_login():
-    """Test 1: POST /api/auth/login as admin → 200, JWT returned"""
+    """Test 1: Login as admin → 200 + JWT"""
     global admin_token
-    log("Test 1: Admin login", "INFO")
+    log_test(1, "Admin login")
     
-    response = requests.post(f"{BASE_URL}/auth/login", json={
-        "email": ADMIN_EMAIL,
-        "password": ADMIN_PASSWORD
-    })
+    response = requests.post(
+        f"{BASE_URL}/auth/login",
+        json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+    )
     
-    if not assert_status(response, 200, "Admin login"):
+    if response.status_code == 200:
+        data = response.json()
+        if "access_token" in data:
+            admin_token = data["access_token"]
+            log_result(True, 200, f"JWT received (length: {len(admin_token)})")
+            return True
+        else:
+            log_result(False, 200, "No access_token in response")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:100])
         return False
-    
-    data = response.json()
-    if assert_field(data, "access_token", "Admin login JWT"):
-        admin_token = data["access_token"]
-        return True
-    return False
 
 
-def test_2_auth_me():
-    """Test 2: GET /api/auth/me → 200"""
-    log("Test 2: GET /api/auth/me", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/auth/me", headers={
-        "Authorization": f"Bearer {admin_token}"
-    })
-    
-    if not assert_status(response, 200, "GET /api/auth/me"):
-        return False
-    
-    data = response.json()
-    return assert_field(data, "email", "Auth me response")
-
-
-def test_3_create_user():
-    """Test 3: POST /api/admin/users/create → 200, returns user.id"""
+def test_2_create_test_user():
+    """Test 2: POST /api/admin/users/create → capture user_id"""
     global test_user_id
-    log("Test 3: Create test user", "INFO")
+    log_test(2, "Create test user")
     
-    response = requests.post(f"{BASE_URL}/admin/users/create", 
+    response = requests.post(
+        f"{BASE_URL}/admin/users/create",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={
-            "email": TEST_USER_EMAIL,
-            "password": TEST_USER_PASSWORD,
-            "full_name": TEST_USER_NAME,
+            "email": test_user_email,
+            "password": test_user_password,
+            "full_name": "Ingestion Test Client",
             "role": "client",
-            "location_name": "QA Test Site",
-            "latitude": 26.8467,
-            "longitude": 80.9462
+            "location_name": "Test Location",
+            "latitude": 28.6139,
+            "longitude": 77.2090
         }
     )
     
-    if not assert_status(response, 200, "Create user"):
+    if response.status_code == 200:
+        data = response.json()
+        if data.get("success") and "user" in data and "id" in data["user"]:
+            test_user_id = data["user"]["id"]
+            log_result(True, 200, f"User created with id: {test_user_id}")
+            return True
+        else:
+            log_result(False, 200, f"Unexpected response structure: {data}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
         return False
-    
-    data = response.json()
-    if data.get("success") and data.get("user", {}).get("id"):
-        test_user_id = data["user"]["id"]
-        log(f"Created test user: {test_user_id}", "INFO")
-        return assert_field(data["user"], "id", "User creation response")
-    return False
 
 
-def test_4_register_flowmeter():
-    """Test 4: POST /api/instrument-registry with QA_FM_1 → 200"""
-    log("Test 4: Register flowmeter QA_FM_1", "INFO")
+def test_3_register_flowmeter():
+    """Test 3: POST /api/instrument-registry with flowmeter → capture device_key"""
+    global fm_device_key
+    log_test(3, "Register flowmeter ING_FM_T1 with device_key")
     
-    response = requests.post(f"{BASE_URL}/instrument-registry",
+    response = requests.post(
+        f"{BASE_URL}/instrument-registry",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={
-            "hardware_id": "QA_FM_1",
+            "hardware_id": "ING_FM_T1",
             "instrument_type": "flowmeter",
             "category": "groundwater_abstraction",
             "owner_user_id": test_user_id,
-            "label": "QA Flowmeter 1",
-            "location_name": "QA Test Site"
+            "label": "Ingestion Test Flowmeter",
+            "location_name": "Test Site A"
         }
     )
     
-    return assert_status(response, 200, "Register flowmeter QA_FM_1")
+    if response.status_code == 200:
+        data = response.json()
+        if data.get("success") and "instrument" in data:
+            instrument = data["instrument"]
+            if "device_key" in instrument and len(instrument["device_key"]) > 20:
+                fm_device_key = instrument["device_key"]
+                log_result(True, 200, f"Flowmeter registered, device_key length: {len(fm_device_key)}")
+                return True
+            else:
+                log_result(False, 200, f"device_key missing or too short: {instrument.get('device_key')}")
+                return False
+        else:
+            log_result(False, 200, f"Unexpected response: {data}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
+        return False
 
 
-def test_5_register_dwlr():
-    """Test 5: POST /api/instrument-registry with QA_DWLR_1 → 200"""
-    log("Test 5: Register DWLR QA_DWLR_1", "INFO")
+def test_4_register_dwlr():
+    """Test 4: POST /api/instrument-registry with DWLR → capture device_key"""
+    global dwlr_device_key
+    log_test(4, "Register DWLR ING_DWLR_T1 with device_key")
     
-    response = requests.post(f"{BASE_URL}/instrument-registry",
+    response = requests.post(
+        f"{BASE_URL}/instrument-registry",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={
-            "hardware_id": "QA_DWLR_1",
+            "hardware_id": "ING_DWLR_T1",
             "instrument_type": "dwlr",
             "owner_user_id": test_user_id,
-            "label": "QA DWLR 1"
+            "label": "Ingestion Test DWLR",
+            "location_name": "Test Site B"
         }
     )
     
-    return assert_status(response, 200, "Register DWLR QA_DWLR_1")
+    if response.status_code == 200:
+        data = response.json()
+        if data.get("success") and "instrument" in data:
+            instrument = data["instrument"]
+            if "device_key" in instrument and len(instrument["device_key"]) > 20:
+                dwlr_device_key = instrument["device_key"]
+                log_result(True, 200, f"DWLR registered, device_key length: {len(dwlr_device_key)}")
+                return True
+            else:
+                log_result(False, 200, f"device_key missing or too short: {instrument.get('device_key')}")
+                return False
+        else:
+            log_result(False, 200, f"Unexpected response: {data}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
+        return False
 
 
-def test_6_duplicate_instrument():
-    """Test 6: POST /api/instrument-registry with duplicate QA_FM_1 → 409"""
-    log("Test 6: Duplicate instrument registration (should fail)", "INFO")
+def test_5_ping_flowmeter():
+    """Test 5: GET /api/devices/ingest/ping with correct FM credentials → 200"""
+    log_test(5, "Ping endpoint with correct flowmeter credentials")
     
-    response = requests.post(f"{BASE_URL}/instrument-registry",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={
-            "hardware_id": "QA_FM_1",
-            "instrument_type": "flowmeter",
-            "owner_user_id": test_user_id
+    response = requests.get(
+        f"{BASE_URL}/devices/ingest/ping",
+        headers={
+            "X-Hardware-Id": "ING_FM_T1",
+            "X-Device-Key": fm_device_key
         }
     )
     
-    return assert_status(response, 409, "Duplicate instrument → 409")
+    if response.status_code == 200:
+        data = response.json()
+        if (data.get("ok") is True and 
+            data.get("hardware_id") == "ING_FM_T1" and 
+            data.get("instrument_type") == "flowmeter"):
+            log_result(True, 200, f"Ping successful: {data}")
+            return True
+        else:
+            log_result(False, 200, f"Unexpected response: {data}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
+        return False
 
 
-def test_7_client_login_and_list():
-    """Test 7: Login as client → GET /api/instrument-registry → count=2"""
+def test_6_ingest_flowmeter_data():
+    """Test 6: POST /api/devices/ingest with FM data → 200"""
+    log_test(6, "Ingest flowmeter data via HTTPS")
+    
+    payload = {
+        "IMEI": "123456789012345",
+        "SIGNAL": 24,
+        "FLOW": 1500.5,
+        "TOT1": 1234,
+        "TOT2": 56,
+        "RTOT1": 0,
+        "RTOT2": 0,
+        "UNT": 2,
+        "POW": 1,
+        "TEMPER": 28.5,
+        "TIME": "2026-07-15T10:30:00Z",
+        "VER": "FW_v1"
+    }
+    
+    response = requests.post(
+        f"{BASE_URL}/devices/ingest",
+        headers={
+            "X-Hardware-Id": "ING_FM_T1",
+            "X-Device-Key": fm_device_key,
+            "Content-Type": "application/json"
+        },
+        json=payload
+    )
+    
+    if response.status_code == 200:
+        data = response.json()
+        if (data.get("success") is True and 
+            data.get("hardware_id") == "ING_FM_T1" and 
+            data.get("instrument_type") == "flowmeter"):
+            log_result(True, 200, f"Data ingested: {data}")
+            return True
+        else:
+            log_result(False, 200, f"Unexpected response: {data}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
+        return False
+
+
+def test_7_verify_flowmeter_data():
+    """Test 7: GET /api/flowmeter/latest → verify ING_FM_T1 with flow_rate_lph=1500.5"""
+    log_test(7, "Verify flowmeter data landed in MongoDB")
+    
+    # Wait a moment for async processing
+    import time
+    time.sleep(1)
+    
+    response = requests.get(
+        f"{BASE_URL}/flowmeter/latest",
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    
+    if response.status_code == 200:
+        data = response.json()
+        flowmeters = data.get("flowmeters", [])
+        
+        # Find ING_FM_T1
+        ing_fm = None
+        for device in flowmeters:
+            if device.get("hardware_id") == "ING_FM_T1":
+                ing_fm = device
+                break
+        
+        if ing_fm:
+            flow_rate = ing_fm.get("flow_rate_lph")
+            if flow_rate == 1500.5:
+                log_result(True, 200, f"Data verified: flow_rate_lph={flow_rate}")
+                return True
+            else:
+                log_result(False, 200, f"flow_rate_lph mismatch: expected 1500.5, got {flow_rate}")
+                return False
+        else:
+            log_result(False, 200, f"ING_FM_T1 not found in latest data. Flowmeters: {[d.get('hardware_id') for d in flowmeters]}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
+        return False
+
+
+def test_8_ingest_dwlr_data():
+    """Test 8: POST /api/devices/ingest with DWLR data → 200"""
+    log_test(8, "Ingest DWLR data via HTTPS")
+    
+    payload = {
+        "LEVEL": 12.45,
+        "TEMPER": 24.8,
+        "TIME": "2026-07-15T10:30:00Z"
+    }
+    
+    response = requests.post(
+        f"{BASE_URL}/devices/ingest",
+        headers={
+            "X-Hardware-Id": "ING_DWLR_T1",
+            "X-Device-Key": dwlr_device_key,
+            "Content-Type": "application/json"
+        },
+        json=payload
+    )
+    
+    if response.status_code == 200:
+        data = response.json()
+        if (data.get("success") is True and 
+            data.get("hardware_id") == "ING_DWLR_T1" and 
+            data.get("instrument_type") == "dwlr"):
+            log_result(True, 200, f"DWLR data ingested: {data}")
+            return True
+        else:
+            log_result(False, 200, f"Unexpected response: {data}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
+        return False
+
+
+def test_9_verify_dwlr_data():
+    """Test 9: GET /api/instruments/dwlr/latest → verify ING_DWLR_T1 with LEVEL=12.45"""
+    log_test(9, "Verify DWLR data landed in MongoDB")
+    
+    # Wait a moment for async processing
+    import time
+    time.sleep(1)
+    
+    response = requests.get(
+        f"{BASE_URL}/instruments/dwlr/latest",
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    
+    if response.status_code == 200:
+        data = response.json()
+        readings = data.get("readings", [])
+        
+        # Find ING_DWLR_T1
+        ing_dwlr = None
+        for reading in readings:
+            if reading.get("hardware_id") == "ING_DWLR_T1":
+                ing_dwlr = reading
+                break
+        
+        if ing_dwlr:
+            # DWLR data is stored in the 'values' field
+            values = ing_dwlr.get("values", {})
+            level = values.get("LEVEL")
+            if level == 12.45:
+                log_result(True, 200, f"DWLR data verified: LEVEL={level}")
+                return True
+            else:
+                log_result(False, 200, f"LEVEL mismatch: expected 12.45, got {level}")
+                return False
+        else:
+            log_result(False, 200, f"ING_DWLR_T1 not found in latest data. Readings: {[r.get('hardware_id') for r in readings]}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
+        return False
+
+
+def test_10_ingest_no_headers():
+    """Test 10: POST /api/devices/ingest with NO headers → 401"""
+    log_test(10, "Ingest with NO headers (expect 401)")
+    
+    response = requests.post(
+        f"{BASE_URL}/devices/ingest",
+        json={"FLOW": 100}
+    )
+    
+    if response.status_code == 401:
+        log_result(True, 401, "Correctly rejected")
+        return True
+    else:
+        log_result(False, response.status_code, f"Expected 401, got {response.status_code}")
+        return False
+
+
+def test_11_ingest_wrong_key():
+    """Test 11: POST /api/devices/ingest with WRONG key → 401"""
+    log_test(11, "Ingest with WRONG device key (expect 401)")
+    
+    response = requests.post(
+        f"{BASE_URL}/devices/ingest",
+        headers={
+            "X-Hardware-Id": "ING_FM_T1",
+            "X-Device-Key": "WRONG_KEY_12345678901234567890"
+        },
+        json={"FLOW": 100}
+    )
+    
+    if response.status_code == 401:
+        detail = response.json().get("detail", "")
+        if "Invalid device key" in detail:
+            log_result(True, 401, f"Correctly rejected: {detail}")
+            return True
+        else:
+            log_result(True, 401, f"Rejected but unexpected message: {detail}")
+            return True
+    else:
+        log_result(False, response.status_code, f"Expected 401, got {response.status_code}")
+        return False
+
+
+def test_12_ingest_nonexistent_hardware():
+    """Test 12: POST /api/devices/ingest with nonexistent hardware_id → 404"""
+    log_test(12, "Ingest with nonexistent hardware_id (expect 404)")
+    
+    response = requests.post(
+        f"{BASE_URL}/devices/ingest",
+        headers={
+            "X-Hardware-Id": "DOES_NOT_EXIST",
+            "X-Device-Key": "any_key_here"
+        },
+        json={"FLOW": 100}
+    )
+    
+    if response.status_code == 404:
+        log_result(True, 404, "Correctly rejected")
+        return True
+    else:
+        log_result(False, response.status_code, f"Expected 404, got {response.status_code}")
+        return False
+
+
+def test_13_ingest_invalid_json():
+    """Test 13: POST /api/devices/ingest with invalid JSON → 400"""
+    log_test(13, "Ingest with invalid JSON body (expect 400)")
+    
+    response = requests.post(
+        f"{BASE_URL}/devices/ingest",
+        headers={
+            "X-Hardware-Id": "ING_FM_T1",
+            "X-Device-Key": fm_device_key,
+            "Content-Type": "application/json"
+        },
+        data="not valid json"
+    )
+    
+    if response.status_code == 400:
+        log_result(True, 400, "Correctly rejected invalid JSON")
+        return True
+    else:
+        log_result(False, response.status_code, f"Expected 400, got {response.status_code}")
+        return False
+
+
+def test_14_ingest_array_body():
+    """Test 14: POST /api/devices/ingest with array body → 400"""
+    log_test(14, "Ingest with array body instead of object (expect 400)")
+    
+    response = requests.post(
+        f"{BASE_URL}/devices/ingest",
+        headers={
+            "X-Hardware-Id": "ING_FM_T1",
+            "X-Device-Key": fm_device_key,
+            "Content-Type": "application/json"
+        },
+        json=[]
+    )
+    
+    if response.status_code == 400:
+        detail = response.json().get("detail", "")
+        if "JSON object" in detail:
+            log_result(True, 400, f"Correctly rejected: {detail}")
+            return True
+        else:
+            log_result(True, 400, f"Rejected but unexpected message: {detail}")
+            return True
+    else:
+        log_result(False, response.status_code, f"Expected 400, got {response.status_code}")
+        return False
+
+
+def test_15_rotate_key():
+    """Test 15: POST /api/instrument-registry/ING_FM_T1/rotate-key → 200 with new key"""
+    global new_fm_key
+    log_test(15, "Rotate device key for ING_FM_T1")
+    
+    response = requests.post(
+        f"{BASE_URL}/instrument-registry/ING_FM_T1/rotate-key",
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    
+    if response.status_code == 200:
+        data = response.json()
+        if data.get("success") and "device_key" in data:
+            new_fm_key = data["device_key"]
+            if new_fm_key != fm_device_key:
+                log_result(True, 200, f"Key rotated successfully, new key length: {len(new_fm_key)}")
+                return True
+            else:
+                log_result(False, 200, "New key is same as old key")
+                return False
+        else:
+            log_result(False, 200, f"Unexpected response: {data}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
+        return False
+
+
+def test_16_ingest_with_old_key():
+    """Test 16: POST /api/devices/ingest with OLD key after rotation → 401"""
+    log_test(16, "Ingest with OLD key after rotation (expect 401)")
+    
+    response = requests.post(
+        f"{BASE_URL}/devices/ingest",
+        headers={
+            "X-Hardware-Id": "ING_FM_T1",
+            "X-Device-Key": fm_device_key  # OLD key
+        },
+        json={"FLOW": 200}
+    )
+    
+    if response.status_code == 401:
+        log_result(True, 401, "Old key correctly invalidated")
+        return True
+    else:
+        log_result(False, response.status_code, f"Expected 401, got {response.status_code}")
+        return False
+
+
+def test_17_ingest_with_new_key():
+    """Test 17: POST /api/devices/ingest with NEW key → 200"""
+    log_test(17, "Ingest with NEW key after rotation (expect 200)")
+    
+    payload = {
+        "IMEI": "123456789012345",
+        "SIGNAL": 25,
+        "FLOW": 2000.0,
+        "TOT1": 2000,
+        "TOT2": 100,
+        "RTOT1": 0,
+        "RTOT2": 0,
+        "UNT": 2,
+        "POW": 1,
+        "TEMPER": 29.0,
+        "TIME": "2026-07-15T11:00:00Z",
+        "VER": "FW_v1"
+    }
+    
+    response = requests.post(
+        f"{BASE_URL}/devices/ingest",
+        headers={
+            "X-Hardware-Id": "ING_FM_T1",
+            "X-Device-Key": new_fm_key  # NEW key
+        },
+        json=payload
+    )
+    
+    if response.status_code == 200:
+        data = response.json()
+        if data.get("success") is True:
+            log_result(True, 200, "New key works correctly")
+            return True
+        else:
+            log_result(False, 200, f"Unexpected response: {data}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
+        return False
+
+
+def test_18_rotate_unknown_hardware():
+    """Test 18: POST /api/instrument-registry/UNKNOWN_HW/rotate-key → 404"""
+    log_test(18, "Rotate key for nonexistent hardware (expect 404)")
+    
+    response = requests.post(
+        f"{BASE_URL}/instrument-registry/UNKNOWN_HW/rotate-key",
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    
+    if response.status_code == 404:
+        log_result(True, 404, "Correctly rejected")
+        return True
+    else:
+        log_result(False, response.status_code, f"Expected 404, got {response.status_code}")
+        return False
+
+
+def test_19_rotate_key_as_client():
+    """Test 19: POST /api/instrument-registry/ING_FM_T1/rotate-key as client → 403"""
     global client_token
-    log("Test 7: Client login and list instruments", "INFO")
+    log_test(19, "Rotate key as non-admin client (expect 403)")
     
-    # Login as client
-    response = requests.post(f"{BASE_URL}/auth/login", json={
-        "email": TEST_USER_EMAIL,
-        "password": TEST_USER_PASSWORD
-    })
+    # First login as client
+    login_response = requests.post(
+        f"{BASE_URL}/auth/login",
+        json={"email": test_user_email, "password": test_user_password}
+    )
     
-    if not assert_status(response, 200, "Client login"):
+    if login_response.status_code != 200:
+        log_result(False, login_response.status_code, "Failed to login as client")
         return False
     
-    data = response.json()
-    if not assert_field(data, "access_token", "Client login JWT"):
-        return False
+    client_token = login_response.json().get("access_token")
     
-    client_token = data["access_token"]
-    
-    # List instruments as client
-    response = requests.get(f"{BASE_URL}/instrument-registry",
+    # Try to rotate key
+    response = requests.post(
+        f"{BASE_URL}/instrument-registry/ING_FM_T1/rotate-key",
         headers={"Authorization": f"Bearer {client_token}"}
     )
     
-    if not assert_status(response, 200, "Client list instruments"):
+    if response.status_code == 403:
+        log_result(True, 403, "Correctly rejected non-admin")
+        return True
+    else:
+        log_result(False, response.status_code, f"Expected 403, got {response.status_code}")
         return False
-    
-    data = response.json()
-    return assert_count(data, 2, "Client sees exactly 2 instruments")
 
 
-def test_8_client_filter_dwlr():
-    """Test 8: GET /api/instrument-registry?instrument_type=dwlr as client → count=1"""
-    log("Test 8: Client filter by instrument_type=dwlr", "INFO")
+def test_20_backfill_keys():
+    """Test 20: POST /api/instrument-registry/backfill-keys → 200"""
+    log_test(20, "Backfill device keys for legacy instruments")
     
-    response = requests.get(f"{BASE_URL}/instrument-registry?instrument_type=dwlr",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    
-    if not assert_status(response, 200, "Client filter DWLR"):
-        return False
-    
-    data = response.json()
-    return assert_count(data, 1, "Client sees exactly 1 DWLR")
-
-
-def test_9_client_offline_alerts():
-    """Test 9: GET /api/alerts/offline?hours=2 as client → 200"""
-    log("Test 9: Client offline alerts (scoped)", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/alerts/offline?hours=2",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    
-    if not assert_status(response, 200, "Client offline alerts"):
-        return False
-    
-    data = response.json()
-    # Should return scoped list (may be empty or contain only client's devices)
-    return assert_field(data, "offline", "Offline alerts response")
-
-
-def test_10_client_limit_breaches():
-    """Test 10: GET /api/alerts/limit-breaches as client → 200"""
-    log("Test 10: Client limit breaches", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/alerts/limit-breaches",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    
-    if not assert_status(response, 200, "Client limit breaches"):
-        return False
-    
-    data = response.json()
-    return assert_field(data, "breaches", "Limit breaches response")
-
-
-def test_11_create_limit_hidden():
-    """Test 11: POST /api/limits with visible_to_client=false → 200"""
-    log("Test 11: Create limit (hidden from client)", "INFO")
-    
-    response = requests.post(f"{BASE_URL}/limits",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={
-            "hardware_id": "QA_FM_1",
-            "label": "QA Limit 1",
-            "monthly_limit_kl": 100.0,
-            "min_limit_kl": 10.0,
-            "customer_email": "t@e.com",
-            "visible_to_client": False,
-            "is_active": True
-        }
-    )
-    
-    return assert_status(response, 200, "Create limit (hidden)")
-
-
-def test_12_client_cannot_see_hidden_limit():
-    """Test 12: GET /api/limits as client → empty (visible_to_client=false)"""
-    log("Test 12: Client cannot see hidden limit", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/limits",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    
-    if not assert_status(response, 200, "Client list limits"):
-        return False
-    
-    data = response.json()
-    return assert_count(data, 0, "Client sees 0 limits (hidden)")
-
-
-def test_13_toggle_limit_visible():
-    """Test 13: PUT /api/limits/QA_FM_1 with visible_to_client=true → 200"""
-    log("Test 13: Toggle limit to visible", "INFO")
-    
-    response = requests.put(f"{BASE_URL}/limits/QA_FM_1",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={
-            "visible_to_client": True
-        }
-    )
-    
-    return assert_status(response, 200, "Toggle limit visible")
-
-
-def test_14_client_can_see_visible_limit():
-    """Test 14: GET /api/limits as client → count=1"""
-    log("Test 14: Client can now see visible limit", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/limits",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    
-    if not assert_status(response, 200, "Client list limits (visible)"):
-        return False
-    
-    data = response.json()
-    return assert_count(data, 1, "Client sees 1 limit (visible)")
-
-
-def test_15_admin_list_notification_emails():
-    """Test 15: GET /api/notifications/emails as admin → 200"""
-    log("Test 15: Admin list notification emails", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/notifications/emails",
+    response = requests.post(
+        f"{BASE_URL}/instrument-registry/backfill-keys",
         headers={"Authorization": f"Bearer {admin_token}"}
     )
     
-    if not assert_status(response, 200, "Admin list notification emails"):
+    if response.status_code == 200:
+        data = response.json()
+        if data.get("success") is not None:
+            updated = data.get("updated", 0)
+            log_result(True, 200, f"Backfill completed, updated: {updated}")
+            return True
+        else:
+            log_result(False, 200, f"Unexpected response: {data}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
         return False
-    
-    data = response.json()
-    return assert_field(data, "emails", "Notification emails response")
 
 
-def test_16_notification_emails_max_cap():
-    """Test 16: PUT /api/notifications/emails with 5 emails → 400 (max 4)"""
-    log("Test 16: Notification emails max cap (should fail)", "INFO")
+def test_21_client_sees_device_keys():
+    """Test 21: Login as client, GET /api/instrument-registry → device_key visible"""
+    log_test(21, "Client can see their own device keys")
     
-    response = requests.put(f"{BASE_URL}/notifications/emails",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={
-            "emails": [
-                "ops1@example.com",
-                "ops2@example.com",
-                "ops3@example.com",
-                "ops4@example.com",
-                "ops5@example.com"
-            ]
-        }
-    )
-    
-    return assert_status(response, 400, "Notification emails max cap → 400")
-
-
-def test_17_notification_emails_valid():
-    """Test 17: PUT /api/notifications/emails with 4 emails → 200"""
-    log("Test 17: Set notification emails (4 valid)", "INFO")
-    
-    response = requests.put(f"{BASE_URL}/notifications/emails",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={
-            "emails": [
-                "ops1@example.com",
-                "ops2@example.com",
-                "ops3@example.com",
-                "ops4@example.com"
-            ]
-        }
-    )
-    
-    return assert_status(response, 200, "Set notification emails (4 valid)")
-
-
-def test_18_client_cannot_access_notifications():
-    """Test 18: GET /api/notifications/emails as client → 403"""
-    log("Test 18: Client cannot access notifications (should fail)", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/notifications/emails",
+    response = requests.get(
+        f"{BASE_URL}/instrument-registry",
         headers={"Authorization": f"Bearer {client_token}"}
     )
     
-    return assert_status(response, 403, "Client access notifications → 403")
-
-
-def test_19_client_export_csv():
-    """Test 19: GET /api/flowmeter-mgmt/export?format=csv as client → 200"""
-    log("Test 19: Client export CSV", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/flowmeter-mgmt/export?format=csv",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    
-    if not assert_status(response, 200, "Client export CSV"):
+    if response.status_code == 200:
+        data = response.json()
+        instruments = data.get("instruments", [])
+        count = data.get("count", 0)
+        
+        if count == 2:
+            # Check both instruments have device_key
+            keys_present = all("device_key" in inst for inst in instruments)
+            if keys_present:
+                log_result(True, 200, f"Client sees {count} instruments, all with device_key")
+                return True
+            else:
+                log_result(False, 200, "Some instruments missing device_key")
+                return False
+        else:
+            log_result(False, 200, f"Expected 2 instruments, got {count}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
         return False
-    
-    return assert_content_type(response, "text/csv", "CSV export content-type")
 
 
-def test_20_client_dwlr_daily():
-    """Test 20: GET /api/flowmeter-mgmt/dwlr/QA_DWLR_1/daily?days=7 as client → 200"""
-    log("Test 20: Client DWLR daily data", "INFO")
+def test_22_admin_sees_device_keys():
+    """Test 22: Login as admin, GET /api/instrument-registry → device_keys visible"""
+    log_test(22, "Admin can see device keys for all instruments")
     
-    response = requests.get(f"{BASE_URL}/flowmeter-mgmt/dwlr/QA_DWLR_1/daily?days=7",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    
-    if not assert_status(response, 200, "Client DWLR daily"):
-        return False
-    
-    data = response.json()
-    return assert_field(data, "series", "DWLR daily response")
-
-
-def test_21_client_dwlr_forbidden():
-    """Test 21: GET /api/flowmeter-mgmt/dwlr/NOT_MINE/daily as client → 403"""
-    log("Test 21: Client access unowned DWLR (should fail)", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/flowmeter-mgmt/dwlr/NOT_MINE/daily?days=7",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    
-    return assert_status(response, 403, "Client access unowned DWLR → 403")
-
-
-def test_22_weather_live():
-    """Test 22: GET /api/weather/live → 200"""
-    log("Test 22: Weather live data", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/weather/live",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    
-    if not assert_status(response, 200, "Weather live"):
-        return False
-    
-    data = response.json()
-    return assert_field(data, "main", "Weather live response")
-
-
-def test_23_audit_log_summary():
-    """Test 23: GET /api/admin/audit-log/summary as admin → 200"""
-    log("Test 23: Admin audit log summary", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/admin/audit-log/summary",
+    response = requests.get(
+        f"{BASE_URL}/instrument-registry",
         headers={"Authorization": f"Bearer {admin_token}"}
     )
     
-    if not assert_status(response, 200, "Audit log summary"):
+    if response.status_code == 200:
+        data = response.json()
+        instruments = data.get("instruments", [])
+        
+        # Find our test instruments
+        test_instruments = [i for i in instruments if i.get("hardware_id") in ["ING_FM_T1", "ING_DWLR_T1"]]
+        
+        if len(test_instruments) == 2:
+            keys_present = all("device_key" in inst for inst in test_instruments)
+            if keys_present:
+                log_result(True, 200, f"Admin sees test instruments with device_keys")
+                return True
+            else:
+                log_result(False, 200, "Some test instruments missing device_key")
+                return False
+        else:
+            log_result(False, 200, f"Expected 2 test instruments, found {len(test_instruments)}")
+            return False
+    else:
+        log_result(False, response.status_code, response.text[:200])
         return False
-    
-    data = response.json()
-    return assert_field(data, "total_edits", "Audit log summary response")
 
-
-def test_24_certificates_list():
-    """Test 24: GET /api/certificates/list as admin → 200"""
-    log("Test 24: Admin list certificates", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/certificates/list",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    
-    if not assert_status(response, 200, "Certificates list"):
-        return False
-    
-    data = response.json()
-    return assert_field(data, "certificates", "Certificates list response")
-
-
-def test_25_renewals_list():
-    """Test 25: GET /api/renewals as admin → 200"""
-    log("Test 25: Admin list renewals", "INFO")
-    
-    response = requests.get(f"{BASE_URL}/renewals",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    
-    if not assert_status(response, 200, "Renewals list"):
-        return False
-    
-    data = response.json()
-    return assert_field(data, "users", "Renewals list response")
-
-
-# ============================================================================
-# CLEANUP
-# ============================================================================
 
 def cleanup():
-    """Cleanup: Delete test data"""
-    log("Cleanup: Removing test data", "INFO")
+    """Cleanup: Delete test instruments and user"""
+    log_test("CLEANUP", "Deleting test data")
     
-    # Delete limit
-    response = requests.delete(f"{BASE_URL}/limits/QA_FM_1",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    if response.status_code == 200:
-        log("Deleted limit QA_FM_1", "INFO")
+    results = []
     
     # Delete instruments
-    response = requests.delete(f"{BASE_URL}/instrument-registry/QA_FM_1",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    if response.status_code == 200:
-        log("Deleted instrument QA_FM_1", "INFO")
-    
-    response = requests.delete(f"{BASE_URL}/instrument-registry/QA_DWLR_1",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    if response.status_code == 200:
-        log("Deleted instrument QA_DWLR_1", "INFO")
-    
-    # Delete test user
-    if test_user_id:
-        response = requests.delete(f"{BASE_URL}/admin/users/{test_user_id}",
+    for hw_id in ["ING_FM_T1", "ING_DWLR_T1"]:
+        response = requests.delete(
+            f"{BASE_URL}/instrument-registry/{hw_id}",
             headers={"Authorization": f"Bearer {admin_token}"}
         )
-        if response.status_code == 200:
-            log(f"Deleted test user {test_user_id}", "INFO")
+        results.append(f"DELETE {hw_id}: {response.status_code}")
     
-    # Reset notification emails
-    response = requests.put(f"{BASE_URL}/notifications/emails",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={"emails": []}
-    )
-    if response.status_code == 200:
-        log("Reset notification emails to []", "INFO")
+    # Delete user
+    if test_user_id:
+        response = requests.delete(
+            f"{BASE_URL}/admin/users/{test_user_id}",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        results.append(f"DELETE user {test_user_id}: {response.status_code}")
+    
+    print("\n".join(results))
 
 
-# ============================================================================
-# MAIN
-# ============================================================================
+def check_backend_logs():
+    """Check backend logs for errors"""
+    log_test("LOGS", "Checking backend logs for errors")
+    import subprocess
+    
+    try:
+        result = subprocess.run(
+            ["tail", "-n", "100", "/var/log/supervisor/backend.err.log"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        if result.returncode == 0:
+            logs = result.stdout
+            if logs.strip():
+                print(f"Backend error logs (last 100 lines):\n{logs}")
+            else:
+                print("✅ No errors in backend logs")
+        else:
+            print(f"Failed to read logs: {result.stderr}")
+    except Exception as e:
+        print(f"Error reading logs: {e}")
+
 
 def main():
     """Run all tests"""
-    log("=" * 80, "INFO")
-    log("BACKEND REGRESSION TEST SUITE", "INFO")
-    log("=" * 80, "INFO")
+    print("\n" + "="*80)
+    print("HTTPS DIRECT-INGESTION ENDPOINT TEST SUITE")
+    print("Testing device_key authentication and /api/devices/ingest")
+    print("="*80)
     
-    tests = [
-        test_1_admin_login,
-        test_2_auth_me,
-        test_3_create_user,
-        test_4_register_flowmeter,
-        test_5_register_dwlr,
-        test_6_duplicate_instrument,
-        test_7_client_login_and_list,
-        test_8_client_filter_dwlr,
-        test_9_client_offline_alerts,
-        test_10_client_limit_breaches,
-        test_11_create_limit_hidden,
-        test_12_client_cannot_see_hidden_limit,
-        test_13_toggle_limit_visible,
-        test_14_client_can_see_visible_limit,
-        test_15_admin_list_notification_emails,
-        test_16_notification_emails_max_cap,
-        test_17_notification_emails_valid,
-        test_18_client_cannot_access_notifications,
-        test_19_client_export_csv,
-        test_20_client_dwlr_daily,
-        test_21_client_dwlr_forbidden,
-        test_22_weather_live,
-        test_23_audit_log_summary,
-        test_24_certificates_list,
-        test_25_renewals_list,
-    ]
+    results = []
     
-    for test in tests:
-        try:
-            test()
-        except Exception as e:
-            log(f"EXCEPTION in {test.__name__}: {e}", "FAIL")
-            errors.append(f"EXCEPTION in {test.__name__}: {e}")
-            global failed
-            failed += 1
+    # Setup tests (1-4)
+    results.append(("Test 1: Admin login", test_1_admin_login()))
+    if not results[-1][1]:
+        print("\n❌ CRITICAL: Admin login failed. Aborting tests.")
+        return
+    
+    results.append(("Test 2: Create test user", test_2_create_test_user()))
+    if not results[-1][1]:
+        print("\n❌ CRITICAL: User creation failed. Aborting tests.")
+        return
+    
+    results.append(("Test 3: Register flowmeter", test_3_register_flowmeter()))
+    results.append(("Test 4: Register DWLR", test_4_register_dwlr()))
+    
+    # Ingest happy paths (5-9)
+    results.append(("Test 5: Ping flowmeter", test_5_ping_flowmeter()))
+    results.append(("Test 6: Ingest flowmeter data", test_6_ingest_flowmeter_data()))
+    results.append(("Test 7: Verify flowmeter data", test_7_verify_flowmeter_data()))
+    results.append(("Test 8: Ingest DWLR data", test_8_ingest_dwlr_data()))
+    results.append(("Test 9: Verify DWLR data", test_9_verify_dwlr_data()))
+    
+    # Auth failures (10-14)
+    results.append(("Test 10: Ingest no headers", test_10_ingest_no_headers()))
+    results.append(("Test 11: Ingest wrong key", test_11_ingest_wrong_key()))
+    results.append(("Test 12: Ingest nonexistent hardware", test_12_ingest_nonexistent_hardware()))
+    results.append(("Test 13: Ingest invalid JSON", test_13_ingest_invalid_json()))
+    results.append(("Test 14: Ingest array body", test_14_ingest_array_body()))
+    
+    # Key rotation (15-19)
+    results.append(("Test 15: Rotate key", test_15_rotate_key()))
+    results.append(("Test 16: Ingest with old key", test_16_ingest_with_old_key()))
+    results.append(("Test 17: Ingest with new key", test_17_ingest_with_new_key()))
+    results.append(("Test 18: Rotate unknown hardware", test_18_rotate_unknown_hardware()))
+    results.append(("Test 19: Rotate key as client", test_19_rotate_key_as_client()))
+    
+    # Backfill & visibility (20-22)
+    results.append(("Test 20: Backfill keys", test_20_backfill_keys()))
+    results.append(("Test 21: Client sees device keys", test_21_client_sees_device_keys()))
+    results.append(("Test 22: Admin sees device keys", test_22_admin_sees_device_keys()))
     
     # Cleanup
-    try:
-        cleanup()
-    except Exception as e:
-        log(f"Cleanup error: {e}", "WARN")
+    cleanup()
+    
+    # Check logs
+    check_backend_logs()
     
     # Summary
-    log("=" * 80, "INFO")
-    log("TEST SUMMARY", "INFO")
-    log("=" * 80, "INFO")
-    log(f"Total assertions: {passed + failed}", "INFO")
-    log(f"Passed: {passed}", "PASS")
-    log(f"Failed: {failed}", "FAIL" if failed > 0 else "INFO")
+    print("\n" + "="*80)
+    print("TEST SUMMARY")
+    print("="*80)
     
-    if errors:
-        log("=" * 80, "INFO")
-        log("FAILED TESTS:", "FAIL")
-        for error in errors:
-            log(error, "FAIL")
+    passed = sum(1 for _, result in results if result)
+    total = len(results)
     
-    log("=" * 80, "INFO")
+    print(f"\nTotal: {passed}/{total} tests passed\n")
     
-    # Exit code
-    sys.exit(0 if failed == 0 else 1)
+    for test_name, result in results:
+        status = "✅ PASS" if result else "❌ FAIL"
+        print(f"{status} | {test_name}")
+    
+    if passed == total:
+        print("\n🎉 ALL TESTS PASSED!")
+    else:
+        print(f"\n⚠️  {total - passed} test(s) failed")
+    
+    return passed == total
 
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    exit(0 if success else 1)
