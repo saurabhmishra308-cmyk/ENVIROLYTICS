@@ -228,10 +228,12 @@ const Reports = () => {
           <p className="text-gray-600 mt-1">View, filter, edit, export and import instrument readings.</p>
         </div>
         <div className="flex gap-2">
+          {/* Downloads — both admin and clients can download their own data (backend scopes by owner) */}
+          <Button variant="outline" onClick={() => triggerDownload('csv')} data-testid="download-csv-btn"><Download className="h-4 w-4 mr-2" /> CSV</Button>
+          <Button style={{ backgroundColor: '#4a9fd8' }} onClick={() => triggerDownload('pdf')} data-testid="download-pdf-btn"><FileText className="h-4 w-4 mr-2" /> PDF</Button>
+          {/* Excel import — admin only (data ingestion is a privileged action) */}
           {admin && (
             <>
-              <Button variant="outline" onClick={() => triggerDownload('csv')} data-testid="download-csv-btn"><Download className="h-4 w-4 mr-2" /> CSV</Button>
-              <Button style={{ backgroundColor: '#4a9fd8' }} onClick={() => triggerDownload('pdf')} data-testid="download-pdf-btn"><FileText className="h-4 w-4 mr-2" /> PDF</Button>
               <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleUpload} className="hidden" data-testid="upload-excel-input" />
               <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={uploading} data-testid="upload-excel-btn">
                 {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}Upload Excel
