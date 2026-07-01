@@ -236,38 +236,103 @@ async def export_data(
 
 
 # ============================
-# Excel Import (Edit Historical Data)
+# Manual Data Import (CSV / Excel) — admin only
 # ============================
+@router.get("/data/template")
+async def data_template(
+    instrument_type: str = Query("flowmeter", regex="^(flowmeter|dwlr)$"),
+    admin: dict = Depends(require_admin),
+):
+    """Download a starter CSV template with the exact columns expected by the importer."""
+    if instrument_type == "dwlr":
+        content = ExcelImportService.dwlr_template_csv()
+        fname = "dwlr_template.csv"
+    else:
+        content = ExcelImportService.flowmeter_template_csv()
+        fname = "flowmeter_template.csv"
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )
+
+
 @router.post("/data/import")
-async def import_data(file: UploadFile = File(...), admin: dict = Depends(require_admin)):
-    if not file.filename.endswith((".xlsx", ".xls")):
-        raise HTTPException(status_code=400, detail="Only Excel files are supported")
+async def import_data(
+    file: UploadFile = File(...),
+    instrument_type: str = Query("flowmeter", regex="^(flowmeter|dwlr)$"),
+    admin: dict = Depends(require_admin),
+):
+    """Manual data ingestion for admins. Supports both CSV and Excel files.
+
+    `instrument_type=flowmeter` (default) → rows go into `flowmeter_readings`.
+    `instrument_type=dwlr` → rows go into `instrument_readings` with `values.LEVEL`
+    populated in mWC.
+
+    Download the correct template from `GET /api/admin/data/template?instrument_type=...`
+    """
+    fname = (file.filename or "").lower()
+    if not fname.endswith((".xlsx", ".xls", ".csv")):
+        raise HTTPException(status_code=400, detail="Only .csv, .xlsx or .xls files are supported")
 
     content = await file.read()
-    data = ExcelImportService.parse_excel(content)
-    valid_data, errors = ExcelImportService.validate_flowmeter_data(data)
+    try:
+        data = ExcelImportService.parse_file(content, fname)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {e}")
+
+    if instrument_type == "dwlr":
+        valid_data, errors = ExcelImportService.validate_dwlr_data(data)
+        collection = db.instrument_readings
+        latest_coll = db.instrument_latest
+    else:
+        valid_data, errors = ExcelImportService.validate_flowmeter_data(data)
+        collection = db.flowmeter_readings
+        latest_coll = db.flowmeter_latest
 
     if errors and not valid_data:
         return {
             "success": False,
-            "message": "Validation errors",
+            "message": "Validation errors — nothing imported",
             "errors": errors,
             "error_count": len(errors),
+            "inserted_count": 0,
         }
 
+    inserted = 0
     if valid_data:
         now_iso = datetime.now(timezone.utc).isoformat()
         for row in valid_data:
             row.setdefault("received_at", now_iso)
             if isinstance(row.get("timestamp"), datetime):
                 row["timestamp"] = row["timestamp"].isoformat()
-        await db.flowmeter_readings.insert_many(valid_data)
+        result = await collection.insert_many(valid_data)
+        inserted = len(result.inserted_ids)
+
+        # Update `latest` collection with the newest row per hardware_id
+        latest_by_hw = {}
+        for row in valid_data:
+            hw = row.get("hardware_id")
+            if not hw:
+                continue
+            prev = latest_by_hw.get(hw)
+            if not prev or row.get("timestamp", "") > prev.get("timestamp", ""):
+                latest_by_hw[hw] = row
+        for hw, row in latest_by_hw.items():
+            row_copy = {k: v for k, v in row.items() if k != "_id"}
+            filt = {"hardware_id": hw}
+            if instrument_type == "dwlr":
+                filt["instrument_type"] = "dwlr"
+            await latest_coll.update_one(filt, {"$set": row_copy}, upsert=True)
 
     return {
         "success": True,
-        "inserted_count": len(valid_data),
+        "instrument_type": instrument_type,
+        "inserted_count": inserted,
         "error_count": len(errors),
-        "errors": errors[:10],
+        "errors": errors[:20],
     }
 
 

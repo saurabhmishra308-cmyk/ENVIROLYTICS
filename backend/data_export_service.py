@@ -95,53 +95,164 @@ class DataExportService:
         return buffer.getvalue()
 
 class ExcelImportService:
-    """Service for importing data from Excel files."""
-    
+    """Service for importing data from Excel/CSV files."""
+
+    @staticmethod
+    def parse_file(file_content: bytes, filename: str) -> List[Dict]:
+        """Parse Excel (.xlsx/.xls) or CSV (.csv) file → list of dicts.
+
+        CSV files are parsed with `pandas.read_csv`; Excel via `pandas.read_excel`.
+        The `filename` extension decides which parser is used.
+        """
+        name = (filename or "").lower()
+        buf = io.BytesIO(file_content)
+        if name.endswith(".csv"):
+            df = pd.read_csv(buf)
+        elif name.endswith((".xlsx", ".xls")):
+            df = pd.read_excel(buf)
+        else:
+            raise ValueError("Unsupported file type. Use .csv, .xlsx or .xls")
+        df = df.where(pd.notnull(df), None)
+        # Strip whitespace from column names to be forgiving
+        df.columns = [str(c).strip() for c in df.columns]
+        return df.to_dict("records")
+
     @staticmethod
     def parse_excel(file_content: bytes) -> List[Dict]:
-        """Parse Excel file and return list of dictionaries."""
+        """Parse Excel file and return list of dictionaries. (Legacy signature — CSV
+        callers should use parse_file which sniffs the extension.)"""
         df = pd.read_excel(io.BytesIO(file_content))
-        
+
         # Convert NaN to None
         df = df.where(pd.notnull(df), None)
-        
+
         # Convert to list of dicts
         return df.to_dict('records')
-    
+
+    @staticmethod
+    def _normalize_ts(v):
+        if v is None or v == "":
+            return None
+        try:
+            ts = pd.to_datetime(v, errors="coerce", utc=True)
+            if pd.isna(ts):
+                return None
+            return ts.isoformat()
+        except Exception:  # noqa: BLE001
+            return None
+
     @staticmethod
     def validate_flowmeter_data(data: List[Dict]) -> tuple[List[Dict], List[str]]:
-        """Validate imported flowmeter data."""
+        """Validate imported flowmeter rows.
+
+        Required columns: hardware_id, timestamp, flow_rate_lpm.
+        Optional columns: flow_rate_lph, tot1, tot2, rtot1, rtot2, forward_totalizer,
+                          reverse_totalizer, temperature, unit_name, unit_code,
+                          signal_strength, imei, imsi, firmware_version.
+        Missing optional numerics default to 0.
+        """
         valid_data = []
         errors = []
-        
-        required_fields = ['hardware_id', 'timestamp', 'flow_rate_lpm']
-        
-        for idx, row in enumerate(data, start=2):  # Excel rows start at 2
-            # Check required fields
-            missing_fields = [field for field in required_fields if field not in row or row[field] is None]
-            if missing_fields:
-                errors.append(f"Row {idx}: Missing fields {missing_fields}")
+
+        required_fields = ["hardware_id", "timestamp", "flow_rate_lpm"]
+        for idx, row in enumerate(data, start=2):  # spreadsheet rows start at 2 (header = row 1)
+            missing = [f for f in required_fields if row.get(f) in (None, "")]
+            if missing:
+                errors.append(f"Row {idx}: missing required column(s) {missing}")
                 continue
-            
-            # Validate timestamp
+            ts = ExcelImportService._normalize_ts(row.get("timestamp"))
+            if not ts:
+                errors.append(f"Row {idx}: invalid timestamp '{row.get('timestamp')}'")
+                continue
+            row["timestamp"] = ts
             try:
-                if isinstance(row['timestamp'], str):
-                    row['timestamp'] = pd.to_datetime(row['timestamp'])
-            except Exception as e:
-                errors.append(f"Row {idx}: Invalid timestamp - {e}")
+                row["flow_rate_lpm"] = float(row["flow_rate_lpm"])
+                # Fill optional numerics with 0 if missing
+                for col in ("tot1", "tot2", "rtot1", "rtot2", "forward_totalizer",
+                            "reverse_totalizer", "temperature", "signal_strength",
+                            "flow_rate_lph"):
+                    if row.get(col) not in (None, ""):
+                        row[col] = float(row[col])
+                    else:
+                        row[col] = 0.0 if col != "signal_strength" else 0
+            except (ValueError, TypeError) as e:
+                errors.append(f"Row {idx}: invalid numeric value — {e}")
                 continue
-            
-            # Validate numeric fields
-            try:
-                row['flow_rate_lpm'] = float(row['flow_rate_lpm'])
-                if 'forward_totalizer' in row and row['forward_totalizer'] is not None:
-                    row['forward_totalizer'] = float(row['forward_totalizer'])
-                if 'temperature' in row and row['temperature'] is not None:
-                    row['temperature'] = float(row['temperature'])
-            except Exception as e:
-                errors.append(f"Row {idx}: Invalid numeric value - {e}")
-                continue
-            
+            # Compute flow_rate_lph from lpm if not provided
+            if not row.get("flow_rate_lph"):
+                row["flow_rate_lph"] = row["flow_rate_lpm"] * 60.0
+            row.setdefault("unit_code", 2)
+            row.setdefault("unit_name", "L/M")
+            row["hardware_id"] = str(row["hardware_id"]).strip()
             valid_data.append(row)
-        
         return valid_data, errors
+
+    @staticmethod
+    def validate_dwlr_data(data: List[Dict]) -> tuple[List[Dict], List[str]]:
+        """Validate imported DWLR rows.
+
+        Required columns: hardware_id, timestamp, level_mwc.
+        Optional: signal (dBm), imei.
+        """
+        valid_data: List[Dict] = []
+        errors: List[str] = []
+        for idx, row in enumerate(data, start=2):
+            missing = [f for f in ("hardware_id", "timestamp", "level_mwc")
+                       if row.get(f) in (None, "")]
+            if missing:
+                errors.append(f"Row {idx}: missing required column(s) {missing}")
+                continue
+            ts = ExcelImportService._normalize_ts(row.get("timestamp"))
+            if not ts:
+                errors.append(f"Row {idx}: invalid timestamp '{row.get('timestamp')}'")
+                continue
+            try:
+                level = float(row["level_mwc"])
+            except (ValueError, TypeError):
+                errors.append(f"Row {idx}: level_mwc must be numeric (mWC)")
+                continue
+            values = {"LEVEL": level}
+            if row.get("signal") not in (None, ""):
+                try:
+                    values["SIGNAL"] = int(float(row["signal"]))
+                except (ValueError, TypeError):
+                    pass
+            imei = str(row.get("imei") or "").strip() or None
+            valid_data.append({
+                "hardware_id": str(row["hardware_id"]).strip(),
+                "instrument_type": "dwlr",
+                "timestamp": ts,
+                "values": values,
+                "imei": imei,
+            })
+        return valid_data, errors
+
+    # --- CSV template builders ---------------------------------------
+    @staticmethod
+    def flowmeter_template_csv() -> bytes:
+        """Sample CSV template with one example row for the admin to fill."""
+        cols = [
+            "hardware_id", "timestamp", "flow_rate_lpm", "flow_rate_lph",
+            "tot1", "tot2", "rtot1", "rtot2", "forward_totalizer",
+            "reverse_totalizer", "temperature", "signal_strength",
+            "unit_code", "unit_name", "imei", "imsi", "firmware_version",
+        ]
+        sample = [
+            "FM_PLANT_A_01", "2026-07-01 09:00:00", "40.97", "2458.2",
+            "40.97", "0", "0", "0", "40.97",
+            "0", "22.5", "13",
+            "2", "L/M", "860738070478155", "404980524791050", "4G-1",
+        ]
+        buf = io.StringIO()
+        w = pd.DataFrame([dict(zip(cols, sample))], columns=cols)
+        w.to_csv(buf, index=False)
+        return buf.getvalue().encode("utf-8")
+
+    @staticmethod
+    def dwlr_template_csv() -> bytes:
+        cols = ["hardware_id", "timestamp", "level_mwc", "signal", "imei"]
+        sample = ["DWLR_BOREWELL_01", "2026-07-01 09:00:00", "12.45", "13", "860738070478155"]
+        buf = io.StringIO()
+        w = pd.DataFrame([dict(zip(cols, sample))], columns=cols)
+        w.to_csv(buf, index=False)
+        return buf.getvalue().encode("utf-8")

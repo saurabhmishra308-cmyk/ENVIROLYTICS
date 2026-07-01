@@ -101,15 +101,49 @@ const Reports = () => {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const { data } = await api.post('/api/admin/data/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      if (data.success) toast.success(`Imported ${data.inserted_count} rows`);
-      else toast.error(`Validation errors: ${data.error_count}`);
+      // Pass the current section (`flowmeter` | `dwlr` | …) as instrument_type so the
+      // importer picks the right validator + collection. Non-fm/dwlr sections fall
+      // back to `flowmeter` server-side.
+      const iType = (section === 'dwlr') ? 'dwlr' : 'flowmeter';
+      const { data } = await api.post(
+        `/api/admin/data/import?instrument_type=${iType}`,
+        fd,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      if (data.success) {
+        toast.success(
+          data.inserted_count
+            ? `Imported ${data.inserted_count} row${data.inserted_count === 1 ? '' : 's'}${data.error_count ? ` — ${data.error_count} skipped` : ''}`
+            : 'File parsed but no valid rows found'
+        );
+      } else {
+        toast.error(`Validation failed — ${data.error_count} error${data.error_count === 1 ? '' : 's'}${data.errors?.[0] ? `: ${data.errors[0]}` : ''}`);
+      }
       fetchReadings();
     } catch (e2) {
       toast.error(formatApiError(e2?.response?.data?.detail));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const downloadTemplate = async () => {
+    try {
+      const iType = (section === 'dwlr') ? 'dwlr' : 'flowmeter';
+      const url = `${process.env.REACT_APP_BACKEND_URL}/api/admin/data/template?instrument_type=${iType}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (!res.ok) throw new Error(`Template download failed: ${res.status}`);
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = iType === 'dwlr' ? 'dwlr_template.csv' : 'flowmeter_template.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast.success(`${iType.toUpperCase()} template downloaded`);
+    } catch (err) {
+      toast.error(err.message || 'Template download failed');
     }
   };
 
@@ -231,12 +265,15 @@ const Reports = () => {
           {/* Downloads — both admin and clients can download their own data (backend scopes by owner) */}
           <Button variant="outline" onClick={() => triggerDownload('csv')} data-testid="download-csv-btn"><Download className="h-4 w-4 mr-2" /> CSV</Button>
           <Button style={{ backgroundColor: '#4a9fd8' }} onClick={() => triggerDownload('pdf')} data-testid="download-pdf-btn"><FileText className="h-4 w-4 mr-2" /> PDF</Button>
-          {/* Excel import — admin only (data ingestion is a privileged action) */}
-          {admin && (
+          {/* Excel/CSV import — admin only (data ingestion is a privileged action) */}
+          {admin && (section === 'flowmeter' || section === 'dwlr') && (
             <>
-              <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleUpload} className="hidden" data-testid="upload-excel-input" />
+              <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleUpload} className="hidden" data-testid="upload-excel-input" />
+              <Button variant="outline" onClick={downloadTemplate} data-testid="download-template-btn" title="Download the empty CSV template for manual data entry">
+                <FileSpreadsheet className="h-4 w-4 mr-2" /> Template
+              </Button>
               <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={uploading} data-testid="upload-excel-btn">
-                {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}Upload Excel
+                {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}Import CSV/Excel
               </Button>
             </>
           )}
