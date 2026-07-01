@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 
 # Backend URL from frontend/.env
-BASE_URL = "https://carbon-track-24.preview.emergentagent.com/api"
+BASE_URL = "https://envirolytics-hub.preview.emergentagent.com/api"
 
 # Test credentials from /app/memory/test_credentials.md
 ADMIN_EMAIL = "admin@envirolytics.com"

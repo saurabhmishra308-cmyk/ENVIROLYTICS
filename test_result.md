@@ -675,7 +675,7 @@ agent_communication:
     message: |
       ✅ FULL END-TO-END UI SMOKE TEST PASSED
       
-      Production preview deployment (https://carbon-track-24.preview.emergentagent.com) tested successfully.
+      Production preview deployment (https://envirolytics-hub.preview.emergentagent.com) tested successfully.
       All critical user flows verified working correctly.
       
       **FLOW 1: Login Screen & Authentication ✅**
@@ -743,7 +743,7 @@ agent_communication:
       - CSV/PDF download buttons are admin-only in UI (backend supports clients)
       
       **DEPLOYMENT STATUS:**
-      Preview environment (https://carbon-track-24.preview.emergentagent.com) is FULLY FUNCTIONAL
+      Preview environment (https://envirolytics-hub.preview.emergentagent.com) is FULLY FUNCTIONAL
       and represents production-ready code. Production deployment blocked by Atlas quota issue
       (GROUP_USERS_LIMIT_EXCEEDED - 350 user cap), NOT a code issue.
   
