@@ -124,31 +124,88 @@ class MQTTFlowmeterService:
             topic = msg.topic
             raw = msg.payload.decode("utf-8", errors="replace")
             print(f"[mqtt] Recv topic={topic} bytes={len(raw)}")
-
-            data = self._extract_json(raw)
-            if data is None:
-                print(f"[mqtt] Non-JSON payload dropped for topic {topic}: {raw[:120]!r}")
-                return
-
-            imei = str(data.get("IMEI") or data.get("imei") or "").strip()
-            if not imei:
-                print(f"[mqtt] Payload missing IMEI, dropped. topic={topic} preview={raw[:120]!r}")
-                return
-
-            # Route by topic-prefix: `P{id}/0` → DWLR, `{id}/0` → flowmeter.
-            # (topic uses '/' with only 2 levels — first level starts with 'P' for piezo/DWLR)
-            first_level = topic.split("/", 1)[0] if topic else ""
-            is_dwlr = first_level.startswith(("P", "p"))
-            instrument_type = "dwlr" if is_dwlr else "flowmeter"
-
-            if not (self.loop and self.loop.is_running()):
-                return
-
-            asyncio.run_coroutine_threadsafe(
-                self._dispatch(instrument_type, imei, topic, data), self.loop
-            )
+            self._on_message_sync(topic, raw)
         except Exception as e:  # noqa: BLE001
             print(f"[mqtt] Error processing message: {e}")
+
+    def _on_message_sync(self, topic: str, raw: str):
+        """Route a raw (topic, payload) tuple through the async dispatcher.
+
+        Kept separate from `on_message` so it can be called from the simulation
+        endpoint. Uses the stored asyncio loop to schedule the coroutine.
+        """
+        data = self._extract_json(raw)
+        if data is None:
+            print(f"[mqtt] Non-JSON payload dropped for topic {topic}: {raw[:120]!r}")
+            return
+
+        imei = str(data.get("IMEI") or data.get("imei") or "").strip()
+        if not imei:
+            print(f"[mqtt] Payload missing IMEI, dropped. topic={topic} preview={raw[:120]!r}")
+            return
+
+        first_level = topic.split("/", 1)[0] if topic else ""
+        is_dwlr = first_level.startswith(("P", "p"))
+        instrument_type = "dwlr" if is_dwlr else "flowmeter"
+
+        if not (self.loop and self.loop.is_running()):
+            return
+
+        asyncio.run_coroutine_threadsafe(
+            self._dispatch(instrument_type, imei, topic, data), self.loop
+        )
+
+    async def simulate_incoming(self, topic: str, payload: str) -> Dict:
+        """Await-safe end-to-end simulation of an incoming MQTT publish.
+
+        Runs identical parsing, IMEI-lookup and storage as the live pipeline and
+        returns a detailed dispatch report. Used by the admin `mqtt-simulate`
+        endpoint to prove the ingestion path works without needing a broker.
+        """
+        data = self._extract_json(payload)
+        if data is None:
+            return {"dispatched": False, "reason": "payload is not valid JSON"}
+
+        imei = str(data.get("IMEI") or data.get("imei") or "").strip()
+        if not imei:
+            return {"dispatched": False, "reason": "payload missing IMEI field"}
+
+        first_level = topic.split("/", 1)[0] if topic else ""
+        is_dwlr = first_level.startswith(("P", "p"))
+        topic_inferred_type = "dwlr" if is_dwlr else "flowmeter"
+
+        reg = await self.db.instrument_registry.find_one(
+            {"imei": imei},
+            {"_id": 0, "hardware_id": 1, "instrument_type": 1, "owner_user_id": 1, "label": 1},
+        )
+        if not reg:
+            return {
+                "dispatched": False,
+                "reason": f"IMEI '{imei}' is not registered — add it to an instrument in the registry",
+                "topic": topic,
+                "topic_inferred_type": topic_inferred_type,
+            }
+
+        hardware_id = reg["hardware_id"]
+        reg_type = (reg.get("instrument_type") or topic_inferred_type).lower()
+
+        if reg_type == "flowmeter":
+            await self.process_flowmeter_data(hardware_id, data)
+        elif reg_type == "dwlr":
+            await self.process_instrument_data("dwlr", hardware_id, data)
+        else:
+            await self.process_instrument_data(reg_type, hardware_id, data)
+
+        return {
+            "dispatched": True,
+            "topic": topic,
+            "topic_inferred_type": topic_inferred_type,
+            "hardware_id": hardware_id,
+            "instrument_type": reg_type,
+            "owner_user_id": reg.get("owner_user_id"),
+            "label": reg.get("label"),
+            "imei": imei,
+        }
 
     async def _dispatch(self, instrument_type: str, imei: str, topic: str, data: Dict):
         """Look up the device by IMEI and route to the correct storage handler."""

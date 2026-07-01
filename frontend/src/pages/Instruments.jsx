@@ -8,7 +8,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../components/ui/dialog';
 import {
-  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw,
+  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw, Radio,
 } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
@@ -53,6 +53,12 @@ const Instruments = () => {
   const [form, setForm] = useState(EMPTY_FORM);
   const [editTarget, setEditTarget] = useState(null);
   const [keyTarget, setKeyTarget] = useState(null); // {hardware_id, label, device_key, instrument_type}
+
+  // MQTT simulate dialog (admin-only end-to-end verification)
+  const [simOpen, setSimOpen] = useState(false);
+  const [simSubmitting, setSimSubmitting] = useState(false);
+  const [simResult, setSimResult] = useState(null);
+  const [simForm, setSimForm] = useState({ topic: '', payload: '' });
 
   const copyToClipboard = async (text, label = 'Copied') => {
     try {
@@ -225,6 +231,73 @@ const Instruments = () => {
     }
   };
 
+  // ---------- MQTT simulate helpers ----------
+  const openSimulate = (it = null) => {
+    // Prefill topic + payload from the selected instrument (if any) so the admin
+    // can just click send and see it flow through.
+    setSimResult(null);
+    const imei = it?.imei || '860738070478155';
+    if (!it || it.instrument_type === 'flowmeter') {
+      const idPart = it?.hardware_id?.replace(/\D+/g, '').slice(-3) || '673';
+      setSimForm({
+        topic: `${idPart}/0`,
+        payload: JSON.stringify(
+          {
+            TOT1: '0.00', IMEI: imei, VER: '4G-1', TIME: '260630130649', SIGNAL: 13,
+            FLOW: '40.97', IMSI: '404980524791050', RTOT1: '0.00', TOT2: '0.00',
+            UNT: 1.0, RTOT2: '0.00',
+          },
+          null,
+          2
+        ),
+      });
+    } else {
+      const idPart = it?.hardware_id?.replace(/\D+/g, '').slice(-3) || '673';
+      setSimForm({
+        topic: `P${idPart}/0`,
+        payload: JSON.stringify(
+          {
+            TIME: '260630130834', SIGNAL: 13, UNT: 1.0, LEVEL: '40.97',
+            IMSI: '404980524791050', IMEI: imei, VER: '4G-1', FLOW: '40.97',
+          },
+          null,
+          2
+        ),
+      });
+    }
+    setSimOpen(true);
+  };
+
+  const submitSimulate = async () => {
+    setSimSubmitting(true);
+    setSimResult(null);
+    try {
+      // Parse payload — accept either raw JSON string or an object literal.
+      let payloadValue;
+      try {
+        payloadValue = JSON.parse(simForm.payload);
+      } catch {
+        // Fall back to sending as a raw string — backend also handles that.
+        payloadValue = simForm.payload;
+      }
+      const { data } = await api.post('/api/devices/mqtt-simulate', {
+        topic: simForm.topic.trim(),
+        payload: payloadValue,
+      });
+      setSimResult(data);
+      if (data.dispatched) {
+        toast.success(`Delivered to ${data.hardware_id} (${data.instrument_type}) — check the dashboard`);
+        refresh();
+      } else {
+        toast.error(data.reason || 'Not delivered');
+      }
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+    } finally {
+      setSimSubmitting(false);
+    }
+  };
+
   const totals = {
     total: items.length,
     flowmeters: items.filter((i) => i.instrument_type === 'flowmeter').length,
@@ -240,6 +313,9 @@ const Instruments = () => {
           <p className="text-gray-600 mt-1">Admin-only — register physical devices and assign them to client accounts.</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" onClick={() => openSimulate(null)} data-testid="simulate-mqtt-btn" title="Simulate an incoming IoT message end-to-end">
+            <Radio className="h-4 w-4 mr-2" /> Simulate Device Message
+          </Button>
           <Button variant="outline" className="text-red-600 border-red-500" onClick={handlePurgeOrphans} data-testid="purge-orphans-btn">
             <Trash2 className="h-4 w-4 mr-2" /> Purge Orphan Data
           </Button>
@@ -319,6 +395,9 @@ const Instruments = () => {
                         <div className="flex gap-2">
                           <Button size="sm" variant="outline" onClick={() => setKeyTarget(it)} data-testid={`key-instrument-${it.hardware_id}`} title="Show HTTPS ingestion key">
                             <KeyRound className="h-3 w-3 mr-1" /> Key
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => openSimulate(it)} data-testid={`simulate-instrument-${it.hardware_id}`} title="Simulate an MQTT message from this device">
+                            <Radio className="h-3 w-3 mr-1" /> Simulate
                           </Button>
                           <Button size="sm" variant="outline" onClick={() => openEdit(it)} data-testid={`edit-instrument-${it.hardware_id}`}>
                             <Edit3 className="h-3 w-3 mr-1" /> Edit
@@ -487,6 +566,87 @@ const Instruments = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* MQTT Simulate Dialog — end-to-end verification without a broker */}
+      <Dialog open={simOpen} onOpenChange={(o) => { if (!o) { setSimOpen(false); setSimResult(null); } }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-700">
+              <Radio className="h-5 w-5" /> Simulate Incoming IoT Message
+            </DialogTitle>
+            <DialogDescription>
+              Push a (topic, payload) tuple through the exact same handler the live MQTT
+              broker calls. Data is matched to an instrument by <code>IMEI</code> in the JSON
+              payload, then stored just as if it arrived from the field.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Topic *</Label>
+              <Input
+                value={simForm.topic}
+                onChange={(e) => setSimForm({ ...simForm, topic: e.target.value })}
+                placeholder="e.g. P673/0 (DWLR) or 673/0 (Flowmeter)"
+                data-testid="sim-topic"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Topics starting with <code>P</code> are treated as DWLR; anything else as Flowmeter.
+              </p>
+            </div>
+            <div>
+              <Label>Payload (JSON) *</Label>
+              <textarea
+                className="w-full border rounded px-3 py-2 font-mono text-xs h-56"
+                value={simForm.payload}
+                onChange={(e) => setSimForm({ ...simForm, payload: e.target.value })}
+                data-testid="sim-payload"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                The <code>IMEI</code> field inside the JSON identifies the target device.
+                Prefilled example uses the IMEI of the selected instrument (or a default sample).
+              </p>
+            </div>
+
+            {simResult && (
+              <div
+                className={`p-3 rounded-lg border ${simResult.dispatched ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}
+                data-testid="sim-result"
+              >
+                {simResult.dispatched ? (
+                  <>
+                    <div className="text-sm font-semibold text-green-800 mb-1">
+                      ✅ Delivered — {simResult.hardware_id} ({simResult.instrument_type})
+                    </div>
+                    <div className="text-xs text-gray-700 font-mono">
+                      topic: {simResult.topic} · IMEI: {simResult.imei}
+                    </div>
+                    <div className="text-xs text-gray-600 mt-2">
+                      Data has been written to the database. Open the {simResult.instrument_type === 'flowmeter' ? 'Flowmeter' : 'Water Level Recorder'} page to see it live.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-sm font-semibold text-amber-800 mb-1">⚠️ Not delivered</div>
+                    <div className="text-xs text-gray-700">{simResult.reason}</div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setSimOpen(false); setSimResult(null); }}>Close</Button>
+            <Button
+              onClick={submitSimulate}
+              disabled={simSubmitting || !simForm.topic.trim() || !simForm.payload.trim()}
+              style={{ backgroundColor: '#4a9fd8' }}
+              data-testid="sim-submit-btn"
+            >
+              {simSubmitting ? 'Delivering…' : 'Deliver Message'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
 
       {/* Device key + HTTPS ingestion instructions */}
       <Dialog open={!!keyTarget} onOpenChange={(o) => { if (!o) setKeyTarget(null); }}>

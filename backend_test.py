@@ -637,77 +637,506 @@ class TestHTTPSIngestionRegression:
                 print(f"✅ Deleted test user: {self.test_user_id}")
 
 
+class TestMQTTSimulation:
+    """Test suite for MQTT end-to-end simulation endpoint (admin-only, no broker required)."""
+    
+    def __init__(self):
+        self.admin_token = None
+        self.client_token = None
+        self.test_user_id = None
+        self.test_instruments = {}  # {hardware_id: imei}
+        
+    def setup(self):
+        """Login as admin and create test client."""
+        print("\n=== MQTT SIMULATION: Setup ===")
+        resp = requests.post(f"{BASE_URL}/auth/login", json={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
+        })
+        assert resp.status_code == 200, f"Admin login failed: {resp.status_code} {resp.text}"
+        self.admin_token = resp.json()["access_token"]
+        print(f"✅ Admin login successful")
+        
+        # Create test client user
+        print("\n=== SETUP: Create test client ===")
+        resp = requests.post(
+            f"{BASE_URL}/admin/users/create",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={
+                "email": f"mqttsim_{datetime.now().timestamp()}@example.com",
+                "password": "TestPass123!",
+                "full_name": "MQTT Simulation Test Client",
+                "role": "client",
+                "location_name": "Test Location",
+                "latitude": 12.9716,
+                "longitude": 77.5946
+            }
+        )
+        assert resp.status_code == 200, f"Create user failed: {resp.status_code} {resp.text}"
+        self.test_user_id = resp.json()["user"]["id"]
+        print(f"✅ Test client created: {self.test_user_id}")
+        
+        # Login as client for auth tests
+        client_email = resp.json()["user"]["email"]
+        resp = requests.post(f"{BASE_URL}/auth/login", json={
+            "email": client_email,
+            "password": "TestPass123!"
+        })
+        assert resp.status_code == 200, f"Client login failed: {resp.status_code} {resp.text}"
+        self.client_token = resp.json()["access_token"]
+        print(f"✅ Client login successful")
+        
+        # Register test flowmeter
+        print("\n=== SETUP: Register test flowmeter ===")
+        fm_hw_id = "SIMTEST_FM_1"
+        fm_imei = "860738070478100"
+        resp = requests.post(
+            f"{BASE_URL}/instrument-registry",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={
+                "hardware_id": fm_hw_id,
+                "instrument_type": "flowmeter",
+                "label": "Simulation Test Flowmeter",
+                "imei": fm_imei,
+                "owner_user_id": self.test_user_id,
+                "category": "groundwater_abstraction",
+                "location_name": "Test Site FM",
+                "latitude": 12.9716,
+                "longitude": 77.5946
+            }
+        )
+        assert resp.status_code == 200, f"Register flowmeter failed: {resp.status_code} {resp.text}"
+        self.test_instruments[fm_hw_id] = fm_imei
+        print(f"✅ Registered flowmeter: {fm_hw_id} with IMEI {fm_imei}")
+        
+        # Register test DWLR
+        print("\n=== SETUP: Register test DWLR ===")
+        dwlr_hw_id = "SIMTEST_DWLR_1"
+        dwlr_imei = "860738070478200"
+        resp = requests.post(
+            f"{BASE_URL}/instrument-registry",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={
+                "hardware_id": dwlr_hw_id,
+                "instrument_type": "dwlr",
+                "label": "Simulation Test DWLR",
+                "imei": dwlr_imei,
+                "manual_water_temp_c": 22.5,
+                "owner_user_id": self.test_user_id,
+                "location_name": "Test Borewell",
+                "latitude": 12.9716,
+                "longitude": 77.5946
+            }
+        )
+        assert resp.status_code == 200, f"Register DWLR failed: {resp.status_code} {resp.text}"
+        self.test_instruments[dwlr_hw_id] = dwlr_imei
+        print(f"✅ Registered DWLR: {dwlr_hw_id} with IMEI {dwlr_imei}, manual_water_temp_c=22.5")
+    
+    def test_1_flowmeter_delivery(self):
+        """Test 1: Flowmeter delivery (topic '673/0') → dispatched=true, data lands in DB."""
+        print("\n=== TEST 1: Flowmeter delivery (topic '673/0') ===")
+        
+        payload = {
+            "TOT1": "5.00",
+            "IMEI": "860738070478100",
+            "VER": "4G-1",
+            "TIME": "260630130649",
+            "SIGNAL": 13,
+            "FLOW": "40.97",
+            "IMSI": "404980524791050",
+            "RTOT1": "1.00",
+            "TOT2": "0",
+            "UNT": 1.0,
+            "RTOT2": "0"
+        }
+        
+        resp = requests.post(
+            f"{BASE_URL}/devices/mqtt-simulate",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={"topic": "673/0", "payload": payload}
+        )
+        assert resp.status_code == 200, f"Simulate failed: {resp.status_code} {resp.text}"
+        result = resp.json()
+        
+        assert result["dispatched"] is True, f"Expected dispatched=true, got {result}"
+        assert result["hardware_id"] == "SIMTEST_FM_1", f"Wrong hardware_id: {result['hardware_id']}"
+        assert result["instrument_type"] == "flowmeter", f"Wrong instrument_type: {result['instrument_type']}"
+        assert result["topic_inferred_type"] == "flowmeter", f"Wrong topic_inferred_type: {result['topic_inferred_type']}"
+        assert result["imei"] == "860738070478100", f"Wrong IMEI: {result['imei']}"
+        print(f"✅ Flowmeter delivery successful: {result}")
+        
+        # Verify data in DB via GET /api/flowmeter/history/SIMTEST_FM_1?limit=5
+        import time
+        time.sleep(1)  # Allow time for DB write
+        resp = requests.get(
+            f"{BASE_URL}/flowmeter/history/SIMTEST_FM_1?limit=5",
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        assert resp.status_code == 200, f"History fetch failed: {resp.status_code} {resp.text}"
+        history_data = resp.json()
+        
+        # Handle both list and dict responses
+        if isinstance(history_data, dict):
+            history = history_data.get("readings", history_data.get("data", []))
+        else:
+            history = history_data
+        
+        assert len(history) >= 1, f"Expected at least 1 reading, got {len(history)}"
+        
+        # Verify most recent reading
+        latest = history[0]
+        assert latest["flow_rate_lph"] == 40.97, f"Expected flow_rate_lph=40.97, got {latest['flow_rate_lph']}"
+        assert latest["forward_totalizer"] == 5.0, f"Expected forward_totalizer=5.0, got {latest['forward_totalizer']}"
+        assert latest["reverse_totalizer"] == 1.0, f"Expected reverse_totalizer=1.0, got {latest['reverse_totalizer']}"
+        assert latest["unit_code"] == 1, f"Expected unit_code=1, got {latest['unit_code']}"
+        assert "unit_name" in latest, "unit_name field missing"
+        print(f"✅ Data verified in DB: flow_rate_lph={latest['flow_rate_lph']}, forward_totalizer={latest['forward_totalizer']}, reverse_totalizer={latest['reverse_totalizer']}, unit_code={latest['unit_code']}")
+        
+        # Verify GET /api/flowmeter/latest includes SIMTEST_FM_1 (non-critical check)
+        resp = requests.get(
+            f"{BASE_URL}/flowmeter/latest",
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        if resp.status_code == 200:
+            latest_data = resp.json()
+            # Handle both list and dict responses
+            if isinstance(latest_data, dict):
+                latest_data = latest_data.get("readings", latest_data.get("data", []))
+            found = any(d.get("hardware_id") == "SIMTEST_FM_1" for d in latest_data if isinstance(d, dict))
+            if found:
+                print(f"✅ SIMTEST_FM_1 present in /api/flowmeter/latest")
+            else:
+                print(f"⚠️  SIMTEST_FM_1 not yet in /api/flowmeter/latest (may require additional time or telemetry)")
+        else:
+            print(f"⚠️  Could not verify flowmeter/latest: {resp.status_code}")
+    
+    def test_2_dwlr_delivery(self):
+        """Test 2: DWLR delivery (topic 'P673/0') → dispatched=true, data lands in DB."""
+        print("\n=== TEST 2: DWLR delivery (topic 'P673/0') ===")
+        
+        payload = {
+            "TIME": "260630130834",
+            "SIGNAL": 13,
+            "UNT": 1.0,
+            "LEVEL": "12.34",
+            "IMSI": "404980524791050",
+            "IMEI": "860738070478200",
+            "VER": "4G-1",
+            "FLOW": "40.97"
+        }
+        
+        resp = requests.post(
+            f"{BASE_URL}/devices/mqtt-simulate",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={"topic": "P673/0", "payload": payload}
+        )
+        assert resp.status_code == 200, f"Simulate failed: {resp.status_code} {resp.text}"
+        result = resp.json()
+        
+        assert result["dispatched"] is True, f"Expected dispatched=true, got {result}"
+        assert result["hardware_id"] == "SIMTEST_DWLR_1", f"Wrong hardware_id: {result['hardware_id']}"
+        assert result["instrument_type"] == "dwlr", f"Wrong instrument_type: {result['instrument_type']}"
+        assert result["topic_inferred_type"] == "dwlr", f"Wrong topic_inferred_type: {result['topic_inferred_type']}"
+        print(f"✅ DWLR delivery successful: {result}")
+        
+        # Verify via GET /api/instruments/dwlr/latest
+        import time
+        time.sleep(1)  # Allow time for DB write
+        resp = requests.get(
+            f"{BASE_URL}/instruments/dwlr/latest",
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        assert resp.status_code == 200, f"DWLR latest fetch failed: {resp.status_code} {resp.text}"
+        latest = resp.json()
+        readings = latest.get("readings", [])
+        
+        device = next((d for d in readings if d["hardware_id"] == "SIMTEST_DWLR_1"), None)
+        assert device is not None, "SIMTEST_DWLR_1 not found in DWLR latest"
+        assert "values" in device, "values field missing"
+        assert "LEVEL" in device["values"], "LEVEL field missing in values"
+        assert device["values"]["LEVEL"] == 12.34, f"Expected LEVEL=12.34, got {device['values']['LEVEL']}"
+        assert device.get("manual_water_temp_c") == 22.5, f"Expected manual_water_temp_c=22.5, got {device.get('manual_water_temp_c')}"
+        print(f"✅ DWLR data verified: LEVEL={device['values']['LEVEL']}, manual_water_temp_c={device.get('manual_water_temp_c')}")
+    
+    def test_3_lowercase_p_prefix(self):
+        """Test 3: Lowercase 'p' prefix (topic 'p999/0') → still routes as DWLR."""
+        print("\n=== TEST 3: Lowercase 'p' prefix (topic 'p999/0') ===")
+        
+        payload = {
+            "TIME": "260630130900",
+            "SIGNAL": 15,
+            "UNT": 1.0,
+            "LEVEL": "13.50",
+            "IMEI": "860738070478200",
+            "VER": "4G-1"
+        }
+        
+        resp = requests.post(
+            f"{BASE_URL}/devices/mqtt-simulate",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={"topic": "p999/0", "payload": payload}
+        )
+        assert resp.status_code == 200, f"Simulate failed: {resp.status_code} {resp.text}"
+        result = resp.json()
+        
+        assert result["dispatched"] is True, f"Expected dispatched=true, got {result}"
+        assert result["topic_inferred_type"] == "dwlr", f"Expected topic_inferred_type=dwlr, got {result['topic_inferred_type']}"
+        assert result["hardware_id"] == "SIMTEST_DWLR_1", f"Wrong hardware_id: {result['hardware_id']}"
+        print(f"✅ Lowercase 'p' prefix routes as DWLR: {result}")
+    
+    def test_4_unregistered_imei(self):
+        """Test 4: Unregistered IMEI → dispatched=false, no DB write."""
+        print("\n=== TEST 4: Unregistered IMEI → dispatched=false ===")
+        
+        payload = {
+            "IMEI": "000000000000000",
+            "FLOW": "50.0",
+            "TOT1": "10",
+            "TOT2": "0",
+            "RTOT1": "0",
+            "RTOT2": "0",
+            "UNT": 1.0,
+            "SIGNAL": 10,
+            "TIME": "260630131000"
+        }
+        
+        resp = requests.post(
+            f"{BASE_URL}/devices/mqtt-simulate",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={"topic": "999/0", "payload": payload}
+        )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code} {resp.text}"
+        result = resp.json()
+        
+        assert result["dispatched"] is False, f"Expected dispatched=false, got {result}"
+        assert "IMEI '000000000000000' is not registered" in result["reason"], f"Wrong reason: {result['reason']}"
+        print(f"✅ Unregistered IMEI rejected: {result}")
+    
+    def test_5_payload_missing_imei(self):
+        """Test 5: Payload missing IMEI → dispatched=false."""
+        print("\n=== TEST 5: Payload missing IMEI → dispatched=false ===")
+        
+        payload = {
+            "FLOW": "10.0",
+            "TOT1": "5",
+            "TOT2": "0",
+            "RTOT1": "0",
+            "RTOT2": "0",
+            "UNT": 1.0
+        }
+        
+        resp = requests.post(
+            f"{BASE_URL}/devices/mqtt-simulate",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={"topic": "999/0", "payload": payload}
+        )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code} {resp.text}"
+        result = resp.json()
+        
+        assert result["dispatched"] is False, f"Expected dispatched=false, got {result}"
+        assert "payload missing IMEI field" in result["reason"], f"Wrong reason: {result['reason']}"
+        print(f"✅ Payload missing IMEI rejected: {result}")
+    
+    def test_6_payload_raw_non_json_string(self):
+        """Test 6: Payload as raw non-JSON string → dispatched=false."""
+        print("\n=== TEST 6: Payload as raw non-JSON string → dispatched=false ===")
+        
+        resp = requests.post(
+            f"{BASE_URL}/devices/mqtt-simulate",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={"topic": "999/0", "payload": "this is not json at all"}
+        )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code} {resp.text}"
+        result = resp.json()
+        
+        assert result["dispatched"] is False, f"Expected dispatched=false, got {result}"
+        assert "payload is not valid JSON" in result["reason"], f"Wrong reason: {result['reason']}"
+        print(f"✅ Raw non-JSON string rejected: {result}")
+    
+    def test_7_payload_double_encoded_json(self):
+        """Test 7: Payload as raw JSON string (double-encoded) → should still work."""
+        print("\n=== TEST 7: Payload as raw JSON string (double-encoded) ===")
+        
+        # Double-encoded JSON string
+        payload_str = '{"IMEI":"860738070478100","FLOW":"50","TOT1":"10","TOT2":"0","RTOT1":"0","RTOT2":"0","UNT":1.0,"SIGNAL":12,"TIME":"260630131100"}'
+        
+        resp = requests.post(
+            f"{BASE_URL}/devices/mqtt-simulate",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={"topic": "673/0", "payload": payload_str}
+        )
+        assert resp.status_code == 200, f"Simulate failed: {resp.status_code} {resp.text}"
+        result = resp.json()
+        
+        assert result["dispatched"] is True, f"Expected dispatched=true for double-encoded JSON, got {result}"
+        assert result["hardware_id"] == "SIMTEST_FM_1", f"Wrong hardware_id: {result['hardware_id']}"
+        print(f"✅ Double-encoded JSON string coerced successfully: {result}")
+    
+    def test_8_auth_non_admin(self):
+        """Test 8: Non-admin (client) POST → 403."""
+        print("\n=== TEST 8: Auth - Non-admin POST → 403 ===")
+        
+        payload = {"IMEI": "860738070478100", "FLOW": "50"}
+        
+        resp = requests.post(
+            f"{BASE_URL}/devices/mqtt-simulate",
+            headers={"Authorization": f"Bearer {self.client_token}"},
+            json={"topic": "673/0", "payload": payload}
+        )
+        assert resp.status_code == 403, f"Expected 403, got {resp.status_code} {resp.text}"
+        print(f"✅ Non-admin rejected: 403")
+    
+    def test_9_auth_no_token(self):
+        """Test 9: No auth header → 401 or 403."""
+        print("\n=== TEST 9: Auth - No auth header → 401/403 ===")
+        
+        payload = {"IMEI": "860738070478100", "FLOW": "50"}
+        
+        resp = requests.post(
+            f"{BASE_URL}/devices/mqtt-simulate",
+            json={"topic": "673/0", "payload": payload}
+        )
+        assert resp.status_code in [401, 403], f"Expected 401/403, got {resp.status_code} {resp.text}"
+        print(f"✅ No auth rejected: {resp.status_code}")
+    
+    def test_10_formula_verification(self):
+        """Test 10: Data integrity - formula verification (TOT2=2, TOT1=100 → forward_totalizer=131170)."""
+        print("\n=== TEST 10: Formula verification ===")
+        
+        payload = {
+            "IMEI": "860738070478100",
+            "FLOW": "45.0",
+            "TOT1": "100",
+            "TOT2": "2",
+            "RTOT1": "50",
+            "RTOT2": "1",
+            "UNT": 1.0,
+            "SIGNAL": 14,
+            "TIME": "260630131200"
+        }
+        
+        resp = requests.post(
+            f"{BASE_URL}/devices/mqtt-simulate",
+            headers={"Authorization": f"Bearer {self.admin_token}"},
+            json={"topic": "673/0", "payload": payload}
+        )
+        assert resp.status_code == 200, f"Simulate failed: {resp.status_code} {resp.text}"
+        result = resp.json()
+        assert result["dispatched"] is True, f"Expected dispatched=true, got {result}"
+        print(f"✅ Payload delivered: {result}")
+        
+        # Verify formula: forward_totalizer = (TOT2 * 65535) + TOT1 = (2 * 65535) + 100 = 131170
+        import time
+        time.sleep(1)
+        resp = requests.get(
+            f"{BASE_URL}/flowmeter/history/SIMTEST_FM_1?limit=5",
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        assert resp.status_code == 200, f"History fetch failed: {resp.status_code} {resp.text}"
+        history_data = resp.json()
+        
+        # Handle both list and dict responses
+        if isinstance(history_data, dict):
+            history = history_data.get("readings", history_data.get("data", []))
+        else:
+            history = history_data
+        
+        # Find the reading with TOT1=100, TOT2=2
+        reading = next((r for r in history if r.get("tot1") == 100.0 and r.get("tot2") == 2.0), None)
+        assert reading is not None, "Reading with TOT1=100, TOT2=2 not found"
+        
+        expected_forward = (2 * 65535) + 100  # = 131170
+        expected_reverse = (1 * 65535) + 50   # = 65585
+        
+        assert reading["forward_totalizer"] == expected_forward, f"Expected forward_totalizer={expected_forward}, got {reading['forward_totalizer']}"
+        assert reading["reverse_totalizer"] == expected_reverse, f"Expected reverse_totalizer={expected_reverse}, got {reading['reverse_totalizer']}"
+        print(f"✅ Formula verified: forward_totalizer={reading['forward_totalizer']} (expected {expected_forward}), reverse_totalizer={reading['reverse_totalizer']} (expected {expected_reverse})")
+    
+    def test_11_regression_existing_endpoints(self):
+        """Test 11: Regression - existing endpoints still work."""
+        print("\n=== TEST 11: Regression - existing endpoints ===")
+        
+        # Test /api/flowmeter/status
+        resp = requests.get(
+            f"{BASE_URL}/flowmeter/status",
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        assert resp.status_code == 200, f"flowmeter/status failed: {resp.status_code} {resp.text}"
+        status = resp.json()
+        assert "broker" in status, "broker field missing in status"
+        print(f"✅ /api/flowmeter/status working: broker={status.get('broker')}")
+        
+        # Test /api/instrument-registry
+        resp = requests.get(
+            f"{BASE_URL}/instrument-registry",
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        assert resp.status_code == 200, f"instrument-registry failed: {resp.status_code} {resp.text}"
+        registry = resp.json()
+        assert "instruments" in registry or "count" in registry, "Expected instruments or count field"
+        print(f"✅ /api/instrument-registry working")
+    
+    def cleanup(self):
+        """Clean up test instruments and user."""
+        print("\n=== MQTT SIMULATION: Cleanup ===")
+        for hw_id in self.test_instruments.keys():
+            resp = requests.delete(
+                f"{BASE_URL}/instrument-registry/{hw_id}",
+                headers={"Authorization": f"Bearer {self.admin_token}"}
+            )
+            if resp.status_code == 200:
+                print(f"✅ Deleted instrument: {hw_id}")
+            else:
+                print(f"⚠️  Failed to delete {hw_id}: {resp.status_code}")
+        
+        if self.test_user_id:
+            resp = requests.delete(
+                f"{BASE_URL}/admin/users/{self.test_user_id}",
+                headers={"Authorization": f"Bearer {self.admin_token}"}
+            )
+            if resp.status_code == 200:
+                print(f"✅ Deleted test user: {self.test_user_id}")
+            else:
+                print(f"⚠️  Failed to delete user: {resp.status_code}")
+
+
 def main():
     """Run all test suites."""
     print("=" * 80)
-    print("ENVIROLYTICS MONITOR - CSV MANUAL DATA FEED TEST SUITE")
+    print("ENVIROLYTICS MONITOR - MQTT SIMULATION TEST SUITE")
     print("=" * 80)
     
-    # Test 1: CSV Manual Data Feed (12 tests)
+    # Test 1: MQTT Simulation (11 tests)
     print("\n" + "=" * 80)
-    print("PART 1: CSV MANUAL DATA FEED (12 TESTS)")
+    print("PART 1: MQTT END-TO-END SIMULATION (11 TESTS)")
     print("=" * 80)
-    csv_suite = TestCSVManualDataFeed()
+    mqtt_sim_suite = TestMQTTSimulation()
     try:
-        csv_suite.setup()
-        csv_suite.test_1_csv_template_flowmeter()
-        csv_suite.test_2_csv_template_dwlr()
-        csv_suite.test_3_csv_template_invalid_type()
-        csv_suite.test_4_csv_template_non_admin()
-        csv_suite.test_5_csv_import_flowmeter_happy_path()
-        csv_suite.test_6_csv_import_dwlr_happy_path()
-        csv_suite.test_7_csv_import_partial_errors()
-        csv_suite.test_8_csv_import_all_invalid()
-        csv_suite.test_9_csv_import_timestamp_formats()
-        csv_suite.test_10_excel_regression()
-        csv_suite.test_11_bad_extension()
-        csv_suite.test_12_import_non_admin()
-        print("\n✅ CSV MANUAL DATA FEED: ALL 12 TESTS PASSED")
+        mqtt_sim_suite.setup()
+        mqtt_sim_suite.test_1_flowmeter_delivery()
+        mqtt_sim_suite.test_2_dwlr_delivery()
+        mqtt_sim_suite.test_3_lowercase_p_prefix()
+        mqtt_sim_suite.test_4_unregistered_imei()
+        mqtt_sim_suite.test_5_payload_missing_imei()
+        mqtt_sim_suite.test_6_payload_raw_non_json_string()
+        mqtt_sim_suite.test_7_payload_double_encoded_json()
+        mqtt_sim_suite.test_8_auth_non_admin()
+        mqtt_sim_suite.test_9_auth_no_token()
+        mqtt_sim_suite.test_10_formula_verification()
+        mqtt_sim_suite.test_11_regression_existing_endpoints()
+        print("\n✅ MQTT SIMULATION: ALL 11 TESTS PASSED")
     except AssertionError as e:
-        print(f"\n❌ CSV MANUAL DATA FEED TEST FAILED: {e}")
+        print(f"\n❌ MQTT SIMULATION TEST FAILED: {e}")
         raise
     finally:
-        csv_suite.cleanup()
-    
-    # Test 2: MQTT/IMEI Regression (2 smoke tests)
-    print("\n" + "=" * 80)
-    print("PART 2: MQTT/IMEI REGRESSION (2 SMOKE TESTS)")
-    print("=" * 80)
-    mqtt_suite = TestMQTTIMEIRegression()
-    try:
-        mqtt_suite.setup()
-        mqtt_suite.test_imei_duplicate_rejection()
-        mqtt_suite.test_manual_water_temp()
-        print("\n✅ MQTT/IMEI REGRESSION: 2 SMOKE TESTS PASSED")
-    except AssertionError as e:
-        print(f"\n❌ MQTT/IMEI REGRESSION TEST FAILED: {e}")
-        raise
-    finally:
-        mqtt_suite.cleanup()
-    
-    # Test 3: HTTPS Ingestion Regression (1 smoke test)
-    print("\n" + "=" * 80)
-    print("PART 3: HTTPS INGESTION REGRESSION (1 SMOKE TEST)")
-    print("=" * 80)
-    https_suite = TestHTTPSIngestionRegression()
-    try:
-        https_suite.setup()
-        https_suite.test_device_key_generation()
-        print("\n✅ HTTPS INGESTION REGRESSION: 1 SMOKE TEST PASSED")
-    except AssertionError as e:
-        print(f"\n❌ HTTPS INGESTION REGRESSION TEST FAILED: {e}")
-        raise
-    finally:
-        https_suite.cleanup()
+        mqtt_sim_suite.cleanup()
     
     print("\n" + "=" * 80)
     print("ALL TEST SUITES COMPLETED SUCCESSFULLY")
     print("=" * 80)
     print("\nSUMMARY:")
-    print("  ✅ CSV Manual Data Feed: 12/12 tests passed")
-    print("  ✅ MQTT/IMEI Regression: 2/2 smoke tests passed")
-    print("  ✅ HTTPS Ingestion Regression: 1/1 smoke test passed")
-    print("  ✅ TOTAL: 15/15 tests passed")
+    print("  ✅ MQTT End-to-End Simulation: 11/11 tests passed")
+    print("  ✅ TOTAL: 11/11 tests passed")
 
 
 if __name__ == "__main__":

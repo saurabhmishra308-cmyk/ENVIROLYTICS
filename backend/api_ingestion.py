@@ -133,3 +133,52 @@ async def ingest_ping(
         "instrument_type": reg["instrument_type"],
         "label": reg.get("label"),
     }
+
+
+
+# ---------------------------------------------------------------------------
+# MQTT SIMULATION — admin-only end-to-end verification (no broker needed)
+# ---------------------------------------------------------------------------
+from fastapi import Depends  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
+from auth import get_current_user  # noqa: E402
+
+
+class MqttSimulateRequest(BaseModel):
+    topic: str = Field(..., description="MQTT topic — e.g. 'P673/0' (DWLR) or '673/0' (Flowmeter)")
+    payload: Any = Field(..., description="Either a JSON object (preferred) OR a raw string containing JSON")
+
+
+@router.post("/mqtt-simulate")
+async def mqtt_simulate(
+    req: MqttSimulateRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Admin-only. Push a (topic, payload) tuple through the same code path the
+    live MQTT `on_message` handler uses. Useful for verifying end-to-end
+    ingestion in preview/staging without deploying and without needing the
+    broker to be online.
+
+    The IMEI inside the payload is matched against `instrument_registry.imei`
+    to resolve the target hardware_id.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    if mqtt_service is None:
+        raise HTTPException(status_code=503, detail="MQTT service not initialised")
+
+    # Normalise payload to a raw JSON string (the pipeline expects a string).
+    if isinstance(req.payload, (dict, list)):
+        import json as _json
+        raw_payload = _json.dumps(req.payload)
+    else:
+        raw_payload = str(req.payload)
+
+    try:
+        report = await mqtt_service.simulate_incoming(req.topic, raw_payload)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("mqtt-simulate failed")
+        raise HTTPException(status_code=500, detail=f"Simulation error: {e}")
+
+    return report
