@@ -304,7 +304,14 @@ const EnhancedDashboard = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <LocationMap locations={locations} />
+            {/* Admins get the office coordinates as the default center for reference;
+                clients get the geographic centre of India (only visible if they have
+                zero instruments with coords — otherwise the map auto-fits to pins). */}
+            <LocationMap
+              locations={locations}
+              center={isAdmin() ? [26.8521723, 81.0073433] : [22.9734, 78.6569]}
+              zoom={isAdmin() ? 12 : 6}
+            />
           </CardContent>
         </Card>
 
