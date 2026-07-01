@@ -132,8 +132,22 @@ const EnhancedDashboard = () => {
 
   const fetchLocations = useCallback(async () => {
     try {
-      const { data } = await api.get('/api/admin/users/locations');
-      setLocations(data.locations || []);
+      // `/api/instrument-registry` already scopes to the current user for non-admin
+      // (admins see everything), so the map naturally shows only the client's own
+      // instruments. Users see only their own devices' coordinates — nothing else.
+      const { data } = await api.get('/api/instrument-registry');
+      const items = (data.instruments || data.items || []).filter(
+        (it) => it.latitude != null && it.longitude != null
+      );
+      setLocations(items.map((it) => ({
+        hardware_id: it.hardware_id,
+        instrument_type: it.instrument_type,
+        label: it.label || it.hardware_id,
+        location_name: it.location_name || null,
+        latitude: it.latitude,
+        longitude: it.longitude,
+        owner_name: it.owner_name || null,
+      })));
     } catch (e) { logError(e, 'locations'); }
   }, []);
 
@@ -174,11 +188,13 @@ const EnhancedDashboard = () => {
     hardware_id: r.hardware_id,
     label: 'DWLR',
     value: pickValue(r.values, ['LEVEL', 'level', 'WATER_LEVEL'], '—'),
-    unit: 'm',
+    unit: 'mWC',
     status: 'active',
-    meta: r.values?.BATTERY ? `Battery ${r.values.BATTERY}%` : null,
+    meta: r.manual_water_temp_c != null
+      ? `${Number(r.manual_water_temp_c).toFixed(1)}°C`
+      : (r.values?.BATTERY ? `Battery ${r.values.BATTERY}%` : null),
   }));
-  if (dwlrTiles.length === 0) dwlrTiles.push({ hardware_id: '', label: 'DWLR', value: null, unit: 'm', status: 'inactive' });
+  if (dwlrTiles.length === 0) dwlrTiles.push({ hardware_id: '', label: 'DWLR', value: null, unit: 'mWC', status: 'inactive' });
 
   return (
     <div className={`min-h-screen ${bg} transition-colors duration-300`} data-testid="dashboard-page">
@@ -276,14 +292,16 @@ const EnhancedDashboard = () => {
 
         {isAdmin() && <NotificationRecipientsCard isDarkMode={isDarkMode} />}
 
-        {/* Client Location Map */}
+        {/* Instrument Location Map — scoped to current user's instruments */}
         <Card className={isDarkMode ? 'bg-gray-800 border-gray-700' : ''} data-testid="dashboard-map-card">
           <CardHeader>
             <CardTitle className={`flex items-center gap-2 ${text}`}>
-              <MapPin className="h-5 w-5" /> Client Locations
-              <span className={`ml-2 text-sm font-normal ${muted}`}>({locations.length} pin{locations.length === 1 ? '' : 's'})</span>
+              <MapPin className="h-5 w-5" /> Instrument Locations
+              <span className={`ml-2 text-sm font-normal ${muted}`}>({locations.length} instrument{locations.length === 1 ? '' : 's'})</span>
             </CardTitle>
-            <CardDescription className={muted}>Toggle between Satellite and Streets in the top-right. Click a pin for coordinates.</CardDescription>
+            <CardDescription className={muted}>
+              Showing only the coordinates of instruments assigned to {isAdmin() ? 'all users' : 'you'}. Click a marker for details — colours indicate the instrument type (see legend below).
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <LocationMap locations={locations} />

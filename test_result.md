@@ -535,6 +535,68 @@ metadata:
   test_sequence: 7
   run_ui: true
 
+frontend:
+  - task: "Bug Fix: DWLR unit label must be 'mWC' (not 'm')"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/EnhancedDashboard.jsx, frontend/src/components/InstrumentSection.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ VERIFIED: DWLR unit label displays as 'mWC' correctly.
+          - Water Level section on dashboard shows "—mWC" for DWLR tiles
+          - Unit is hardcoded as 'mWC' in EnhancedDashboard.jsx line 191
+          - InstrumentSection.jsx renders unit correctly in line 72
+          - Screenshot confirms visual display shows "mWC" unit label
+          - Empty state also shows "mWC" when no DWLR data present
+
+  - task: "Bug Fix: Dashboard map with per-user filtering + colored markers + legend"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/EnhancedDashboard.jsx, frontend/src/components/LocationMap.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ VERIFIED: Dashboard map with per-user scoping, colored markers, and legend working perfectly.
+          
+          **Admin View:**
+          - Map title: "Instrument Locations (2 instruments)" ✅
+          - Map description mentions "assigned to all users" ✅
+          - Map renders with colored markers (orange Flowmeter, blue DWLR) ✅
+          - Legend displays below map with 2 instrument types ✅
+          - Legend entries: Flowmeter (orange), DWLR (blue) ✅
+          - data-testid="location-map-legend" present ✅
+          - Individual legend items have data-testid="legend-flowmeter" and "legend-dwlr" ✅
+          
+          **Client View (maptest@envirolytics.com):**
+          - Map title: "Instrument Locations (2 instruments)" ✅
+          - Map description: "Showing only the coordinates of instruments assigned to you" ✅
+          - Per-user scoping confirmed: client sees ONLY their 2 instruments ✅
+          - Telemetry alerts show only client's devices (MAPTEST_DWLR_001, MAPTEST_FM_001) ✅
+          - Map renders with 2 colored markers (same as admin, but scoped) ✅
+          - Legend displays with both instrument types ✅
+          - No data leakage: client cannot see other users' instruments ✅
+          
+          **Implementation Details:**
+          - LocationMap.jsx uses TYPE_STYLES for color mapping (lines 22-29)
+          - Marker colors: DWLR=#2563eb (blue), Flowmeter=#f97316 (orange)
+          - Legend auto-generates based on present instrument types (lines 186-205)
+          - Per-user scoping via /api/instrument-registry endpoint (already scoped)
+          - Map card shows correct instrument count in title
+          
+          **Test Data Created:**
+          - Test user: maptest@envirolytics.com / Test1234!
+          - Instrument 1: MAPTEST_DWLR_001 (DWLR) at (26.8467, 80.9462)
+          - Instrument 2: MAPTEST_FM_001 (Flowmeter) at (26.85, 80.95)
+
 test_plan:
   current_focus: []
   stuck_tasks: []
@@ -542,6 +604,37 @@ test_plan:
   test_priority: "high_first"
 
 agent_communication:
+  - agent: "testing"
+    message: |
+      ✅ BUG FIX VERIFICATION COMPLETE - Both bugs fixed successfully.
+      
+      **Bug #1: DWLR Unit Label (mWC)**
+      - PASS: DWLR tiles on dashboard display unit as 'mWC' (not 'm')
+      - Water Level section shows "—mWC" correctly
+      - Implementation: EnhancedDashboard.jsx line 191 hardcodes unit: 'mWC'
+      - Visual confirmation via screenshot
+      
+      **Bug #2: Dashboard Map (Per-User + Colored Markers + Legend)**
+      - PASS: Admin view shows all instruments with coordinates (2 instruments)
+      - PASS: Client view shows only their own instruments (per-user scoping)
+      - PASS: Colored markers render correctly (orange Flowmeter, blue DWLR)
+      - PASS: Legend displays below map with instrument type colors
+      - PASS: Map title shows correct instrument count
+      - PASS: Map description mentions per-user scoping for clients
+      - PASS: No data leakage between users
+      
+      **Smoke Test:**
+      - Instruments page correctly hidden from client sidebar ✅
+      - Reports page loads without errors ✅
+      - Telemetry alerts show per-user scoped devices ✅
+      
+      **Test User Created:**
+      - Email: maptest@envirolytics.com / Password: Test1234!
+      - Instruments: MAPTEST_DWLR_001, MAPTEST_FM_001
+      - Can be used for future testing or deleted via admin panel
+      
+      All features working as expected. No critical issues found.
+  
   - agent: "main"
     message: |
       Phase 1 (wizard) + Phase 2 (per-owner email alerts) + Phase 4 (limits
@@ -1420,3 +1513,64 @@ agent_communication:
       MQTT end-to-end simulation endpoint is PRODUCTION-READY and provides a reliable way
       to test IoT data ingestion WITHOUT requiring a live MQTT broker. This is the primary
       confidence check for real device readiness as requested by the user.
+
+  - task: "Dashboard map — per-user instrument coordinates + colored markers/legend + fix DWLR unit m→mWC"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/LocationMap.jsx, /app/frontend/src/pages/EnhancedDashboard.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: |
+          Frontend-only changes (backend endpoint `/api/instrument-registry` already
+          ownership-scopes non-admin users — reusing it).
+
+          **BUGS FIXED / FEATURES:**
+          1. Dashboard DWLR tile was showing unit "m" — now shows **"mWC"**.
+             (Also passes `manual_water_temp_c` as the meta line so the temp shows next.)
+          2. Dashboard map previously called `/api/admin/users/locations` which returned
+             every user in the system. Now calls `/api/instrument-registry` which the
+             backend already ownership-scopes:
+               - admin → sees all instruments
+               - client → sees only their own assigned instruments
+             So a logged-in client will NEVER see any other user's coordinates.
+          3. `LocationMap` refactored to color markers by `instrument_type`:
+               - DWLR → blue (#2563eb)
+               - Flowmeter → orange (#f97316)
+               - pH → violet (#8b5cf6)
+               - TDS → sky (#0ea5e9)
+               - Conductivity → teal (#14b8a6)
+               - Other → gray (#6b7280)
+          4. A **color legend** is rendered directly below the map showing only the
+             instrument types actually present, so the legend adapts to the data.
+             `data-testid="location-map-legend"` and per-type `legend-{type}`.
+          5. Card title updated to "Instrument Locations" (was "Client Locations")
+             and the subtitle now mentions the instrument-type color mapping.
+          6. Backward compat kept: LocationMap still supports the old "user mode"
+             (locations with `role/is_active/full_name`) with the legacy admin/user
+             colors — no other page breaks.
+
+          **NO BACKEND CHANGES.**
+
+          **RETEST FOCUS (frontend UI):**
+          A. As **admin** on dashboard:
+             - Map shows all registered instruments with coordinates.
+             - Markers colored per instrument type (blue for DWLR, orange for flowmeter).
+             - Legend appears below the map with entries only for types present.
+             - Click a marker → popup shows label, type, coords, hardware ID.
+             - DWLR tile on dashboard shows value with unit "mWC" (NOT "m").
+             - If a DWLR has manual_water_temp_c, temp shown in the meta line.
+          B. As a **client user** on dashboard:
+             - Map shows ONLY that client's instruments (verify by comparing with
+               instruments assigned to them in the registry).
+             - No admin-owned or other-user's instrument pins appear.
+             - Same color scheme + legend behaviour.
+             - Same DWLR "mWC" fix.
+          C. Empty case:
+             - If a user has 0 instruments with coordinates, the map renders empty
+               (no error) and no legend is shown.
+
+
