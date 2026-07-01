@@ -34,6 +34,8 @@ const EMPTY_INSTRUMENT_ROW = {
   location_name: '',
   latitude: '',
   longitude: '',
+  imei: '',
+  manual_water_temp_c: '',
 };
 
 const UserPage = () => {
@@ -114,12 +116,19 @@ const UserPage = () => {
 
   const validateInstruments = () => {
     const seen = new Set();
+    const seenImei = new Set();
     for (let i = 0; i < newInstruments.length; i += 1) {
       const it = newInstruments[i];
       const hw = it.hardware_id?.trim();
       if (!hw) { toast.error(`Instrument #${i + 1}: Hardware ID is required`); return false; }
       if (seen.has(hw)) { toast.error(`Instrument #${i + 1}: Duplicate Hardware ID "${hw}"`); return false; }
       seen.add(hw);
+      const imei = it.imei?.trim();
+      if (imei) {
+        if (!/^\d{14,16}$/.test(imei)) { toast.error(`Instrument #${i + 1}: IMEI must be 14–16 digits`); return false; }
+        if (seenImei.has(imei)) { toast.error(`Instrument #${i + 1}: Duplicate IMEI "${imei}"`); return false; }
+        seenImei.add(imei);
+      }
     }
     return true;
   };
@@ -154,6 +163,15 @@ const UserPage = () => {
           longitude: row.longitude === '' || row.longitude == null ? null : parseFloat(row.longitude),
         };
         if (row.instrument_type === 'flowmeter') ipayload.category = row.category || 'groundwater_abstraction';
+        const imei = row.imei?.trim();
+        if (imei) ipayload.imei = imei;
+        if (row.instrument_type === 'dwlr') {
+          const tv = String(row.manual_water_temp_c ?? '').trim();
+          if (tv !== '') {
+            const n = parseFloat(tv);
+            if (!Number.isNaN(n)) ipayload.manual_water_temp_c = n;
+          }
+        }
         try {
           await api.post('/api/instrument-registry', ipayload);
           results.ok += 1;
@@ -515,6 +533,35 @@ const UserPage = () => {
                       <div className="grid grid-cols-2 gap-3">
                         <div><Label className="text-xs">Latitude</Label><Input value={row.latitude} onChange={(e) => updateInstrumentRow(idx, { latitude: e.target.value })} placeholder="26.8467" /></div>
                         <div><Label className="text-xs">Longitude</Label><Input value={row.longitude} onChange={(e) => updateInstrumentRow(idx, { longitude: e.target.value })} placeholder="80.9462" /></div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label className="text-xs">IMEI (admin-only) *</Label>
+                          <Input
+                            value={row.imei}
+                            onChange={(e) => updateInstrumentRow(idx, { imei: e.target.value.replace(/\D/g, '') })}
+                            placeholder="e.g. 860738070478155"
+                            maxLength={16}
+                            data-testid={`instrument-imei-${idx}`}
+                          />
+                          <p className="text-[10px] text-gray-500 mt-1">IMEI on the device SIM/modem. Used to match incoming MQTT data.</p>
+                        </div>
+                        {row.instrument_type === 'dwlr' ? (
+                          <div>
+                            <Label className="text-xs">Water Temperature (°C)</Label>
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={row.manual_water_temp_c}
+                              onChange={(e) => updateInstrumentRow(idx, { manual_water_temp_c: e.target.value })}
+                              placeholder="e.g. 22.5"
+                              data-testid={`instrument-temp-${idx}`}
+                            />
+                            <p className="text-[10px] text-gray-500 mt-1">DWLR does not transmit temperature. Admin-set value shown to client.</p>
+                          </div>
+                        ) : (
+                          <div />
+                        )}
                       </div>
                     </CardContent>
                   </Card>

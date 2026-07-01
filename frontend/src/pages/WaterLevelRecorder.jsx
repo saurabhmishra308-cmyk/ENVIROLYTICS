@@ -40,9 +40,10 @@ const WaterLevelRecorder = () => {
       const registered = regRes?.data?.instruments || [];
 
       // 2) Get latest readings for DWLR
-      const latestRes = await api.get('/api/instruments/dwlr/latest').catch(() => ({ data: { instruments: [] } }));
+      const latestRes = await api.get('/api/instruments/dwlr/latest').catch(() => ({ data: { readings: [] } }));
+      const latestList = latestRes?.data?.readings || latestRes?.data?.instruments || [];
       const latestByHw = {};
-      for (const it of latestRes?.data?.instruments || []) {
+      for (const it of latestList) {
         latestByHw[it.hardware_id] = it;
       }
 
@@ -52,18 +53,21 @@ const WaterLevelRecorder = () => {
         const vals = lt?.values || {};
         const level = typeof vals.LEVEL === 'number' ? vals.LEVEL
                     : typeof vals.level === 'number' ? vals.level
-                    : null;
-        const temp = typeof vals.TEMPER === 'number' ? vals.TEMPER
-                    : typeof vals.temperature === 'number' ? vals.temperature
-                    : null;
+                    : (vals.LEVEL != null ? parseFloat(vals.LEVEL) : null);
+        const levelNum = Number.isFinite(level) ? level : null;
+        // Temperature is admin-set on the registry — device does NOT transmit it.
+        const temp = typeof reg.manual_water_temp_c === 'number' ? reg.manual_water_temp_c
+                    : (reg.manual_water_temp_c != null ? parseFloat(reg.manual_water_temp_c) : null);
+        const tempNum = Number.isFinite(temp) ? temp : null;
         return {
           hardware_id: reg.hardware_id,
           label: reg.label || reg.hardware_id,
           location_name: reg.location_name,
           latitude: reg.latitude,
           longitude: reg.longitude,
-          level_mwc: level,
-          temperature_c: temp,
+          imei: reg.imei || null,
+          level_mwc: levelNum,
+          temperature_c: tempNum,
           received_at: lt?.received_at || lt?.timestamp || null,
           never_reported: !lt,
         };

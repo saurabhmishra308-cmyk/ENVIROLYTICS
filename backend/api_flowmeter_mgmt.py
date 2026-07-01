@@ -492,12 +492,24 @@ async def dwlr_daily(
             agg["temp_n"] += 1
 
     series = []
+    # DWLR devices don't send temperature — use admin-set manual temp from registry.
+    reg = await db.instrument_registry.find_one(
+        {"hardware_id": hardware_id}, {"_id": 0, "manual_water_temp_c": 1}
+    )
+    manual_temp = reg.get("manual_water_temp_c") if reg else None
     for d in sorted(buckets.keys()):
         a = buckets[d]
+        temp_val = round(a["temp_sum"] / a["temp_n"], 2) if a["temp_n"] else manual_temp
         series.append({
             "date": d,
             "level_mwc": round(a["level_sum"] / a["level_n"], 3) if a["level_n"] else None,
-            "temperature_c": round(a["temp_sum"] / a["temp_n"], 2) if a["temp_n"] else None,
+            "temperature_c": temp_val,
             "samples": max(a["level_n"], a["temp_n"]),
         })
-    return {"hardware_id": hardware_id, "days": days, "series": series, "count": len(series)}
+    return {
+        "hardware_id": hardware_id,
+        "days": days,
+        "series": series,
+        "count": len(series),
+        "manual_water_temp_c": manual_temp,
+    }

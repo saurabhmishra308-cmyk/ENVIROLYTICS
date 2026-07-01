@@ -25,6 +25,7 @@ const Flowmeter = () => {
   const [hourly, setHourly] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mqttStatus, setMqttStatus] = useState({ connected: false });
+  const [flowTab, setFlowTab] = useState('live'); // 'live' | 'reserve'
 
   const fetchLatest = useCallback(async () => {
     try {
@@ -160,37 +161,88 @@ const Flowmeter = () => {
               <Card className="lg:col-span-2 border-t-4" style={{ borderTopColor: '#4a9fd8' }}>
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
-                    <span className="text-gray-900">Live Flow Rate - {current?.hardware_id}</span>
+                    <span className="text-gray-900">Flow Overview — {current?.hardware_id}</span>
                     <Badge className="bg-green-500 text-white">LIVE</Badge>
                   </CardTitle>
                   <CardDescription>Last updated: {current ? new Date(current.received_at || current.timestamp).toLocaleString() : '—'}</CardDescription>
+                  <div className="flex gap-2 mt-3 border-b" role="tablist">
+                    <button
+                      role="tab"
+                      aria-selected={flowTab === 'live'}
+                      onClick={() => setFlowTab('live')}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${flowTab === 'live' ? 'border-[#4a9fd8] text-[#4a9fd8]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                      data-testid="flowmeter-tab-live"
+                    >
+                      Live Flow
+                    </button>
+                    <button
+                      role="tab"
+                      aria-selected={flowTab === 'reserve'}
+                      onClick={() => setFlowTab('reserve')}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${flowTab === 'reserve' ? 'border-[#4a9fd8] text-[#4a9fd8]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                      data-testid="flowmeter-tab-reserve"
+                    >
+                      Reserve Flow
+                    </button>
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-center py-8">
-                    <div className="inline-flex items-baseline gap-2 mb-4">
-                      <span className="text-7xl font-bold" style={{ color: '#4a9fd8' }} data-testid="flowmeter-flow-value">
-                        {Number(current?.flow_rate_lpm || 0).toFixed(2)}
-                      </span>
-                      <span className="text-3xl font-semibold text-gray-600">L/min</span>
+                  {flowTab === 'live' ? (
+                    <div className="text-center py-8" data-testid="flowmeter-live-panel">
+                      <div className="inline-flex items-baseline gap-2 mb-4">
+                        <span className="text-7xl font-bold" style={{ color: '#4a9fd8' }} data-testid="flowmeter-flow-value">
+                          {Number(current?.flow_rate_lpm || 0).toFixed(2)}
+                        </span>
+                        <span className="text-3xl font-semibold text-gray-600">L/min</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 mt-8">
+                        <div className="p-4 bg-blue-50 rounded-lg">
+                          <p className="text-sm text-gray-600 mb-1">Forward Totalizer</p>
+                          <p className="text-2xl font-bold text-gray-900" data-testid="flowmeter-forward-total">{Number(current?.forward_totalizer || 0).toFixed(2)}</p>
+                          <p className="text-xs text-gray-500">{current?.unit_name || 'L'}</p>
+                          <p className="text-[10px] text-gray-400 mt-1">(TOT2×65535)+TOT1</p>
+                        </div>
+                        <div className="p-4 bg-gray-50 rounded-lg">
+                          <p className="text-sm text-gray-600 mb-1">TOT1</p>
+                          <p className="text-2xl font-bold text-gray-900">{Number(current?.tot1 || 0).toFixed(2)}</p>
+                          <p className="text-xs text-gray-500">raw counter</p>
+                        </div>
+                        <div className="p-4 bg-gray-50 rounded-lg">
+                          <p className="text-sm text-gray-600 mb-1">TOT2</p>
+                          <p className="text-2xl font-bold text-gray-900">{Number(current?.tot2 || 0).toFixed(2)}</p>
+                          <p className="text-xs text-gray-500">roll-over count</p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-4 mt-8">
-                      <div className="p-4 bg-blue-50 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Forward Totalizer</p>
-                        <p className="text-2xl font-bold text-gray-900">{Number(current?.forward_totalizer || 0).toFixed(2)}</p>
-                        <p className="text-xs text-gray-500">{current?.unit_name || 'L'}</p>
+                  ) : (
+                    <div className="text-center py-8" data-testid="flowmeter-reserve-panel">
+                      <div className="inline-flex items-baseline gap-2 mb-2">
+                        <span className="text-7xl font-bold text-emerald-600" data-testid="flowmeter-reserve-total-value">
+                          {Number(current?.reverse_totalizer || 0).toFixed(2)}
+                        </span>
+                        <span className="text-3xl font-semibold text-gray-600">{current?.unit_name || 'L'}</span>
                       </div>
-                      <div className="p-4 bg-green-50 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Reverse Totalizer</p>
-                        <p className="text-2xl font-bold text-gray-900">{Number(current?.reverse_totalizer || 0).toFixed(2)}</p>
-                        <p className="text-xs text-gray-500">{current?.unit_name || 'L'}</p>
-                      </div>
-                      <div className="p-4 bg-amber-50 rounded-lg">
-                        <p className="text-sm text-gray-600 mb-1">Temperature</p>
-                        <p className="text-2xl font-bold text-gray-900">{Number(current?.temperature || 0).toFixed(1)}</p>
-                        <p className="text-xs text-gray-500">°C</p>
+                      <p className="text-sm text-gray-500 mb-6">Reverse Totalizer — cumulative reverse flow</p>
+                      <div className="grid grid-cols-3 gap-4 mt-8">
+                        <div className="p-4 bg-emerald-50 rounded-lg">
+                          <p className="text-sm text-gray-600 mb-1">Reserve Total</p>
+                          <p className="text-2xl font-bold text-gray-900">{Number(current?.reverse_totalizer || 0).toFixed(2)}</p>
+                          <p className="text-xs text-gray-500">{current?.unit_name || 'L'}</p>
+                          <p className="text-[10px] text-gray-400 mt-1">(RTOT2×65535)+RTOT1</p>
+                        </div>
+                        <div className="p-4 bg-gray-50 rounded-lg">
+                          <p className="text-sm text-gray-600 mb-1">RTOT1</p>
+                          <p className="text-2xl font-bold text-gray-900" data-testid="flowmeter-rtot1">{Number(current?.rtot1 || 0).toFixed(2)}</p>
+                          <p className="text-xs text-gray-500">reverse counter</p>
+                        </div>
+                        <div className="p-4 bg-gray-50 rounded-lg">
+                          <p className="text-sm text-gray-600 mb-1">RTOT2</p>
+                          <p className="text-2xl font-bold text-gray-900" data-testid="flowmeter-rtot2">{Number(current?.rtot2 || 0).toFixed(2)}</p>
+                          <p className="text-xs text-gray-500">roll-over count</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
 

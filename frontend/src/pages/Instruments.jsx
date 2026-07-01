@@ -37,6 +37,8 @@ const EMPTY_FORM = {
   latitude: '',
   longitude: '',
   category: 'groundwater_abstraction',
+  imei: '',
+  manual_water_temp_c: '',
 };
 
 const Instruments = () => {
@@ -117,12 +119,33 @@ const Instruments = () => {
     if (out.instrument_type !== 'flowmeter') {
       delete out.category;
     }
+    // IMEI: strip non-digits, empty string → drop
+    const imei = String(out.imei || '').replace(/\D/g, '').trim();
+    if (imei) out.imei = imei; else delete out.imei;
+    // Manual water temp — only send for DWLR (and only if a valid number)
+    if (out.instrument_type === 'dwlr') {
+      const tv = String(out.manual_water_temp_c ?? '').trim();
+      if (tv === '') {
+        delete out.manual_water_temp_c;
+      } else {
+        const n = parseFloat(tv);
+        if (Number.isNaN(n)) delete out.manual_water_temp_c;
+        else out.manual_water_temp_c = n;
+      }
+    } else {
+      delete out.manual_water_temp_c;
+    }
     return out;
   };
 
   const handleCreate = async () => {
     if (!form.hardware_id || !form.owner_user_id) {
       toast.error('Hardware ID and Owner are required');
+      return;
+    }
+    const imei = String(form.imei || '').replace(/\D/g, '').trim();
+    if (imei && !/^\d{14,16}$/.test(imei)) {
+      toast.error('IMEI must be 14–16 digits (numeric only)');
       return;
     }
     try {
@@ -147,6 +170,8 @@ const Instruments = () => {
       latitude: it.latitude != null ? String(it.latitude) : '',
       longitude: it.longitude != null ? String(it.longitude) : '',
       category: it.category || 'groundwater_abstraction',
+      imei: it.imei || '',
+      manual_water_temp_c: it.manual_water_temp_c != null ? String(it.manual_water_temp_c) : '',
     });
     setEditOpen(true);
   };
@@ -253,6 +278,7 @@ const Instruments = () => {
                     <th className="text-left p-3">Hardware ID</th>
                     <th className="text-left p-3">Type</th>
                     <th className="text-left p-3">Label</th>
+                    <th className="text-left p-3">IMEI</th>
                     <th className="text-left p-3">Owner</th>
                     <th className="text-left p-3">Location</th>
                     <th className="text-left p-3">Actions</th>
@@ -269,6 +295,16 @@ const Instruments = () => {
                         )}
                       </td>
                       <td className="p-3">{it.label || '—'}</td>
+                      <td className="p-3 font-mono text-xs">
+                        {it.imei ? (
+                          <span className="text-gray-800">{it.imei}</span>
+                        ) : (
+                          <span className="text-amber-600" title="IMEI not set — device cannot be matched to MQTT messages">⚠ not set</span>
+                        )}
+                        {it.instrument_type === 'dwlr' && it.manual_water_temp_c != null && (
+                          <div className="text-gray-500 mt-0.5">temp: {it.manual_water_temp_c}°C</div>
+                        )}
+                      </td>
                       <td className="p-3 text-sm">
                         {it.owner_name ? <div className="font-medium">{it.owner_name}</div> : <span className="text-gray-400">unassigned</span>}
                         {it.owner_email && <div className="text-gray-500 text-xs">{it.owner_email}</div>}
@@ -349,6 +385,31 @@ const Instruments = () => {
               <div><Label>Latitude</Label><Input value={form.latitude} onChange={(e) => setForm({ ...form, latitude: e.target.value })} placeholder="26.8467" /></div>
               <div><Label>Longitude</Label><Input value={form.longitude} onChange={(e) => setForm({ ...form, longitude: e.target.value })} placeholder="80.9462" /></div>
             </div>
+            <div>
+              <Label>IMEI *</Label>
+              <Input
+                value={form.imei}
+                onChange={(e) => setForm({ ...form, imei: e.target.value.replace(/\D/g, '') })}
+                placeholder="e.g. 860738070478155"
+                maxLength={16}
+                data-testid="instrument-imei"
+              />
+              <p className="text-xs text-gray-500 mt-1">SIM/modem IMEI on the device. MQTT messages are routed to this instrument by IMEI.</p>
+            </div>
+            {form.instrument_type === 'dwlr' && (
+              <div>
+                <Label>Water Temperature (°C)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={form.manual_water_temp_c}
+                  onChange={(e) => setForm({ ...form, manual_water_temp_c: e.target.value })}
+                  placeholder="e.g. 22.5"
+                  data-testid="instrument-manual-temp"
+                />
+                <p className="text-xs text-gray-500 mt-1">DWLR does not transmit temperature. This value is shown to the client (admin-only editable).</p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -394,6 +455,31 @@ const Instruments = () => {
               <div><Label>Latitude</Label><Input value={form.latitude} onChange={(e) => setForm({ ...form, latitude: e.target.value })} /></div>
               <div><Label>Longitude</Label><Input value={form.longitude} onChange={(e) => setForm({ ...form, longitude: e.target.value })} /></div>
             </div>
+            <div>
+              <Label>IMEI *</Label>
+              <Input
+                value={form.imei}
+                onChange={(e) => setForm({ ...form, imei: e.target.value.replace(/\D/g, '') })}
+                placeholder="e.g. 860738070478155"
+                maxLength={16}
+                data-testid="edit-instrument-imei"
+              />
+              <p className="text-xs text-gray-500 mt-1">SIM/modem IMEI. MQTT messages are matched to this instrument by IMEI.</p>
+            </div>
+            {form.instrument_type === 'dwlr' && (
+              <div>
+                <Label>Water Temperature (°C)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={form.manual_water_temp_c}
+                  onChange={(e) => setForm({ ...form, manual_water_temp_c: e.target.value })}
+                  placeholder="e.g. 22.5"
+                  data-testid="edit-instrument-manual-temp"
+                />
+                <p className="text-xs text-gray-500 mt-1">DWLR does not transmit temperature — admin-set value shown to the client.</p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>

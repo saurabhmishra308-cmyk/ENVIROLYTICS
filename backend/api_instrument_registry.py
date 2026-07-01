@@ -135,6 +135,8 @@ class CreateInstrumentRequest(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     category: Optional[str] = None  # flowmeter only
+    imei: Optional[str] = Field(None, description="SIM/IMEI carried in device payload — how live data is matched to the device")
+    manual_water_temp_c: Optional[float] = Field(None, description="Admin-set water temperature (°C) for DWLR devices — device does not send this")
 
 
 class UpdateInstrumentRequest(BaseModel):
@@ -145,6 +147,8 @@ class UpdateInstrumentRequest(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     category: Optional[str] = None
+    imei: Optional[str] = None
+    manual_water_temp_c: Optional[float] = None
 
 
 # ---------------------------------------------------------------- routes
@@ -186,6 +190,12 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
     itype = _normalise_type(req.instrument_type)
     category = _normalise_category(itype, req.category)
 
+    imei = (req.imei or "").strip() or None
+    if imei:
+        clash = await db.instrument_registry.find_one({"imei": imei})
+        if clash:
+            raise HTTPException(status_code=409, detail=f"IMEI '{imei}' is already registered to another instrument")
+
     doc = {
         "hardware_id": hardware_id,
         "instrument_type": itype,
@@ -195,6 +205,8 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
         "latitude": req.latitude,
         "longitude": req.longitude,
         "category": category,
+        "imei": imei,
+        "manual_water_temp_c": req.manual_water_temp_c if itype == "dwlr" else None,
         "device_key": secrets.token_urlsafe(24),  # for HTTPS ingestion auth
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": admin.get("id"),
@@ -245,6 +257,18 @@ async def update_instrument(hardware_id: str, req: UpdateInstrumentRequest, admi
     if req.category is not None:
         itype = updates.get("instrument_type", existing.get("instrument_type"))
         updates["category"] = _normalise_category(itype, req.category)
+    if req.imei is not None:
+        new_imei = req.imei.strip() or None
+        if new_imei and new_imei != existing.get("imei"):
+            clash = await db.instrument_registry.find_one(
+                {"imei": new_imei, "hardware_id": {"$ne": hardware_id}}
+            )
+            if clash:
+                raise HTTPException(status_code=409, detail=f"IMEI '{new_imei}' is already registered to another instrument")
+        updates["imei"] = new_imei
+    if req.manual_water_temp_c is not None:
+        # Only meaningful for DWLR; store regardless (harmless for other types).
+        updates["manual_water_temp_c"] = float(req.manual_water_temp_c)
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")

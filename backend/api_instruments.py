@@ -36,6 +36,34 @@ def set_mqtt(svc):
     mqtt_service = svc
 
 
+async def _enrich_with_registry(items: list):
+    """Attach `manual_water_temp_c` and `label` from the instrument_registry.
+
+    Mutates in place. Silently no-ops for hardware_ids not in the registry.
+    """
+    if not items:
+        return items
+    hw_ids = [r["hardware_id"] for r in items if r.get("hardware_id")]
+    if not hw_ids:
+        return items
+    regs = {
+        r["hardware_id"]: r
+        async for r in db.instrument_registry.find(
+            {"hardware_id": {"$in": hw_ids}},
+            {"_id": 0, "hardware_id": 1, "label": 1, "manual_water_temp_c": 1, "imei": 1},
+        )
+    }
+    for r in items:
+        reg = regs.get(r.get("hardware_id"))
+        if not reg:
+            continue
+        if reg.get("manual_water_temp_c") is not None:
+            r["manual_water_temp_c"] = reg["manual_water_temp_c"]
+        if reg.get("label"):
+            r["label"] = reg["label"]
+    return items
+
+
 # ============================
 # Pydantic Models
 # ============================
@@ -101,6 +129,7 @@ async def latest_all_types(user: dict = Depends(get_current_user)):
     visible = await api_instrument_registry.visible_hardware_ids(user)
     if visible is not None:
         items = [r for r in items if r.get("hardware_id") in visible]
+    await _enrich_with_registry(items)
     by_type = {}
     for r in items:
         by_type.setdefault(r["instrument_type"], []).append(r)
@@ -116,6 +145,7 @@ async def latest_for_type(instrument_type: str, user: dict = Depends(get_current
     visible = await api_instrument_registry.visible_hardware_ids(user)
     if visible is not None:
         items = [r for r in items if r.get("hardware_id") in visible]
+    await _enrich_with_registry(items)
     return {"instrument_type": t, "readings": items, "count": len(items)}
 
 

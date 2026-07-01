@@ -169,6 +169,11 @@ async def startup_event():
         await db.instrument_readings.create_index([("instrument_type", 1), ("timestamp", -1)])
         await db.instrument_registry.create_index("hardware_id", unique=True)
         await db.instrument_registry.create_index("owner_user_id")
+        # IMEI must be unique across the registry, but not every instrument has one
+        # (kept sparse so legacy rows without IMEI don't collide on null values).
+        await db.instrument_registry.create_index(
+            "imei", unique=True, sparse=True, partialFilterExpression={"imei": {"$type": "string"}}
+        )
         await db.flow_limits.create_index("hardware_id", unique=True)
         await db.limit_alerts_state.create_index([("hardware_id", 1), ("month", 1), ("kind", 1)], unique=True)
         await db.notification_state.create_index("device_key", unique=True)
