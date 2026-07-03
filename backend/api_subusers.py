@@ -12,7 +12,7 @@ boolean permission for each app section:
 Admin users always have all permissions implicitly.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -84,6 +84,9 @@ async def create_subuser(req: CreateSubUserRequest, admin: dict = Depends(requir
     email = req.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="A user with this email already exists.")
+    now_dt = datetime.now(timezone.utc)
+    term_years = 1.0
+    service_expiry = (now_dt + timedelta(days=term_years * 365.25)).isoformat()
     doc = {
         "id": f"user_{uuid.uuid4().hex[:12]}",
         "email": email,
@@ -93,8 +96,10 @@ async def create_subuser(req: CreateSubUserRequest, admin: dict = Depends(requir
         "role": "client",
         "is_active": True,
         "permissions": _normalise_permissions(req.permissions),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": now_dt.isoformat(),
         "created_by": admin.get("id"),
+        "service_term_years": term_years,
+        "service_expiry_date": service_expiry,
     }
     await db.users.insert_one(doc)
     return _serialise_user(doc)

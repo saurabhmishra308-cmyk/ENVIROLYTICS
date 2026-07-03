@@ -136,34 +136,45 @@ async def _send_reminder(user: dict, exp: datetime, days_left: int) -> dict:
         return {"sent": False, "reason": "no email"}
     full_name = user.get("full_name") or "Customer"
     expiry_str = exp.strftime("%d %B %Y")
+    days_word = "day" if days_left == 1 else "days"
     html = f"""
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8fa;padding:24px 0;">
       <tr><td align="center">
         <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden;">
           <tr><td style="background:#1a2332;padding:18px 24px;">
             <div style="font-family:Arial,sans-serif;color:#4a9fd8;font-weight:700;letter-spacing:1px;font-size:16px;">ENVIROLYTICS MONITOR</div>
+            <div style="font-family:Arial,sans-serif;color:#cbd5e1;font-size:10px;letter-spacing:2px;">SUSTAINABILITY PRIVATE LIMITED</div>
           </td></tr>
           <tr><td style="padding:24px;font-family:Arial,sans-serif;color:#0f172a;">
-            <p style="font-size:11px;letter-spacing:2px;color:#f59e0b;font-weight:700;margin:0 0 6px;">RENEWAL REMINDER</p>
+            <p style="font-size:11px;letter-spacing:2px;color:#f59e0b;font-weight:700;margin:0 0 6px;">RENEWAL REMINDER · {days_left} {days_word.upper()} REMAINING</p>
             <h2 style="margin:0 0 10px;font-size:20px;">Hello {full_name},</h2>
-            <p style="font-size:14px;color:#475569;line-height:1.5;">
-              Your Envirolytics Monitor online data-hosting subscription is scheduled to
-              expire on <strong>{expiry_str}</strong> ({days_left} days from today).
+            <p style="font-size:14px;color:#475569;line-height:1.6;">
+              This is a reminder that your <strong>Envirolytics Monitor</strong> annual
+              subscription is scheduled to expire on
+              <strong style="color:#0f172a;">{expiry_str}</strong>
+              — that's <strong>{days_left} {days_word}</strong> from today.
             </p>
-            <p style="font-size:14px;color:#475569;line-height:1.5;">
-              To avoid interruption of dashboards, certificate access and IoT data ingestion,
-              please reach out to your account manager or reply to this email to initiate renewal.
+            <p style="font-size:14px;color:#475569;line-height:1.6;">
+              To keep uninterrupted access to your IoT dashboards, live flowmeter &amp; DWLR
+              data, compliance certificates, and email alerts, please contact your account
+              manager or simply reply to this email to renew your subscription.
             </p>
+            <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:6px;">
+              <div style="font-size:12px;color:#78350f;font-weight:600;">What happens if I don't renew?</div>
+              <div style="font-size:12px;color:#78350f;margin-top:4px;">
+                Data ingestion, dashboards and reports will be paused on the expiry date until the subscription is renewed. Historical data is retained.
+              </div>
+            </div>
             <p style="font-size:12px;color:#94a3b8;margin:18px 0 0;">
-              You are receiving this automatic reminder because your subscription is within
-              the {DEFAULT_REMINDER_DAYS}-day renewal window.
+              You are receiving this automatic reminder because your subscription is
+              within {DEFAULT_REMINDER_DAYS} days of expiry.
             </p>
           </td></tr>
         </table>
       </td></tr>
     </table>
     """
-    subject = f"Action required: Envirolytics subscription renewal due {expiry_str}"
+    subject = f"Renewal reminder — Envirolytics subscription expires on {expiry_str} ({days_left} {days_word} left)"
     return await ns._send([customer], subject, html)
 
 

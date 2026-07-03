@@ -2049,3 +2049,253 @@ agent_communication:
       - Provider configured: true
       
       The email notification pipeline is PRODUCTION-READY and working as expected.
+
+  - agent: "testing"
+    message: |
+      ✅ RENEWAL REMINDER FEATURE VERIFICATION COMPLETE (11/11 TESTS PASSED)
+      
+      **Test Request:** Test the new 30-day pre-expiry email reminder for 365-day subscription
+      
+      **Result: ALL TESTS PASSED ✅**
+      
+      **Summary:**
+      - All 11 test scenarios completed successfully
+      - 30-day reminder window correctly configured (RENEWAL_REMINDER_DAYS=30)
+      - 365-day subscription term correctly stamped on user creation
+      - Email delivery via Zoho SMTP working correctly
+      - Idempotency mechanism preventing duplicate reminders
+      - Admin-only access correctly enforced
+      - All regression checks passed
+      
+      **Key Findings:**
+      
+      1. **User Creation (Tests 1-2) ✅**
+         - Regular users: service_term_years=1.0, expiry=created_at+365 days
+         - Sub-users: same stamps applied correctly
+         - Both visible in renewals list with correct status
+      
+      2. **Renewals List (Test 3) ✅**
+         - GET /api/renewals returns reminder_window_days=30 (KEY REQUIREMENT)
+         - Users listed with days_until_expiry and status (active/expiring/expired)
+      
+      3. **Reminder Window Logic (Tests 4-9) ✅**
+         - Users within 30 days: status="expiring", included in reminders
+         - Users > 30 days: status="active", NOT included in reminders
+         - Expired users (days < 0): status="expired", NOT included in reminders
+         - Status transitions work correctly when expiry date changes
+      
+      4. **Email Delivery (Test 5) ✅**
+         - POST /api/renewals/run-now triggers email scan
+         - Response: checked=4, due=1, sent=1 (email sent successfully)
+         - Email sent to user's own email address (from user.email field)
+         - Subject: "Renewal reminder — Envirolytics subscription expires on {date} ({N} days left)"
+         - Transport: Zoho SMTP (smtp.zoho.in:465)
+      
+      5. **Idempotency (Test 6) ✅**
+         - Second run-now call: sent=0 (no duplicate email)
+         - renewal_reminders_state collection stores: user_id, email, expiry, notified_at, days_left_when_notified
+         - PUT /api/renewals/{user_id} clears reminder state (allows re-trigger in new window)
+      
+      6. **Authorization (Test 10) ✅**
+         - Non-admin users get 403 Forbidden on all renewals endpoints
+         - Admin-only access correctly enforced
+      
+      7. **Regression (Test 11) ✅**
+         - POST /api/notifications/test still works (sent to saurabh@envirolytics.in)
+         - GET /api/flowmeter/status still works (connected: true)
+         - User creation still fast (no timeout or 500)
+      
+      **Configuration Verified:**
+      - RENEWAL_REMINDER_DAYS=30 ✅
+      - SERVICE_TERM_YEARS_DEFAULT=1 ✅
+      - RENEWAL_SCAN_INTERVAL_HOURS=24 ✅
+      
+      **No Issues Found:**
+      - No API errors (all endpoints return correct status codes)
+      - No exceptions in backend logs
+      - No idempotency failures
+      - No authorization bypasses
+      - No data integrity issues
+      
+      **CONCLUSION:**
+      The renewal reminder feature is PRODUCTION-READY and working exactly as specified.
+      The 30-day reminder window is correctly configured, user creation stamps 365-day
+      expiry, emails are sent via Zoho SMTP, and idempotency prevents duplicate reminders.
+
+  - task: "Renewal reminder — 30 days before expiry for 365-day subscription"
+    implemented: true
+    working: true
+    file: "/app/backend/.env, /app/backend/api_admin.py, /app/backend/api_subusers.py, /app/backend/api_renewals.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: |
+          Feature: automatic email reminder sent to the user's email exactly **1 month
+          (30 days) before** their **365-day (1 year)** subscription expires.
+
+          Renewal infrastructure was already implemented in api_renewals.py. This
+          change wires it to the exact spec the user requested.
+
+          **CHANGES:**
+          1. `.env` — added:
+             - `SERVICE_TERM_YEARS_DEFAULT=1`
+             - `RENEWAL_REMINDER_DAYS=30`     (was default 60)
+             - `RENEWAL_SCAN_INTERVAL_HOURS=24`
+          2. `api_admin.py` (`POST /api/admin/users`) — every newly-created user is
+             now explicitly stamped with `service_term_years=1.0` and
+             `service_expiry_date = created_at + 365.25 days` at creation time (so
+             renewals never depend on a future env-var default changing).
+          3. `api_subusers.py` (`POST /api/subusers`) — same explicit stamp for
+             sub-user creation via the sub-user flow.
+          4. `api_renewals.py` — updated the email HTML/subject with clearer copy:
+             the subject now reads
+             `Renewal reminder — Envirolytics subscription expires on {date} ({N} days left)`,
+             and the body highlights the days remaining, what the subscription covers,
+             and a "what happens if I don't renew" callout. Recipient is the user's
+             own email (`user.email` — the one used during user creation).
+          5. Background loop runs daily (`RENEWAL_SCAN_INTERVAL_HOURS=24`) and only
+             emails users whose expiry is within 30 days AND who haven't already been
+             notified for that expiry (dedup via `renewal_reminders_state`).
+
+          **DELIVERY**: uses the existing `notification_service._send()` which prefers
+          Zoho SMTP (currently configured + verified) and falls back to Resend if
+          SMTP is removed. So new-user renewal reminders will go via
+          `info@envirolytics.in → user's email`.
+
+          **ADMIN TOOLS ALREADY IN PLACE:**
+          - `GET /api/renewals` — list every user with days_until_expiry + status
+            (`active` / `expiring` / `expired`).
+          - `PUT /api/renewals/{user_id}` — override an individual user's expiry
+            date or term. Also clears their reminder-sent state so a new reminder
+            can fire in the new window.
+          - `POST /api/renewals/run-now` — trigger one immediate scan+email pass
+            (used for manual testing).
+
+          **RETEST FOCUS:**
+          1. `POST /api/admin/users` — create a client with any test email. Response
+             should include `service_term_years: 1.0` and `service_expiry_date ≈
+             created_at + 365 days`.
+          2. `POST /api/subusers` — same stamps applied.
+          3. `GET /api/renewals` — the new user is listed, status "active",
+             days_until_expiry ≈ 365. `reminder_window_days` in the response = 30.
+          4. Simulate expiry-window: `PUT /api/renewals/{user_id}` with
+             `service_expiry_date` set to `today + 10 days`. Then GET again —
+             status should be `expiring`, days_until_expiry ≈ 10.
+          5. `POST /api/renewals/run-now` — should find the user (`due: 1`) and
+             attempt to email them. Response should show `sent: 1` when SMTP works.
+             The user's own email receives the reminder (verify subject line format).
+          6. `renewal_reminders_state` collection should have a marker for that
+             user+expiry (idempotency). Calling `run-now` a second time should NOT
+             re-send (`due` may still be 1 but `sent` should be 0 due to idempotency).
+          7. Set expiry FURTHER out (e.g. 90 days) via PUT — user status should
+             flip back to `active` and NOT be in the current reminder window.
+          8. Set expiry to a PAST date — status becomes `expired`, does NOT send
+             a reminder (the code short-circuits `days_left < 0`).
+          9. Regression: existing email test flow still works
+             (`POST /api/notifications/test` still sends to the ops recipient).
+        -working: true
+        -agent: "testing"
+        -comment: |
+          ✅ VERIFIED: ALL 11 TESTS PASSED - Renewal reminder feature working perfectly.
+          
+          **Test Coverage Summary:**
+          
+          **Test 1: Regular User Creation Stamps Expiry ✅**
+          - POST /api/admin/users/create with email/password/full_name/role=client → 200
+          - Response includes service_term_years=1.0 ✅
+          - Response includes service_expiry_date ≈ created_at + 365 days (±2 days tolerance) ✅
+          - User ID returned in response ✅
+          
+          **Test 2: Sub-User Creation Stamps Expiry ✅**
+          - POST /api/users/subusers with email/password/full_name/permissions → 200
+          - Sub-user created with service_term_years=1.0 ✅
+          - Sub-user has service_expiry_date ≈ created_at + 365 days ✅
+          - Sub-user visible in GET /api/admin/users/list ✅
+          
+          **Test 3: Renewals List Endpoint ✅**
+          - GET /api/renewals → 200
+          - Response includes reminder_window_days=30 (KEY REQUIREMENT) ✅
+          - Both test users listed with days_until_expiry ≈ 365 ✅
+          - Both users have status="active" ✅
+          
+          **Test 4: Force User Into Reminder Window ✅**
+          - PUT /api/renewals/{user_id} with service_expiry_date=today+10 days → 200
+          - User days_until_expiry ≈ 10 ✅
+          - User status="expiring" (within 30-day window) ✅
+          
+          **Test 5: Trigger Reminder Pass ✅**
+          - POST /api/renewals/run-now → 200
+          - Response: checked >= 2 (all active users scanned) ✅
+          - Response: due >= 1 (user in reminder window) ✅
+          - Response: sent >= 1 (email sent successfully) ✅
+          - Email sent to user's email address (renew_test_1@example.com) ✅
+          
+          **Test 6: Idempotency ✅**
+          - POST /api/renewals/run-now (second call) → 200
+          - Response: due >= 1 (user still in window) ✅
+          - Response: sent = 0 (no re-send due to idempotency) ✅
+          - Verified renewal_reminders_state collection has marker for user+expiry ✅
+          - Idempotency working correctly: user not re-emailed ✅
+          
+          **Test 7: Out-of-Window Users NOT Emailed ✅**
+          - Sub-user with days_until_expiry ≈ 365 (> 30 days) ✅
+          - Sub-user status="active" (not in reminder window) ✅
+          - Sub-user NOT included in reminder emails ✅
+          
+          **Test 8: Expired Users NOT Re-Reminded ✅**
+          - PUT /api/renewals/{user_id} with service_expiry_date=today-5 days → 200
+          - User days_until_expiry < 0 (negative) ✅
+          - User status="expired" ✅
+          - POST /api/renewals/run-now does NOT count expired user in 'due' ✅
+          - Expired users correctly excluded from reminder emails ✅
+          
+          **Test 9: Move Expiry Back Out — Status Goes to Active ✅**
+          - PUT /api/renewals/{user_id} with service_expiry_date=today+100 days → 200
+          - User days_until_expiry ≈ 100 ✅
+          - User status="active" (outside 30-day window) ✅
+          - renewal_reminders_state cleared (can re-trigger in new window) ✅
+          
+          **Test 10: Non-Admin Cannot Access Renewals ✅**
+          - GET /api/renewals as client → 403 Forbidden ✅
+          - PUT /api/renewals/{user_id} as client → 403 Forbidden ✅
+          - POST /api/renewals/run-now as client → 403 Forbidden ✅
+          - Admin-only access correctly enforced ✅
+          
+          **Test 11: Regression Checks ✅**
+          - POST /api/notifications/test → 200, sent=true (to saurabh@envirolytics.in) ✅
+          - GET /api/flowmeter/status → 200, connected=true ✅
+          - POST /api/admin/users/create → 200 (no timeout or 500) ✅
+          - User creation still fast and working correctly ✅
+          
+          **Email Delivery Verification:**
+          - Email transport: Zoho SMTP (smtp.zoho.in:465) ✅
+          - Sender: info@envirolytics.in ✅
+          - Recipient: user's own email (from user.email field) ✅
+          - Subject format: "Renewal reminder — Envirolytics subscription expires on {date} ({N} days left)" ✅
+          - Email HTML includes: days remaining, subscription details, "what happens if I don't renew" callout ✅
+          
+          **Idempotency Mechanism Verified:**
+          - renewal_reminders_state collection stores: user_id, email, expiry, notified_at, days_left_when_notified ✅
+          - Second run-now call returns sent=0 for already-notified users ✅
+          - PUT /api/renewals/{user_id} clears reminder state (allows re-trigger in new window) ✅
+          
+          **Configuration Verified:**
+          - RENEWAL_REMINDER_DAYS=30 (30-day window) ✅
+          - SERVICE_TERM_YEARS_DEFAULT=1 (1-year term) ✅
+          - RENEWAL_SCAN_INTERVAL_HOURS=24 (daily scan) ✅
+          
+          **Cleanup:**
+          - Test users deleted successfully ✅
+          - No test data left in database ✅
+          
+          **CONCLUSION:**
+          The renewal reminder feature is PRODUCTION-READY and working exactly as specified.
+          All 11 test scenarios passed. The 30-day reminder window is correctly configured,
+          user creation stamps 365-day expiry, emails are sent via Zoho SMTP, and idempotency
+          prevents duplicate reminders. Admin tools (GET/PUT/POST renewals endpoints) all
+          working correctly with proper authorization.
+
+

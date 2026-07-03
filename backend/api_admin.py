@@ -59,6 +59,12 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
     if len(req.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
+    now_dt = datetime.now(timezone.utc)
+    # Stamp a 365-day service term explicitly so renewals never depend on env defaults
+    # shifting later. Renewal reminders are then sent 30 days before this date.
+    term_years = 1.0
+    service_expiry = (now_dt + timedelta(days=term_years * 365.25)).isoformat()
+
     user_doc = {
         "id": f"user_{uuid.uuid4().hex[:12]}",
         "email": email,
@@ -72,8 +78,10 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
         "location_name": req.location_name,
         "latitude": req.latitude,
         "longitude": req.longitude,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": now_dt.isoformat(),
         "created_by": admin["id"],
+        "service_term_years": term_years,
+        "service_expiry_date": service_expiry,
     }
     await db.users.insert_one(user_doc)
     user_doc.pop("password_hash", None)
