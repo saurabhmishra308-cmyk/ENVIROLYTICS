@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
@@ -8,7 +8,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../components/ui/dialog';
 import {
-  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw, Radio,
+  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw, Radio, Activity, CheckCircle2, XCircle,
 } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
@@ -60,6 +60,10 @@ const Instruments = () => {
   const [simResult, setSimResult] = useState(null);
   const [simForm, setSimForm] = useState({ topic: '', payload: '' });
 
+  // Live MQTT traffic panel state
+  const [trafficOpen, setTrafficOpen] = useState(true);
+  const [traffic, setTraffic] = useState(null);
+
   const copyToClipboard = async (text, label = 'Copied') => {
     try {
       await navigator.clipboard.writeText(text);
@@ -100,6 +104,31 @@ const Instruments = () => {
   }, [admin]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Poll the live MQTT traffic every 5s while the panel is open — cheap
+  // read-only endpoint that returns an in-memory buffer.
+  useEffect(() => {
+    if (!admin || !trafficOpen) return undefined;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { data } = await api.get('/api/flowmeter/traffic?limit=50');
+        if (!cancelled) setTraffic(data);
+      } catch (e) {
+        if (!cancelled) setTraffic({ error: formatApiError(e?.response?.data?.detail) });
+      }
+    };
+    load();
+    const id = setInterval(load, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [admin, trafficOpen]);
+
+  const adoptUnknownImei = (imei) => {
+    // Prefill the create-instrument form with the IMEI so admin just needs
+    // to fill in hardware_id + owner + type + click Register.
+    setForm({ ...EMPTY_FORM, imei });
+    setCreateOpen(true);
+  };
 
   if (!admin) {
     return (
@@ -334,6 +363,142 @@ const Instruments = () => {
         <Card><CardContent className="pt-6"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Other Instruments</p><p className="text-3xl font-bold">{totals.instruments}</p></div></div></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Assigned Clients</p><p className="text-3xl font-bold">{totals.clients}</p></div></div></CardContent></Card>
       </div>
+
+      {/* ============ LIVE MQTT TRAFFIC PANEL ============ */}
+      <Card className="border-t-4" style={{ borderTopColor: '#4a9fd8' }} data-testid="mqtt-traffic-card">
+        <CardHeader className="cursor-pointer" onClick={() => setTrafficOpen((v) => !v)}>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Activity className={`h-5 w-5 ${traffic?.connected ? 'text-emerald-500 animate-pulse' : 'text-gray-400'}`} />
+              Live MQTT Traffic
+              {traffic?.connected ? (
+                <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-medium">Connected</span>
+              ) : (
+                <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-medium">Disconnected</span>
+              )}
+            </span>
+            <span className="text-sm font-normal text-gray-500">
+              {trafficOpen ? 'Hide ▲' : 'Show ▼'}
+            </span>
+          </CardTitle>
+          <CardDescription>
+            Shows the last 50 messages received by the backend from the MQTT broker. Auto-refreshes every 5&nbsp;seconds. Unregistered IMEIs appear in amber — click <em>Register this</em> to add them.
+          </CardDescription>
+        </CardHeader>
+        {trafficOpen && (
+          <CardContent>
+            {traffic?.error ? (
+              <div className="p-3 rounded bg-red-50 text-red-700 text-sm">{traffic.error}</div>
+            ) : !traffic ? (
+              <p className="text-center py-6 text-gray-500 text-sm">Loading traffic…</p>
+            ) : (
+              <div className="space-y-4">
+                {/* Counters */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="mqtt-traffic-counters">
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <p className="text-xs text-gray-600">Broker</p>
+                    <p className="text-sm font-mono font-semibold break-all">{traffic.broker || '—'}</p>
+                  </div>
+                  <div className="p-3 bg-emerald-50 rounded-lg">
+                    <p className="text-xs text-gray-600">Total received</p>
+                    <p className="text-2xl font-bold tabular-nums text-emerald-700">{traffic.total_received ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-amber-50 rounded-lg">
+                    <p className="text-xs text-gray-600">Dropped (unknown IMEI)</p>
+                    <p className="text-2xl font-bold tabular-nums text-amber-700">{traffic.total_dropped_unknown ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-purple-50 rounded-lg">
+                    <p className="text-xs text-gray-600">Subscribed topics</p>
+                    <p className="text-sm font-mono font-semibold">{(traffic.subscribed_topics || []).join(', ') || '—'}</p>
+                  </div>
+                </div>
+
+                {/* Unregistered IMEIs — call to action */}
+                {traffic.unregistered_imeis?.length > 0 && (
+                  <div className="p-4 border-2 border-amber-300 bg-amber-50 rounded-lg" data-testid="mqtt-unregistered-block">
+                    <div className="flex items-start gap-2 mb-2">
+                      <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-amber-900">Devices transmitting but NOT registered</p>
+                        <p className="text-xs text-amber-800">These IMEIs are reaching the backend but their data is being dropped. Register them to start persisting readings.</p>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 mt-2">
+                      {traffic.unregistered_imeis.map((u) => (
+                        <div key={u.imei} className="flex items-center justify-between bg-white rounded px-3 py-2 border border-amber-200" data-testid={`unregistered-imei-${u.imei}`}>
+                          <div className="text-xs">
+                            <span className="font-mono font-semibold text-gray-900">{u.imei}</span>
+                            <span className="text-gray-500"> · topic <span className="font-mono">{u.topic}</span> · {u.count} msg{u.count === 1 ? '' : 's'}</span>
+                          </div>
+                          <Button size="sm" onClick={() => adoptUnknownImei(u.imei)} data-testid={`register-imei-${u.imei}`} className="bg-amber-600 hover:bg-amber-700 text-white">
+                            <Plus className="h-3 w-3 mr-1" /> Register this
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Message log */}
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-xs" data-testid="mqtt-traffic-table">
+                    <thead className="bg-gray-50 border-b sticky top-0">
+                      <tr>
+                        <th className="text-left p-2 w-32">Time</th>
+                        <th className="text-left p-2 w-8"></th>
+                        <th className="text-left p-2 w-24">Topic</th>
+                        <th className="text-left p-2 w-40">IMEI</th>
+                        <th className="text-left p-2 w-32">Device</th>
+                        <th className="text-left p-2">Result</th>
+                        <th className="text-right p-2 w-16">Bytes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(traffic.recent || []).length === 0 ? (
+                        <tr><td colSpan={7} className="text-center py-6 text-gray-500">
+                          No traffic yet. Waiting for MQTT messages…
+                        </td></tr>
+                      ) : (
+                        (traffic.recent || []).map((m) => (
+                          <tr key={m.seq} className={`border-b ${m.dispatched ? 'bg-white' : 'bg-amber-50/50'}`}>
+                            <td className="p-2 font-mono text-gray-600 whitespace-nowrap">
+                              {new Date(m.ts).toLocaleTimeString()}
+                              {m.source === 'simulate' && (
+                                <span className="ml-1 text-[10px] px-1 rounded bg-purple-100 text-purple-700">SIM</span>
+                              )}
+                            </td>
+                            <td className="p-2">
+                              {m.dispatched
+                                ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                                : <XCircle className="h-4 w-4 text-amber-500" />}
+                            </td>
+                            <td className="p-2 font-mono">{m.topic}</td>
+                            <td className="p-2 font-mono">{m.imei || <span className="text-gray-400">—</span>}</td>
+                            <td className="p-2">
+                              {m.hardware_id ? (
+                                <span className="text-gray-900">{m.hardware_id}<span className="ml-1 text-[10px] text-gray-500">({m.instrument_type})</span></span>
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </td>
+                            <td className="p-2">
+                              {m.dispatched
+                                ? <span className="text-emerald-700 font-medium">Stored</span>
+                                : <span className="text-amber-700">{m.reason || 'dropped'}</span>}
+                            </td>
+                            <td className="p-2 text-right font-mono text-gray-600">{m.bytes}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
 
       <Card>
         <CardHeader><CardTitle>All Registered Instruments</CardTitle></CardHeader>

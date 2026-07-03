@@ -20,6 +20,7 @@ import json
 import asyncio
 import re
 import ssl
+from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import paho.mqtt.client as mqtt
@@ -35,6 +36,10 @@ from mqtt_utils import (
 
 
 class MQTTFlowmeterService:
+    # Size of the in-memory rolling buffer used to expose recent MQTT traffic
+    # to the admin UI (via GET /api/flowmeter/traffic).
+    RECENT_BUFFER_SIZE = 50
+
     def __init__(self, mongo_client: AsyncIOMotorClient, db_name: str):
         self.db = mongo_client[db_name]
         # Use MQTT v5 / VERSION1 callbacks (paho 2.x default API is v2 but we set v1 for compatibility)
@@ -45,6 +50,14 @@ class MQTTFlowmeterService:
         self.connected = False
         self.subscribed_topics = set()
         self.loop = None  # asyncio loop reference for thread-safe scheduling
+
+        # Rolling buffer of the last N messages seen by this backend — used by
+        # the admin "Live MQTT Traffic" panel. Each entry is a small dict; no
+        # payload body is stored (only metadata + a truncated preview) to keep
+        # memory bounded even under high message rates.
+        self.recent_messages: deque = deque(maxlen=self.RECENT_BUFFER_SIZE)
+        self._recv_counter: int = 0
+        self._dropped_unknown_counter: int = 0
 
         # MQTT Configuration - load from environment
         self.broker_host = os.getenv("MQTT_BROKER_HOST", "localhost")
@@ -128,6 +141,30 @@ class MQTTFlowmeterService:
         except Exception as e:  # noqa: BLE001
             print(f"[mqtt] Error processing message: {e}")
 
+    def _record(self, topic: str, imei: Optional[str], raw_bytes: int,
+                dispatched: bool, hardware_id: Optional[str] = None,
+                instrument_type: Optional[str] = None, reason: Optional[str] = None,
+                source: str = "mqtt", preview: Optional[str] = None):
+        """Append an entry to the recent-traffic buffer. Called from both the
+        live MQTT handler and the simulate endpoint."""
+        self._recv_counter += 1
+        if not dispatched:
+            self._dropped_unknown_counter += 1
+        entry = {
+            "seq": self._recv_counter,
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "source": source,               # "mqtt" | "simulate"
+            "topic": topic,
+            "bytes": raw_bytes,
+            "imei": imei,
+            "dispatched": dispatched,
+            "hardware_id": hardware_id,
+            "instrument_type": instrument_type,
+            "reason": reason,
+            "preview": (preview[:160] + "…") if preview and len(preview) > 160 else preview,
+        }
+        self.recent_messages.appendleft(entry)
+
     def _on_message_sync(self, topic: str, raw: str):
         """Route a raw (topic, payload) tuple through the async dispatcher.
 
@@ -136,11 +173,17 @@ class MQTTFlowmeterService:
         """
         data = self._extract_json(raw)
         if data is None:
+            self._record(topic, None, len(raw or ""), False,
+                         reason="payload is not valid JSON",
+                         source="mqtt", preview=raw)
             print(f"[mqtt] Non-JSON payload dropped for topic {topic}: {raw[:120]!r}")
             return
 
         imei = str(data.get("IMEI") or data.get("imei") or "").strip()
         if not imei:
+            self._record(topic, None, len(raw or ""), False,
+                         reason="payload missing IMEI field",
+                         source="mqtt", preview=raw)
             print(f"[mqtt] Payload missing IMEI, dropped. topic={topic} preview={raw[:120]!r}")
             return
 
@@ -152,8 +195,42 @@ class MQTTFlowmeterService:
             return
 
         asyncio.run_coroutine_threadsafe(
-            self._dispatch(instrument_type, imei, topic, data), self.loop
+            self._dispatch_and_record(instrument_type, imei, topic, data, raw),
+            self.loop,
         )
+
+    async def _dispatch_and_record(self, instrument_type: str, imei: str,
+                                    topic: str, data: Dict, raw: str):
+        """Async wrapper that records the outcome after dispatch."""
+        raw_len = len(raw or "")
+        reg = await self.db.instrument_registry.find_one(
+            {"imei": imei},
+            {"_id": 0, "hardware_id": 1, "instrument_type": 1, "label": 1},
+        )
+        if not reg:
+            self._record(topic, imei, raw_len, False,
+                         reason=f"IMEI {imei} not registered — add it in the Instruments page",
+                         source="mqtt", preview=raw)
+            print(f"[mqtt] Unknown IMEI {imei} (topic={topic}) — drop. Register this device in the Instruments page.")
+            return
+
+        hardware_id = reg["hardware_id"]
+        reg_type = (reg.get("instrument_type") or instrument_type).lower()
+
+        try:
+            if reg_type == "flowmeter":
+                await self.process_flowmeter_data(hardware_id, data)
+            elif reg_type == "dwlr":
+                await self.process_instrument_data("dwlr", hardware_id, data)
+            else:
+                await self.process_instrument_data(reg_type, hardware_id, data)
+            self._record(topic, imei, raw_len, True,
+                         hardware_id=hardware_id, instrument_type=reg_type,
+                         source="mqtt", preview=raw)
+        except Exception as e:  # noqa: BLE001
+            self._record(topic, imei, raw_len, False,
+                         hardware_id=hardware_id, instrument_type=reg_type,
+                         reason=f"storage error: {e}", source="mqtt", preview=raw)
 
     async def simulate_incoming(self, topic: str, payload: str) -> Dict:
         """Await-safe end-to-end simulation of an incoming MQTT publish.
@@ -161,13 +238,22 @@ class MQTTFlowmeterService:
         Runs identical parsing, IMEI-lookup and storage as the live pipeline and
         returns a detailed dispatch report. Used by the admin `mqtt-simulate`
         endpoint to prove the ingestion path works without needing a broker.
+        Also appends to the recent-traffic buffer so simulated messages show
+        up in the Live MQTT Traffic panel with `source: "simulate"`.
         """
+        raw_len = len(payload or "")
         data = self._extract_json(payload)
         if data is None:
+            self._record(topic, None, raw_len, False,
+                         reason="payload is not valid JSON",
+                         source="simulate", preview=payload)
             return {"dispatched": False, "reason": "payload is not valid JSON"}
 
         imei = str(data.get("IMEI") or data.get("imei") or "").strip()
         if not imei:
+            self._record(topic, None, raw_len, False,
+                         reason="payload missing IMEI field",
+                         source="simulate", preview=payload)
             return {"dispatched": False, "reason": "payload missing IMEI field"}
 
         first_level = topic.split("/", 1)[0] if topic else ""
@@ -179,6 +265,9 @@ class MQTTFlowmeterService:
             {"_id": 0, "hardware_id": 1, "instrument_type": 1, "owner_user_id": 1, "label": 1},
         )
         if not reg:
+            self._record(topic, imei, raw_len, False,
+                         reason=f"IMEI {imei} not registered — add it in the Instruments page",
+                         source="simulate", preview=payload)
             return {
                 "dispatched": False,
                 "reason": f"IMEI '{imei}' is not registered — add it to an instrument in the registry",
@@ -189,12 +278,21 @@ class MQTTFlowmeterService:
         hardware_id = reg["hardware_id"]
         reg_type = (reg.get("instrument_type") or topic_inferred_type).lower()
 
-        if reg_type == "flowmeter":
-            await self.process_flowmeter_data(hardware_id, data)
-        elif reg_type == "dwlr":
-            await self.process_instrument_data("dwlr", hardware_id, data)
-        else:
-            await self.process_instrument_data(reg_type, hardware_id, data)
+        try:
+            if reg_type == "flowmeter":
+                await self.process_flowmeter_data(hardware_id, data)
+            elif reg_type == "dwlr":
+                await self.process_instrument_data("dwlr", hardware_id, data)
+            else:
+                await self.process_instrument_data(reg_type, hardware_id, data)
+            self._record(topic, imei, raw_len, True,
+                         hardware_id=hardware_id, instrument_type=reg_type,
+                         source="simulate", preview=payload)
+        except Exception as e:  # noqa: BLE001
+            self._record(topic, imei, raw_len, False,
+                         hardware_id=hardware_id, instrument_type=reg_type,
+                         reason=f"storage error: {e}", source="simulate", preview=payload)
+            return {"dispatched": False, "reason": f"storage error: {e}"}
 
         return {
             "dispatched": True,
@@ -207,29 +305,29 @@ class MQTTFlowmeterService:
             "imei": imei,
         }
 
-    async def _dispatch(self, instrument_type: str, imei: str, topic: str, data: Dict):
-        """Look up the device by IMEI and route to the correct storage handler."""
-        try:
-            reg = await self.db.instrument_registry.find_one(
-                {"imei": imei}, {"_id": 0, "hardware_id": 1, "instrument_type": 1}
-            )
-            if not reg:
-                print(f"[mqtt] Unknown IMEI {imei} (topic={topic}) — drop. Register this device in the Instruments page.")
-                return
-
-            hardware_id = reg["hardware_id"]
-            # Prefer the type declared in the registry — it's the source of truth.
-            reg_type = (reg.get("instrument_type") or instrument_type).lower()
-
-            if reg_type == "flowmeter":
-                await self.process_flowmeter_data(hardware_id, data)
-            elif reg_type == "dwlr":
-                await self.process_instrument_data("dwlr", hardware_id, data)
-            else:
-                # Generic path for ph/tds/conductivity if the device happens to publish here
-                await self.process_instrument_data(reg_type, hardware_id, data)
-        except Exception as e:  # noqa: BLE001
-            print(f"[mqtt] Dispatch error for IMEI={imei}: {e}")
+    def get_traffic(self, limit: int = 50) -> Dict:
+        """Return the recent-message buffer + a few live counters, for the
+        admin 'Live MQTT Traffic' panel."""
+        items = list(self.recent_messages)[: max(1, min(limit, self.RECENT_BUFFER_SIZE))]
+        # Distinct unregistered IMEIs seen recently — makes it easy for the
+        # admin to click "register this" from the UI.
+        unknown = {}
+        for e in items:
+            if not e.get("dispatched") and e.get("imei") and e.get("reason", "").startswith("IMEI "):
+                imei = e["imei"]
+                if imei not in unknown:
+                    unknown[imei] = {"imei": imei, "topic": e["topic"], "last_seen": e["ts"], "count": 1}
+                else:
+                    unknown[imei]["count"] += 1
+        return {
+            "recent": items,
+            "total_received": self._recv_counter,
+            "total_dropped_unknown": self._dropped_unknown_counter,
+            "unregistered_imeis": list(unknown.values()),
+            "connected": self.connected,
+            "subscribed_topics": list(self.subscribed_topics),
+            "broker": f"{self.broker_host}:{self.broker_port}",
+        }
 
     async def process_instrument_data(self, instrument_type: str, hardware_id: str, data: Dict):
         """Generic instrument reading handler.

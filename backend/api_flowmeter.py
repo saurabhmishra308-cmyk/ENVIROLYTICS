@@ -96,3 +96,21 @@ async def get_mqtt_status():
         "subscribed_topics": list(mqtt_service.subscribed_topics),
         "broker": f"{mqtt_service.broker_host}:{mqtt_service.broker_port}"
     }
+
+
+
+@router.get("/traffic")
+async def get_mqtt_traffic(limit: int = 50, user: dict = Depends(get_current_user)):
+    """Live MQTT traffic monitor (admin-only).
+
+    Returns the last N messages the backend has received on any topic, plus
+    counters and a list of any unregistered IMEIs seen recently. Used by the
+    "Live MQTT Traffic" panel on the Instruments page so admins can verify at
+    a glance whether the device is reaching the backend and identify IMEIs
+    that need to be added to the registry.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not mqtt_service:
+        return {"connected": False, "recent": [], "total_received": 0}
+    return mqtt_service.get_traffic(limit=limit)

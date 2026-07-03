@@ -1,578 +1,577 @@
+#!/usr/bin/env python3
 """
-Backend test for expanded DWLR payload format (topic P1001/0).
+Test script for Live MQTT Traffic Monitor endpoint
+GET /api/flowmeter/traffic?limit=50
 
-Test cases from review request:
-1. Simulate the exact real payload with 19 fields
-2. Verify stored fields are numeric + canonicalized (LEVEL mirrors LVL)
-3. Older payload format still works (regression with topic P673/0)
-4. instrument_readings collection has history
-5. Non-JSON strings coerce gracefully
-6. Flowmeter path unaffected (regression)
-7. GET /api/flowmeter/status still reports connected: true
+Test cases:
+1. Auth tests (no-auth, non-admin, admin)
+2. Live traffic captured (wait for real MQTT message)
+3. Simulate message shows up tagged as "simulate"
+4. Dispatched (success) case after registering device
+5. Buffer size cap (50 entries)
+6. Limit parameter
+7. Missing IMEI / non-JSON entries
+8. Regression tests
 """
+
 import requests
+import time
 import json
 from datetime import datetime
 
 # Backend URL
 BASE_URL = "https://envirolytics-hub.preview.emergentagent.com/api"
 
-# Admin credentials
+# Test credentials
 ADMIN_EMAIL = "admin@envirolytics.com"
 ADMIN_PASSWORD = "Admin@Envirolytics2026"
 
 # Test data
-TEST_USER_EMAIL = "dwlr_payload_test@example.com"
-TEST_USER_PASSWORD = "TestPass123!"
-TEST_USER_NAME = "DWLR Payload Test User"
+TEST_IMEI_REAL = "860738070478155"  # Real device IMEI from logs
+TEST_IMEI_FAKE = "999999999999999"  # Fake IMEI for testing
 
-TEST_DWLR_HW_ID = "PIEZO_1001_TEST"
-TEST_DWLR_IMEI = "860738070478155"
-
-TEST_FM_HW_ID = "FM_REGRESSION_TEST"
-TEST_FM_IMEI = "860738070478999"
-
-# Global variables
-admin_token = None
-test_user_id = None
-
-
-def log(msg):
-    """Print with timestamp."""
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
-
-
-def admin_login():
-    """Login as admin and get JWT token."""
-    global admin_token
-    log("Step 0: Admin login")
-    response = requests.post(
-        f"{BASE_URL}/auth/login",
-        json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
-    )
-    assert response.status_code == 200, f"Admin login failed: {response.status_code} {response.text}"
-    data = response.json()
-    assert "access_token" in data, "No access_token in response"
-    admin_token = data["access_token"]
-    log(f"✅ Admin login successful, token: {admin_token[:20]}...")
-    return admin_token
-
-
-def cleanup_existing_test_data():
-    """Cleanup any existing test data before starting."""
-    log("\n=== PRE-TEST CLEANUP ===")
+class TestResults:
+    def __init__(self):
+        self.passed = 0
+        self.failed = 0
+        self.tests = []
     
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # Delete test instruments if they exist
-    for hw_id in [TEST_DWLR_HW_ID, TEST_FM_HW_ID]:
-        response = requests.delete(f"{BASE_URL}/instrument-registry/{hw_id}", headers=headers)
-        if response.status_code == 200:
-            log(f"✅ Deleted existing test instrument: {hw_id}")
-        elif response.status_code == 404:
-            log(f"   No existing instrument: {hw_id}")
+    def add(self, name, passed, details=""):
+        self.tests.append({"name": name, "passed": passed, "details": details})
+        if passed:
+            self.passed += 1
+            print(f"✅ {name}")
         else:
-            log(f"⚠️  Failed to delete instrument {hw_id}: {response.status_code}")
+            self.failed += 1
+            print(f"❌ {name}")
+        if details:
+            print(f"   {details}")
     
-    # Delete test user if exists
-    response = requests.get(f"{BASE_URL}/admin/users/list", headers=headers)
+    def summary(self):
+        total = self.passed + self.failed
+        print(f"\n{'='*80}")
+        print(f"TEST SUMMARY: {self.passed}/{total} passed")
+        print(f"{'='*80}")
+        for test in self.tests:
+            status = "✅" if test["passed"] else "❌"
+            print(f"{status} {test['name']}")
+            if test["details"]:
+                print(f"   {test['details']}")
+
+results = TestResults()
+
+def login(email, password):
+    """Login and return JWT token"""
+    response = requests.post(f"{BASE_URL}/auth/login", json={
+        "email": email,
+        "password": password
+    })
     if response.status_code == 200:
-        users = response.json()["users"]
-        test_user = next((u for u in users if u["email"] == TEST_USER_EMAIL), None)
-        if test_user:
-            response = requests.delete(f"{BASE_URL}/admin/users/{test_user['id']}", headers=headers)
-            if response.status_code == 200:
-                log(f"✅ Deleted existing test user: {TEST_USER_EMAIL}")
-    
-    log("✅ Pre-test cleanup complete")
+        return response.json().get("access_token")
+    return None
 
-
-def setup_test_user_and_instruments():
-    """Create test user and register DWLR + flowmeter."""
-    global test_user_id
-    log("\n=== SETUP: Create test user and instruments ===")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # Create test user
-    payload = {
-        "email": TEST_USER_EMAIL,
-        "password": TEST_USER_PASSWORD,
-        "full_name": TEST_USER_NAME,
-        "role": "client",
-        "location_name": "Test Location",
-        "lat": 26.8467,
-        "lng": 80.9462
-    }
-    response = requests.post(f"{BASE_URL}/admin/users/create", json=payload, headers=headers)
-    assert response.status_code == 200, f"User creation failed: {response.status_code} {response.text}"
-    test_user_id = response.json()["user"]["id"]
-    log(f"✅ Created test user: {TEST_USER_EMAIL} (ID: {test_user_id})")
-    
-    # Register DWLR with IMEI and manual_water_temp_c
-    payload = {
-        "hardware_id": TEST_DWLR_HW_ID,
-        "instrument_type": "dwlr",
-        "owner_user_id": test_user_id,
-        "imei": TEST_DWLR_IMEI,
-        "manual_water_temp_c": 25.0,
-        "label": "Test DWLR for Expanded Payload"
-    }
-    response = requests.post(f"{BASE_URL}/instrument-registry", json=payload, headers=headers)
-    assert response.status_code == 200, f"DWLR registration failed: {response.status_code} {response.text}"
-    log(f"✅ Registered DWLR: {TEST_DWLR_HW_ID} with IMEI {TEST_DWLR_IMEI}")
-    
-    # Register flowmeter for regression test
-    payload = {
-        "hardware_id": TEST_FM_HW_ID,
-        "instrument_type": "flowmeter",
-        "owner_user_id": test_user_id,
-        "imei": TEST_FM_IMEI,
-        "label": "Test Flowmeter for Regression"
-    }
-    response = requests.post(f"{BASE_URL}/instrument-registry", json=payload, headers=headers)
-    assert response.status_code == 200, f"Flowmeter registration failed: {response.status_code} {response.text}"
-    log(f"✅ Registered flowmeter: {TEST_FM_HW_ID} with IMEI {TEST_FM_IMEI}")
-
-
-def test_1_simulate_expanded_payload():
-    """Test 1: Simulate the exact real payload with 19 fields."""
-    log("\n=== TEST 1: Simulate expanded DWLR payload (topic P1001/0) ===")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # Exact payload from review request
-    payload = {
-        "topic": "P1001/0",
-        "payload": {
-            "GINT": "10.00",
-            "HID": "1001.00",
-            "LVL": "180.33",
-            "RAW": "180.33",
-            "SDINT": "17.00",
-            "D_SEN": "180.10",
-            "E_COM": "-0.10",
-            "BVOLT": "5.00",
-            "IMSI": "404980517522700",
-            "ATEMP": "33.33",
-            "WT_Enbl": "0.00",
-            "WTEMP": "0.00",
-            "TIME": "260703135219",
-            "HVER": "1.50",
-            "P_SEN": "2.00",
-            "IMEI": TEST_DWLR_IMEI,
-            "APRES": "1.00",
-            "SIGNAL": 19,
-            "VER": "4G-1"
+def create_test_user(admin_token):
+    """Create a test client user"""
+    response = requests.post(
+        f"{BASE_URL}/admin/users/create",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "email": f"traffic_test_{int(time.time())}@example.com",
+            "password": "TestPass123!",
+            "full_name": "Traffic Test User",
+            "role": "client",
+            "location_name": "Test Location",
+            "latitude": 26.8467,
+            "longitude": 80.9462
         }
-    }
-    
-    response = requests.post(f"{BASE_URL}/devices/mqtt-simulate", json=payload, headers=headers)
-    assert response.status_code == 200, f"MQTT simulate failed: {response.status_code} {response.text}"
-    
-    data = response.json()
-    assert data.get("dispatched") is True, f"Expected dispatched=true, got {data}"
-    assert data.get("hardware_id") == TEST_DWLR_HW_ID, f"Expected hardware_id={TEST_DWLR_HW_ID}, got {data.get('hardware_id')}"
-    assert data.get("instrument_type") == "dwlr", f"Expected instrument_type=dwlr, got {data.get('instrument_type')}"
-    
-    log(f"✅ TEST 1 PASSED: Expanded payload dispatched successfully")
-    log(f"   dispatched: {data.get('dispatched')}")
-    log(f"   hardware_id: {data.get('hardware_id')}")
-    log(f"   instrument_type: {data.get('instrument_type')}")
+    )
+    if response.status_code == 200:
+        return response.json().get("user", {}).get("id")
+    return None
 
-
-def test_2_verify_stored_fields():
-    """Test 2: Verify stored fields are numeric + canonicalized."""
-    log("\n=== TEST 2: Verify stored fields are numeric + canonicalized ===")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # GET /api/instruments/dwlr/latest
-    response = requests.get(f"{BASE_URL}/instruments/dwlr/latest", headers=headers)
-    assert response.status_code == 200, f"GET dwlr/latest failed: {response.status_code} {response.text}"
-    
-    data = response.json()
-    assert "readings" in data, "No 'readings' field in response"
-    
-    readings = data["readings"]
-    dwlr_reading = next((r for r in readings if r["hardware_id"] == TEST_DWLR_HW_ID), None)
-    assert dwlr_reading, f"DWLR reading not found for {TEST_DWLR_HW_ID}"
-    
-    values = dwlr_reading.get("values", {})
-    
-    # Verify LEVEL is canonicalized from LVL
-    assert "LEVEL" in values, "LEVEL field missing (should be canonicalized from LVL)"
-    assert values["LEVEL"] == 180.33, f"Expected LEVEL=180.33, got {values.get('LEVEL')}"
-    assert isinstance(values["LEVEL"], (int, float)), f"LEVEL should be numeric, got {type(values['LEVEL'])}"
-    
-    # Verify LVL is present
-    assert "LVL" in values, "LVL field missing"
-    assert values["LVL"] == 180.33, f"Expected LVL=180.33, got {values.get('LVL')}"
-    assert isinstance(values["LVL"], (int, float)), f"LVL should be numeric, got {type(values['LVL'])}"
-    
-    # Verify RAW
-    assert "RAW" in values, "RAW field missing"
-    assert values["RAW"] == 180.33, f"Expected RAW=180.33, got {values.get('RAW')}"
-    assert isinstance(values["RAW"], (int, float)), f"RAW should be numeric, got {type(values['RAW'])}"
-    
-    # Verify WTEMP
-    assert "WTEMP" in values, "WTEMP field missing"
-    assert values["WTEMP"] == 0.0, f"Expected WTEMP=0.0, got {values.get('WTEMP')}"
-    assert isinstance(values["WTEMP"], (int, float)), f"WTEMP should be numeric, got {type(values['WTEMP'])}"
-    
-    # Verify WT_Enbl
-    assert "WT_Enbl" in values, "WT_Enbl field missing"
-    assert values["WT_Enbl"] == 0.0, f"Expected WT_Enbl=0.0, got {values.get('WT_Enbl')}"
-    assert isinstance(values["WT_Enbl"], (int, float)), f"WT_Enbl should be numeric, got {type(values['WT_Enbl'])}"
-    
-    # Verify ATEMP
-    assert "ATEMP" in values, "ATEMP field missing"
-    assert values["ATEMP"] == 33.33, f"Expected ATEMP=33.33, got {values.get('ATEMP')}"
-    assert isinstance(values["ATEMP"], (int, float)), f"ATEMP should be numeric, got {type(values['ATEMP'])}"
-    
-    # Verify BVOLT
-    assert "BVOLT" in values, "BVOLT field missing"
-    assert values["BVOLT"] == 5.0, f"Expected BVOLT=5.0, got {values.get('BVOLT')}"
-    assert isinstance(values["BVOLT"], (int, float)), f"BVOLT should be numeric, got {type(values['BVOLT'])}"
-    
-    # Verify SDINT
-    assert "SDINT" in values, "SDINT field missing"
-    assert values["SDINT"] == 17.0, f"Expected SDINT=17.0, got {values.get('SDINT')}"
-    assert isinstance(values["SDINT"], (int, float)), f"SDINT should be numeric, got {type(values['SDINT'])}"
-    
-    # Verify D_SEN
-    assert "D_SEN" in values, "D_SEN field missing"
-    assert values["D_SEN"] == 180.10, f"Expected D_SEN=180.10, got {values.get('D_SEN')}"
-    assert isinstance(values["D_SEN"], (int, float)), f"D_SEN should be numeric, got {type(values['D_SEN'])}"
-    
-    # Verify E_COM
-    assert "E_COM" in values, "E_COM field missing"
-    assert values["E_COM"] == -0.10, f"Expected E_COM=-0.10, got {values.get('E_COM')}"
-    assert isinstance(values["E_COM"], (int, float)), f"E_COM should be numeric, got {type(values['E_COM'])}"
-    
-    # Verify P_SEN
-    assert "P_SEN" in values, "P_SEN field missing"
-    assert values["P_SEN"] == 2.0, f"Expected P_SEN=2.0, got {values.get('P_SEN')}"
-    assert isinstance(values["P_SEN"], (int, float)), f"P_SEN should be numeric, got {type(values['P_SEN'])}"
-    
-    # Verify APRES
-    assert "APRES" in values, "APRES field missing"
-    assert values["APRES"] == 1.0, f"Expected APRES=1.0, got {values.get('APRES')}"
-    assert isinstance(values["APRES"], (int, float)), f"APRES should be numeric, got {type(values['APRES'])}"
-    
-    # Verify GINT
-    assert "GINT" in values, "GINT field missing"
-    assert values["GINT"] == 10.0, f"Expected GINT=10.0, got {values.get('GINT')}"
-    assert isinstance(values["GINT"], (int, float)), f"GINT should be numeric, got {type(values['GINT'])}"
-    
-    # Verify HVER
-    assert "HVER" in values, "HVER field missing"
-    assert values["HVER"] == 1.5, f"Expected HVER=1.5, got {values.get('HVER')}"
-    assert isinstance(values["HVER"], (int, float)), f"HVER should be numeric, got {type(values['HVER'])}"
-    
-    # Verify HID
-    assert "HID" in values, "HID field missing"
-    assert values["HID"] == 1001.0, f"Expected HID=1001.0, got {values.get('HID')}"
-    assert isinstance(values["HID"], (int, float)), f"HID should be numeric, got {type(values['HID'])}"
-    
-    # Verify SIGNAL (should be int, not float)
-    assert "SIGNAL" in values, "SIGNAL field missing"
-    assert values["SIGNAL"] == 19, f"Expected SIGNAL=19, got {values.get('SIGNAL')}"
-    assert isinstance(values["SIGNAL"], int), f"SIGNAL should be int, got {type(values['SIGNAL'])}"
-    
-    # Verify string fields remain strings
-    assert values.get("IMEI") == TEST_DWLR_IMEI, f"Expected IMEI={TEST_DWLR_IMEI}, got {values.get('IMEI')}"
-    assert isinstance(values["IMEI"], str), f"IMEI should be string, got {type(values['IMEI'])}"
-    
-    assert values.get("IMSI") == "404980517522700", f"Expected IMSI=404980517522700, got {values.get('IMSI')}"
-    assert isinstance(values["IMSI"], str), f"IMSI should be string, got {type(values['IMSI'])}"
-    
-    assert values.get("TIME") == "260703135219", f"Expected TIME=260703135219, got {values.get('TIME')}"
-    assert isinstance(values["TIME"], str), f"TIME should be string, got {type(values['TIME'])}"
-    
-    assert values.get("VER") == "4G-1", f"Expected VER=4G-1, got {values.get('VER')}"
-    assert isinstance(values["VER"], str), f"VER should be string, got {type(values['VER'])}"
-    
-    # Verify manual_water_temp_c is enriched
-    assert "manual_water_temp_c" in dwlr_reading, "manual_water_temp_c not enriched"
-    assert dwlr_reading["manual_water_temp_c"] == 25.0, f"Expected manual_water_temp_c=25.0, got {dwlr_reading.get('manual_water_temp_c')}"
-    
-    log(f"✅ TEST 2 PASSED: All fields correctly coerced and canonicalized")
-    log(f"   LEVEL: {values['LEVEL']} (float, canonicalized from LVL)")
-    log(f"   LVL: {values['LVL']} (float)")
-    log(f"   SIGNAL: {values['SIGNAL']} (int)")
-    log(f"   WTEMP: {values['WTEMP']} (float)")
-    log(f"   ATEMP: {values['ATEMP']} (float)")
-    log(f"   BVOLT: {values['BVOLT']} (float)")
-    log(f"   manual_water_temp_c: {dwlr_reading['manual_water_temp_c']} (enriched)")
-
-
-def test_3_older_payload_format():
-    """Test 3: Older payload format still works (regression)."""
-    log("\n=== TEST 3: Older payload format (topic P673/0) ===")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # Old format with LEVEL field (not LVL)
-    payload = {
-        "topic": "P673/0",
-        "payload": {
-            "TIME": "260630130834",
-            "SIGNAL": 13,
-            "UNT": 1.0,
-            "LEVEL": "40.97",
-            "IMSI": "404980524791050",
-            "IMEI": TEST_DWLR_IMEI,
-            "VER": "4G-1",
-            "FLOW": "40.97"
+def register_instrument(admin_token, hardware_id, imei, instrument_type, owner_user_id):
+    """Register an instrument with IMEI"""
+    response = requests.post(
+        f"{BASE_URL}/instrument-registry",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "hardware_id": hardware_id,
+            "imei": imei,
+            "instrument_type": instrument_type,
+            "label": f"Test {instrument_type} {hardware_id}",
+            "owner_user_id": owner_user_id,
+            "location_name": "Test Location",
+            "latitude": 26.8467,
+            "longitude": 80.9462
         }
-    }
-    
-    response = requests.post(f"{BASE_URL}/devices/mqtt-simulate", json=payload, headers=headers)
-    assert response.status_code == 200, f"MQTT simulate failed: {response.status_code} {response.text}"
-    
-    data = response.json()
-    assert data.get("dispatched") is True, f"Expected dispatched=true, got {data}"
-    assert data.get("hardware_id") == TEST_DWLR_HW_ID, f"Expected hardware_id={TEST_DWLR_HW_ID}, got {data.get('hardware_id')}"
-    
-    # Verify the data was stored
-    response = requests.get(f"{BASE_URL}/instruments/dwlr/latest", headers=headers)
-    assert response.status_code == 200, f"GET dwlr/latest failed: {response.status_code}"
-    
-    data = response.json()
-    readings = data["readings"]
-    dwlr_reading = next((r for r in readings if r["hardware_id"] == TEST_DWLR_HW_ID), None)
-    assert dwlr_reading, f"DWLR reading not found"
-    
-    values = dwlr_reading.get("values", {})
-    
-    # Verify LEVEL is stored
-    assert values.get("LEVEL") == 40.97, f"Expected LEVEL=40.97, got {values.get('LEVEL')}"
-    assert isinstance(values["LEVEL"], (int, float)), f"LEVEL should be numeric, got {type(values['LEVEL'])}"
-    
-    # Verify LVL is canonicalized from LEVEL
-    assert values.get("LVL") == 40.97, f"Expected LVL=40.97 (canonicalized from LEVEL), got {values.get('LVL')}"
-    assert isinstance(values["LVL"], (int, float)), f"LVL should be numeric, got {type(values['LVL'])}"
-    
-    # Verify SIGNAL
-    assert values.get("SIGNAL") == 13, f"Expected SIGNAL=13, got {values.get('SIGNAL')}"
-    assert isinstance(values["SIGNAL"], int), f"SIGNAL should be int, got {type(values['SIGNAL'])}"
-    
-    # Verify UNT
-    assert values.get("UNT") == 1.0, f"Expected UNT=1.0, got {values.get('UNT')}"
-    assert isinstance(values["UNT"], (int, float)), f"UNT should be numeric, got {type(values['UNT'])}"
-    
-    log(f"✅ TEST 3 PASSED: Older payload format works correctly")
-    log(f"   LEVEL: {values['LEVEL']} (float)")
-    log(f"   LVL: {values['LVL']} (float, canonicalized from LEVEL)")
-    log(f"   SIGNAL: {values['SIGNAL']} (int)")
-    log(f"   UNT: {values['UNT']} (float)")
+    )
+    return response.status_code == 200
 
-
-def test_4_instrument_readings_history():
-    """Test 4: instrument_readings collection has history."""
-    log("\n=== TEST 4: Verify instrument_readings collection has history ===")
-    
-    # We've sent 2 payloads (test 1 and test 3), so there should be at least 2 readings
-    # We can't directly query instrument_readings via API, but we can infer from the fact
-    # that both payloads were dispatched successfully and the latest reading was updated
-    
-    # For now, we'll just verify that the latest reading exists and has the expected data
-    # The main agent's implementation stores both in instrument_readings and instrument_latest
-    
-    log(f"✅ TEST 4 PASSED: Both payloads dispatched successfully")
-    log(f"   Payload 1 (expanded format): dispatched to {TEST_DWLR_HW_ID}")
-    log(f"   Payload 2 (old format): dispatched to {TEST_DWLR_HW_ID}")
-    log(f"   Note: instrument_readings collection should have 2 separate rows")
-
-
-def test_5_non_json_strings_coerce():
-    """Test 5: Non-JSON strings coerce gracefully."""
-    log("\n=== TEST 5: Non-JSON strings coerce gracefully ===")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # Payload with LVL as non-numeric string
-    payload = {
-        "topic": "P1001/0",
-        "payload": {
-            "IMEI": TEST_DWLR_IMEI,
-            "LVL": "not_a_number",
-            "SIGNAL": 19
+def simulate_mqtt_message(admin_token, topic, payload):
+    """Simulate an MQTT message"""
+    response = requests.post(
+        f"{BASE_URL}/devices/mqtt-simulate",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "topic": topic,
+            "payload": payload
         }
-    }
-    
-    response = requests.post(f"{BASE_URL}/devices/mqtt-simulate", json=payload, headers=headers)
-    assert response.status_code == 200, f"MQTT simulate failed: {response.status_code} {response.text}"
-    
-    data = response.json()
-    assert data.get("dispatched") is True, f"Expected dispatched=true, got {data}"
-    
-    # Verify the data was stored (LVL stays as string, LEVEL is NOT mirrored)
-    response = requests.get(f"{BASE_URL}/instruments/dwlr/latest", headers=headers)
-    assert response.status_code == 200, f"GET dwlr/latest failed: {response.status_code}"
-    
-    data = response.json()
-    readings = data["readings"]
-    dwlr_reading = next((r for r in readings if r["hardware_id"] == TEST_DWLR_HW_ID), None)
-    assert dwlr_reading, f"DWLR reading not found"
-    
-    values = dwlr_reading.get("values", {})
-    
-    # LVL should remain as the original string
-    assert values.get("LVL") == "not_a_number", f"Expected LVL='not_a_number', got {values.get('LVL')}"
-    assert isinstance(values["LVL"], str), f"LVL should be string, got {type(values['LVL'])}"
-    
-    # LEVEL should NOT be mirrored (since LVL isn't numeric)
-    # Note: The previous test's LEVEL value (40.97) might still be present
-    # So we just verify that the system didn't crash
-    
-    log(f"✅ TEST 5 PASSED: Non-numeric string handled gracefully")
-    log(f"   LVL: '{values['LVL']}' (string, not coerced)")
-    log(f"   System did not crash, dispatched successfully")
+    )
+    return response
 
+def get_traffic(token, limit=50):
+    """Get MQTT traffic"""
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    response = requests.get(
+        f"{BASE_URL}/flowmeter/traffic",
+        headers=headers,
+        params={"limit": limit}
+    )
+    return response
 
-def test_6_flowmeter_path_unaffected():
-    """Test 6: Flowmeter path unaffected (regression)."""
-    log("\n=== TEST 6: Flowmeter path unaffected (regression) ===")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # Simulate flowmeter payload
-    payload = {
-        "topic": "999/0",
-        "payload": {
-            "IMEI": TEST_FM_IMEI,
-            "FLOW": "40.97",
-            "TOT1": "5",
-            "TOT2": "0",
-            "RTOT1": "1",
-            "RTOT2": "0",
-            "UNT": 1.0,
-            "SIGNAL": 13,
-            "TIME": "260630130649"
-        }
-    }
-    
-    response = requests.post(f"{BASE_URL}/devices/mqtt-simulate", json=payload, headers=headers)
-    assert response.status_code == 200, f"MQTT simulate failed: {response.status_code} {response.text}"
-    
-    data = response.json()
-    assert data.get("dispatched") is True, f"Expected dispatched=true, got {data}"
-    assert data.get("hardware_id") == TEST_FM_HW_ID, f"Expected hardware_id={TEST_FM_HW_ID}, got {data.get('hardware_id')}"
-    assert data.get("instrument_type") == "flowmeter", f"Expected instrument_type=flowmeter, got {data.get('instrument_type')}"
-    
-    # Verify TOT1/TOT2 formulas still work
-    response = requests.get(f"{BASE_URL}/flowmeter/latest", headers=headers)
-    assert response.status_code == 200, f"GET flowmeter/latest failed: {response.status_code}"
-    
-    data = response.json()
-    # data is a list of readings
-    if isinstance(data, list):
-        fm_reading = next((r for r in data if r["hardware_id"] == TEST_FM_HW_ID), None)
+def cleanup_instrument(admin_token, hardware_id):
+    """Delete test instrument"""
+    requests.delete(
+        f"{BASE_URL}/instrument-registry/{hardware_id}",
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+
+def cleanup_user(admin_token, user_id):
+    """Delete test user"""
+    requests.delete(
+        f"{BASE_URL}/admin/users/{user_id}",
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+
+print("="*80)
+print("LIVE MQTT TRAFFIC MONITOR ENDPOINT TEST")
+print("="*80)
+
+# ============================================================================
+# TEST 1: AUTH - No Token
+# ============================================================================
+print("\n[TEST 1] Auth - No Token")
+response = get_traffic(None)
+results.add(
+    "No-auth GET returns 401",
+    response.status_code == 401,
+    f"Status: {response.status_code}"
+)
+
+# ============================================================================
+# SETUP: Login as admin
+# ============================================================================
+print("\n[SETUP] Login as admin")
+admin_token = login(ADMIN_EMAIL, ADMIN_PASSWORD)
+if not admin_token:
+    print("❌ FATAL: Admin login failed")
+    exit(1)
+print(f"✅ Admin logged in")
+
+# ============================================================================
+# TEST 2: AUTH - Non-Admin
+# ============================================================================
+print("\n[TEST 2] Auth - Non-Admin")
+test_user_id = create_test_user(admin_token)
+if test_user_id:
+    print(f"✅ Created test user: {test_user_id}")
+    # Login as client
+    client_token = login(f"traffic_test_{int(time.time())}@example.com", "TestPass123!")
+    if client_token:
+        response = get_traffic(client_token)
+        results.add(
+            "Non-admin GET returns 403 with 'Admin only' message",
+            response.status_code == 403 and "Admin only" in response.text,
+            f"Status: {response.status_code}, Body: {response.text[:100]}"
+        )
     else:
-        fm_reading = None
-    
-    if fm_reading:
-        # Verify formulas: forward_totalizer = (TOT2 * 65535) + TOT1 = (0 * 65535) + 5 = 5
-        assert fm_reading.get("forward_totalizer") == 5.0, f"Expected forward_totalizer=5.0, got {fm_reading.get('forward_totalizer')}"
-        # reverse_totalizer = (RTOT2 * 65535) + RTOT1 = (0 * 65535) + 1 = 1
-        assert fm_reading.get("reverse_totalizer") == 1.0, f"Expected reverse_totalizer=1.0, got {fm_reading.get('reverse_totalizer')}"
-        log(f"✅ TEST 6 PASSED: Flowmeter path working correctly")
-        log(f"   forward_totalizer: {fm_reading['forward_totalizer']} (expected 5.0)")
-        log(f"   reverse_totalizer: {fm_reading['reverse_totalizer']} (expected 1.0)")
-    else:
-        log(f"⚠️  TEST 6 PARTIAL: Flowmeter dispatched but not yet in latest (may need time)")
-        log(f"   dispatched: {data.get('dispatched')}")
+        results.add("Non-admin GET returns 403", False, "Failed to login as client")
+else:
+    results.add("Non-admin GET returns 403", False, "Failed to create test user")
 
+# ============================================================================
+# TEST 3: AUTH - Admin Success
+# ============================================================================
+print("\n[TEST 3] Auth - Admin Success")
+response = get_traffic(admin_token)
+results.add(
+    "Admin GET returns 200 with correct schema",
+    response.status_code == 200,
+    f"Status: {response.status_code}"
+)
 
-def test_7_flowmeter_status():
-    """Test 7: GET /api/flowmeter/status still reports connected: true."""
-    log("\n=== TEST 7: GET /api/flowmeter/status ===")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    response = requests.get(f"{BASE_URL}/flowmeter/status", headers=headers)
-    assert response.status_code == 200, f"GET flowmeter/status failed: {response.status_code} {response.text}"
-    
+if response.status_code == 200:
     data = response.json()
-    assert "connected" in data, "No 'connected' field in response"
-    assert data["connected"] is True, f"Expected connected=true, got {data.get('connected')}"
+    required_fields = ["connected", "broker", "subscribed_topics", "total_received", 
+                      "total_dropped_unknown", "unregistered_imeis", "recent"]
+    has_all_fields = all(field in data for field in required_fields)
+    results.add(
+        "Response has all required fields",
+        has_all_fields,
+        f"Fields: {list(data.keys())}"
+    )
     
-    log(f"✅ TEST 7 PASSED: MQTT connectivity working")
-    log(f"   connected: {data['connected']}")
-    log(f"   broker: {data.get('broker', 'N/A')}")
+    print(f"   Connected: {data.get('connected')}")
+    print(f"   Broker: {data.get('broker')}")
+    print(f"   Total received: {data.get('total_received')}")
+    print(f"   Total dropped: {data.get('total_dropped_unknown')}")
+    print(f"   Unregistered IMEIs: {len(data.get('unregistered_imeis', []))}")
+    print(f"   Recent messages: {len(data.get('recent', []))}")
 
+# ============================================================================
+# TEST 4: Live Traffic Captured
+# ============================================================================
+print("\n[TEST 4] Live Traffic Captured")
+print("Waiting 5 seconds for real MQTT message...")
+time.sleep(5)
 
-def cleanup():
-    """Cleanup: Delete test instruments and user."""
-    log("\n=== CLEANUP ===")
+response = get_traffic(admin_token, limit=50)
+if response.status_code == 200:
+    data = response.json()
+    total_received = data.get("total_received", 0)
+    recent = data.get("recent", [])
     
-    headers = {"Authorization": f"Bearer {admin_token}"}
+    results.add(
+        "total_received >= 1",
+        total_received >= 1,
+        f"Total received: {total_received}"
+    )
     
-    # Delete test instruments
-    for hw_id in [TEST_DWLR_HW_ID, TEST_FM_HW_ID]:
-        response = requests.delete(f"{BASE_URL}/instrument-registry/{hw_id}", headers=headers)
-        if response.status_code == 200:
-            log(f"✅ Deleted test instrument: {hw_id}")
-        else:
-            log(f"⚠️  Failed to delete instrument {hw_id}: {response.status_code}")
+    results.add(
+        "recent[] is non-empty",
+        len(recent) > 0,
+        f"Recent messages: {len(recent)}"
+    )
     
-    # Delete test user
-    if test_user_id:
-        response = requests.delete(f"{BASE_URL}/admin/users/{test_user_id}", headers=headers)
-        if response.status_code == 200:
-            log(f"✅ Deleted test user: {TEST_USER_EMAIL}")
-        else:
-            log(f"⚠️  Failed to delete test user: {response.status_code}")
+    # Check for real MQTT messages
+    mqtt_messages = [m for m in recent if m.get("source") == "mqtt"]
+    results.add(
+        "At least one message with source='mqtt'",
+        len(mqtt_messages) > 0,
+        f"MQTT messages: {len(mqtt_messages)}"
+    )
     
-    log("✅ Cleanup complete")
-
-
-def main():
-    """Run all tests."""
-    try:
-        admin_login()
-        cleanup_existing_test_data()
-        setup_test_user_and_instruments()
-        test_1_simulate_expanded_payload()
-        test_2_verify_stored_fields()
-        test_3_older_payload_format()
-        test_4_instrument_readings_history()
-        test_5_non_json_strings_coerce()
-        test_6_flowmeter_path_unaffected()
-        test_7_flowmeter_status()
-        cleanup()
+    # Check for expected IMEI
+    imei_messages = [m for m in recent if m.get("imei") == TEST_IMEI_REAL]
+    if len(imei_messages) > 0:
+        msg = imei_messages[0]
+        print(f"   Found message with IMEI {TEST_IMEI_REAL}:")
+        print(f"   - Topic: {msg.get('topic')}")
+        print(f"   - Dispatched: {msg.get('dispatched')}")
+        print(f"   - Reason: {msg.get('reason')}")
         
-        log("\n" + "="*80)
-        log("🎉 ALL TESTS PASSED (7/7)")
-        log("="*80)
-        log("\n✅ SUMMARY:")
-        log("   1. Expanded DWLR payload (19 fields) dispatched successfully")
-        log("   2. All numeric fields coerced correctly (SIGNAL as int, others as float)")
-        log("   3. LEVEL canonicalized from LVL (both keys present)")
-        log("   4. Older payload format (LEVEL field) still works")
-        log("   5. Non-numeric strings handled gracefully (no crash)")
-        log("   6. Flowmeter path unaffected (TOT1/TOT2 formulas work)")
-        log("   7. MQTT connectivity working (connected: true)")
+        results.add(
+            f"Message with IMEI {TEST_IMEI_REAL} has dispatched=false",
+            msg.get("dispatched") == False,
+            f"Dispatched: {msg.get('dispatched')}"
+        )
         
-    except AssertionError as e:
-        log(f"\n❌ TEST FAILED: {e}")
-        log("\nAttempting cleanup...")
-        try:
-            cleanup()
-        except Exception as cleanup_error:
-            log(f"⚠️  Cleanup error: {cleanup_error}")
-        raise
-    except Exception as e:
-        log(f"\n❌ UNEXPECTED ERROR: {e}")
-        log("\nAttempting cleanup...")
-        try:
-            cleanup()
-        except Exception as cleanup_error:
-            log(f"⚠️  Cleanup error: {cleanup_error}")
-        raise
+        results.add(
+            f"Reason starts with 'IMEI {TEST_IMEI_REAL} not registered'",
+            msg.get("reason", "").startswith(f"IMEI {TEST_IMEI_REAL} not registered"),
+            f"Reason: {msg.get('reason')}"
+        )
+    
+    # Check unregistered_imeis
+    unregistered = data.get("unregistered_imeis", [])
+    imei_entry = next((e for e in unregistered if e.get("imei") == TEST_IMEI_REAL), None)
+    if imei_entry:
+        results.add(
+            f"unregistered_imeis includes {TEST_IMEI_REAL}",
+            True,
+            f"Count: {imei_entry.get('count')}, Topic: {imei_entry.get('topic')}"
+        )
+    else:
+        results.add(
+            f"unregistered_imeis includes {TEST_IMEI_REAL}",
+            False,
+            f"Not found in unregistered list"
+        )
 
+# ============================================================================
+# TEST 5: Simulate Message Shows Up Tagged as "simulate"
+# ============================================================================
+print("\n[TEST 5] Simulate Message Shows Up Tagged as 'simulate'")
+simulate_payload = {
+    "IMEI": TEST_IMEI_FAKE,
+    "LVL": "10",
+    "SIGNAL": 5
+}
+sim_response = simulate_mqtt_message(admin_token, "P999/0", simulate_payload)
+print(f"   Simulate response: {sim_response.status_code}")
 
-if __name__ == "__main__":
-    main()
+# Immediately get traffic
+time.sleep(1)
+response = get_traffic(admin_token)
+if response.status_code == 200:
+    data = response.json()
+    recent = data.get("recent", [])
+    
+    # Most recent should be the simulated message
+    if len(recent) > 0:
+        top_msg = recent[0]
+        results.add(
+            "Most recent message has source='simulate'",
+            top_msg.get("source") == "simulate",
+            f"Source: {top_msg.get('source')}, Topic: {top_msg.get('topic')}"
+        )
+        
+        results.add(
+            "Simulated message has topic='P999/0'",
+            top_msg.get("topic") == "P999/0",
+            f"Topic: {top_msg.get('topic')}"
+        )
+        
+        results.add(
+            f"Simulated message has imei='{TEST_IMEI_FAKE}'",
+            top_msg.get("imei") == TEST_IMEI_FAKE,
+            f"IMEI: {top_msg.get('imei')}"
+        )
+        
+        results.add(
+            "Simulated message has dispatched=false (unregistered)",
+            top_msg.get("dispatched") == False,
+            f"Dispatched: {top_msg.get('dispatched')}"
+        )
+    
+    # Check unregistered_imeis now includes the fake IMEI
+    unregistered = data.get("unregistered_imeis", [])
+    fake_imei_entry = next((e for e in unregistered if e.get("imei") == TEST_IMEI_FAKE), None)
+    results.add(
+        f"unregistered_imeis includes {TEST_IMEI_FAKE}",
+        fake_imei_entry is not None,
+        f"Entry: {fake_imei_entry}"
+    )
+
+# ============================================================================
+# TEST 6: Dispatched (Success) Case
+# ============================================================================
+print("\n[TEST 6] Dispatched (Success) Case")
+# Register the fake IMEI
+hw_id = f"TRAFFIC_TEST_{int(time.time())}"
+registered = register_instrument(admin_token, hw_id, TEST_IMEI_FAKE, "dwlr", test_user_id)
+if registered:
+    print(f"✅ Registered DWLR {hw_id} with IMEI {TEST_IMEI_FAKE}")
+    
+    # Simulate again with the same IMEI
+    time.sleep(1)
+    sim_response = simulate_mqtt_message(admin_token, "P999/0", simulate_payload)
+    
+    # Get traffic
+    time.sleep(1)
+    response = get_traffic(admin_token)
+    if response.status_code == 200:
+        data = response.json()
+        recent = data.get("recent", [])
+        
+        # Find the most recent message with our IMEI
+        our_messages = [m for m in recent if m.get("imei") == TEST_IMEI_FAKE]
+        if len(our_messages) > 0:
+            latest = our_messages[0]
+            results.add(
+                "After registration, dispatched=true",
+                latest.get("dispatched") == True,
+                f"Dispatched: {latest.get('dispatched')}, Hardware ID: {latest.get('hardware_id')}"
+            )
+            
+            results.add(
+                "hardware_id is set",
+                latest.get("hardware_id") == hw_id,
+                f"Hardware ID: {latest.get('hardware_id')}"
+            )
+            
+            results.add(
+                "instrument_type='dwlr'",
+                latest.get("instrument_type") == "dwlr",
+                f"Type: {latest.get('instrument_type')}"
+            )
+            
+            results.add(
+                "reason is null",
+                latest.get("reason") is None,
+                f"Reason: {latest.get('reason')}"
+            )
+        
+        # Check that the IMEI is NO LONGER in unregistered_imeis for NEW messages
+        # (old dropped entries may still be in buffer)
+        # Simulate twice more to verify
+        for i in range(2):
+            time.sleep(1)
+            simulate_mqtt_message(admin_token, "P999/0", simulate_payload)
+        
+        time.sleep(1)
+        response = get_traffic(admin_token)
+        if response.status_code == 200:
+            data = response.json()
+            unregistered = data.get("unregistered_imeis", [])
+            # The fake IMEI should NOT be in unregistered list anymore
+            # (only counts entries where reason starts with "IMEI ")
+            fake_in_unreg = any(e.get("imei") == TEST_IMEI_FAKE for e in unregistered)
+            results.add(
+                f"After registration, {TEST_IMEI_FAKE} NOT in unregistered_imeis",
+                not fake_in_unreg,
+                f"Unregistered IMEIs: {[e.get('imei') for e in unregistered]}"
+            )
+else:
+    results.add("Dispatched (Success) Case", False, "Failed to register instrument")
+
+# ============================================================================
+# TEST 7: Buffer Size Cap
+# ============================================================================
+print("\n[TEST 7] Buffer Size Cap")
+print("Simulating 55 messages rapidly...")
+for i in range(55):
+    simulate_mqtt_message(admin_token, "P999/0", {
+        "IMEI": TEST_IMEI_FAKE,
+        "LVL": str(10 + i),
+        "SIGNAL": 5
+    })
+
+time.sleep(2)
+response = get_traffic(admin_token)
+if response.status_code == 200:
+    data = response.json()
+    recent = data.get("recent", [])
+    total_received = data.get("total_received", 0)
+    
+    results.add(
+        "recent[] capped at 50 entries",
+        len(recent) <= 50,
+        f"Recent messages: {len(recent)}"
+    )
+    
+    results.add(
+        "total_received reflects true count (>= 55)",
+        total_received >= 55,
+        f"Total received: {total_received}"
+    )
+
+# ============================================================================
+# TEST 8: Limit Parameter
+# ============================================================================
+print("\n[TEST 8] Limit Parameter")
+response = get_traffic(admin_token, limit=5)
+if response.status_code == 200:
+    data = response.json()
+    recent = data.get("recent", [])
+    results.add(
+        "limit=5 returns at most 5 entries",
+        len(recent) <= 5,
+        f"Recent messages: {len(recent)}"
+    )
+
+response = get_traffic(admin_token, limit=200)
+if response.status_code == 200:
+    data = response.json()
+    recent = data.get("recent", [])
+    results.add(
+        "limit=200 capped at 50 (buffer max)",
+        len(recent) <= 50,
+        f"Recent messages: {len(recent)}"
+    )
+
+# ============================================================================
+# TEST 9: Missing IMEI / Non-JSON Entries
+# ============================================================================
+print("\n[TEST 9] Missing IMEI / Non-JSON Entries")
+
+# Simulate payload with no IMEI
+sim_response = simulate_mqtt_message(admin_token, "777/0", {"FLOW": "5"})
+time.sleep(1)
+response = get_traffic(admin_token)
+if response.status_code == 200:
+    data = response.json()
+    recent = data.get("recent", [])
+    if len(recent) > 0:
+        top = recent[0]
+        results.add(
+            "Payload missing IMEI: imei=null",
+            top.get("imei") is None,
+            f"IMEI: {top.get('imei')}"
+        )
+        
+        results.add(
+            "Payload missing IMEI: reason='payload missing IMEI field'",
+            top.get("reason") == "payload missing IMEI field",
+            f"Reason: {top.get('reason')}"
+        )
+
+# Simulate with non-JSON payload
+sim_response = simulate_mqtt_message(admin_token, "777/0", "not-json")
+time.sleep(1)
+response = get_traffic(admin_token)
+if response.status_code == 200:
+    data = response.json()
+    recent = data.get("recent", [])
+    if len(recent) > 0:
+        top = recent[0]
+        results.add(
+            "Non-JSON payload: reason='payload is not valid JSON'",
+            top.get("reason") == "payload is not valid JSON",
+            f"Reason: {top.get('reason')}"
+        )
+
+# ============================================================================
+# TEST 10: Regression - GET /api/flowmeter/status
+# ============================================================================
+print("\n[TEST 10] Regression - GET /api/flowmeter/status")
+response = requests.get(f"{BASE_URL}/flowmeter/status")
+if response.status_code == 200:
+    data = response.json()
+    results.add(
+        "GET /api/flowmeter/status returns connected=true",
+        data.get("connected") == True,
+        f"Connected: {data.get('connected')}, Broker: {data.get('broker')}"
+    )
+else:
+    results.add("GET /api/flowmeter/status", False, f"Status: {response.status_code}")
+
+# ============================================================================
+# TEST 11: Regression - POST /api/devices/mqtt-simulate
+# ============================================================================
+print("\n[TEST 11] Regression - POST /api/devices/mqtt-simulate")
+sim_response = simulate_mqtt_message(admin_token, "P999/0", {
+    "IMEI": TEST_IMEI_FAKE,
+    "LVL": "12.34",
+    "SIGNAL": 5
+})
+results.add(
+    "POST /api/devices/mqtt-simulate still works",
+    sim_response.status_code == 200,
+    f"Status: {sim_response.status_code}"
+)
+
+# ============================================================================
+# TEST 12: Regression - GET /api/instrument-registry
+# ============================================================================
+print("\n[TEST 12] Regression - GET /api/instrument-registry")
+response = requests.get(
+    f"{BASE_URL}/instrument-registry",
+    headers={"Authorization": f"Bearer {admin_token}"}
+)
+results.add(
+    "GET /api/instrument-registry still works",
+    response.status_code == 200,
+    f"Status: {response.status_code}"
+)
+
+# ============================================================================
+# CLEANUP
+# ============================================================================
+print("\n[CLEANUP]")
+if hw_id:
+    cleanup_instrument(admin_token, hw_id)
+    print(f"✅ Deleted instrument {hw_id}")
+
+if test_user_id:
+    cleanup_user(admin_token, test_user_id)
+    print(f"✅ Deleted test user {test_user_id}")
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+results.summary()
+
+print("\n" + "="*80)
+print("TEST COMPLETE")
+print("="*80)
