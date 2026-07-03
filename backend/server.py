@@ -176,6 +176,11 @@ async def startup_event():
             "imei", unique=True, partialFilterExpression={"imei": {"$type": "string"}}
         )
         await db.flow_limits.create_index("hardware_id", unique=True)
+        # Composite indexes for the "last real reading" query used by the
+        # dummy-data loop — matters as the readings collections grow.
+        await db.flowmeter_readings.create_index([("hardware_id", 1), ("_dummy", 1), ("received_at", -1)])
+        await db.instrument_readings.create_index([("hardware_id", 1), ("instrument_type", 1), ("_dummy", 1), ("received_at", -1)])
+        await db.instrument_registry.create_index("dummy_config.enabled")
         await db.limit_alerts_state.create_index([("hardware_id", 1), ("month", 1), ("kind", 1)], unique=True)
         await db.notification_state.create_index("device_key", unique=True)
         await db.audit_log.create_index([("timestamp", -1)])

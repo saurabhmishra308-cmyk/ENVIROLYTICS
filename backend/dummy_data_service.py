@@ -19,6 +19,7 @@ The service is a simple asyncio background task started from `server.py`.
 """
 
 import asyncio
+import hashlib
 import logging
 import math
 import os
@@ -36,6 +37,20 @@ TICK_SECONDS = int(os.getenv("DUMMY_TICK_SECONDS", "30"))
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _day_seed(hardware_id: str, dt_utc: datetime) -> int:
+    """Deterministic per-instrument, per-day seed.
+
+    Uses MD5 (stable across Python interpreter restarts — unlike built-in
+    `hash()` which is salted by PYTHONHASHSEED). Combined with the UTC
+    day-of-year so different days produce different seeds, guaranteeing no
+    two days in the generated series look identical.
+    """
+    key = f"{hardware_id}|{dt_utc.strftime('%Y%j')}".encode("utf-8")
+    digest = hashlib.md5(key, usedforsecurity=False).digest()
+    # First 4 bytes as an unsigned int → within Python's random.Random seed range
+    return int.from_bytes(digest[:4], "big", signed=False)
 
 
 def _next_dummy_value(
@@ -143,7 +158,7 @@ async def _generate_dwlr(db: AsyncIOMotorDatabase, reg: Dict[str, Any], cfg: Dic
     lo = float(cfg["min_value"])
     hi = float(cfg["max_value"])
     prev = prev_level if prev_level is not None else await _find_previous_value(db, hw, "dwlr", "LEVEL")
-    day_seed = int(now.strftime("%Y%j%d")) ^ hash(hw) & 0xFFFFFFFF
+    day_seed = _day_seed(hw, now)
     lvl = _next_dummy_value(prev, lo, hi, now.hour, day_seed)
 
     signal = int(round(random.gauss(18.0, 3.0)))
@@ -201,7 +216,7 @@ async def _generate_flowmeter(db: AsyncIOMotorDatabase, reg: Dict[str, Any], cfg
     lo = float(cfg["min_value"])
     hi = float(cfg["max_value"])
     prev = prev_flow if prev_flow is not None else await _find_previous_value(db, hw, "flowmeter", "flow_rate_lph")
-    day_seed = int(now.strftime("%Y%j%d")) ^ hash(hw) & 0xFFFFFFFF
+    day_seed = _day_seed(hw, now)
     flow_lph = _next_dummy_value(prev, lo, hi, now.hour, day_seed)
     flow_lpm = round(flow_lph / 60.0, 3)
 
@@ -314,7 +329,7 @@ async def backfill_history(db: AsyncIOMotorDatabase, reg: Dict[str, Any],
     while ts < to_dt:
         if itype == "flowmeter":
             interval_hours = interval_seconds / 3600.0
-            day_seed = int(ts.strftime("%Y%j%d")) ^ hash(hw) & 0xFFFFFFFF
+            day_seed = _day_seed(hw, ts)
             flow_lph = _next_dummy_value(prev_flow, lo, hi, ts.hour, day_seed)
             flow_lpm = round(flow_lph / 60.0, 3)
             inc = flow_lph * interval_hours
@@ -351,7 +366,7 @@ async def backfill_history(db: AsyncIOMotorDatabase, reg: Dict[str, Any],
             prev_fwd = fwd
             prev_rev = rev
         else:  # dwlr (default)
-            day_seed = int(ts.strftime("%Y%j%d")) ^ hash(hw) & 0xFFFFFFFF
+            day_seed = _day_seed(hw, ts)
             lvl = _next_dummy_value(prev_level, lo, hi, ts.hour, day_seed)
             signal = max(5, min(30, int(round(random.gauss(18.0, 3.0)))))
             battery = max(4.5, min(5.5, round(random.gauss(5.0, 0.05), 2)))
@@ -407,20 +422,22 @@ async def backfill_history(db: AsyncIOMotorDatabase, reg: Dict[str, Any],
 
     # Update `latest` only if the newest backfilled point is newer than what's stored
     if latest_doc:
+        # Remove _id if present (added by insert_many) to avoid immutable field error
+        latest_doc_clean = {k: v for k, v in latest_doc.items() if k != "_id"}
         if itype == "flowmeter":
             existing = await db.flowmeter_latest.find_one({"hardware_id": hw}, {"received_at": 1})
-            if not existing or (existing.get("received_at") or "") < latest_doc["received_at"]:
+            if not existing or (existing.get("received_at") or "") < latest_doc_clean["received_at"]:
                 await db.flowmeter_latest.update_one(
-                    {"hardware_id": hw}, {"$set": latest_doc}, upsert=True
+                    {"hardware_id": hw}, {"$set": latest_doc_clean}, upsert=True
                 )
         else:
             existing = await db.instrument_latest.find_one(
                 {"instrument_type": "dwlr", "hardware_id": hw}, {"received_at": 1}
             )
-            if not existing or (existing.get("received_at") or "") < latest_doc["received_at"]:
+            if not existing or (existing.get("received_at") or "") < latest_doc_clean["received_at"]:
                 await db.instrument_latest.update_one(
                     {"instrument_type": "dwlr", "hardware_id": hw},
-                    {"$set": latest_doc}, upsert=True
+                    {"$set": latest_doc_clean}, upsert=True
                 )
 
     logger.info("[dummy] backfilled %d rows for %s (%s → %s, every %ds)",

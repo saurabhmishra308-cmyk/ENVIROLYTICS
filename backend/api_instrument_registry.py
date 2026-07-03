@@ -444,6 +444,20 @@ async def set_dummy_config(hardware_id: str, req: DummyConfigRequest,
         {"hardware_id": hardware_id},
         {"$set": {"dummy_config": cfg}},
     )
+    # Audit trail — production accountability for who flipped dummy mode
+    await db.audit_log.insert_one({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "entity_type": "instrument_dummy_config",
+        "entity_id": hardware_id,
+        "action": "enable" if req.enabled else "disable",
+        "actor_id": admin.get("id"),
+        "actor_email": admin.get("email"),
+        "detail": {
+            "min_value": cfg["min_value"],
+            "max_value": cfg["max_value"],
+            "interval_seconds": cfg["interval_seconds"],
+        },
+    })
     return {"success": True, "hardware_id": hardware_id, "dummy_config": cfg}
 
 
@@ -505,5 +519,22 @@ async def backfill_dummy_history(hardware_id: str, req: DummyBackfillRequest,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    # Audit trail
+    await db.audit_log.insert_one({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "entity_type": "instrument_dummy_backfill",
+        "entity_id": hardware_id,
+        "action": "backfill",
+        "actor_id": admin.get("id"),
+        "actor_email": admin.get("email"),
+        "detail": {
+            "from_date": result["from_date"],
+            "to_date": result["to_date"],
+            "interval_seconds": result["interval_seconds"],
+            "inserted_count": result["inserted_count"],
+            "min_value": result["min_value"],
+            "max_value": result["max_value"],
+        },
+    })
     return {"success": True, **result}
 
