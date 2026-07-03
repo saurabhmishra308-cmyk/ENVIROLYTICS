@@ -160,6 +160,24 @@ async def startup_event():
     logger.info("Starting Envirolytics Monitor API...")
     # Seed admin user
     await seed_admin(db)
+    # God-mode migration: strip any expiry fields from every existing admin
+    # user so admins never appear in the renewal countdown and never receive
+    # reminder emails, even if they were created before this rule existed.
+    try:
+        r = await db.users.update_many(
+            {"role": "admin"},
+            {"$set": {"service_expiry_date": None, "service_term_years": None}},
+        )
+        if r.modified_count:
+            logger.info(f"[migration] cleared expiry on {r.modified_count} admin user(s) — admins never expire")
+        # Also purge any stale reminder-state markers previously written for admins
+        admin_ids = [u["id"] async for u in db.users.find({"role": "admin"}, {"id": 1})]
+        if admin_ids:
+            purged = await db.renewal_reminders_state.delete_many({"user_id": {"$in": admin_ids}})
+            if purged.deleted_count:
+                logger.info(f"[migration] removed {purged.deleted_count} stale reminder marker(s) for admins")
+    except Exception:  # noqa: BLE001
+        logger.exception("[migration] admin god-mode cleanup failed (non-fatal)")
     # Ensure performance indexes on hot collections (idempotent — safe on every restart)
     try:
         await db.flowmeter_latest.create_index("hardware_id", unique=True)

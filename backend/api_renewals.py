@@ -52,35 +52,48 @@ def _parse_iso(value) -> Optional[datetime]:
 
 
 def _expiry_for(user: dict) -> Optional[datetime]:
-    """Use explicit service_expiry_date if set; else created_at + service_term_years."""
+    """Return the expiry datetime for a user, or None if the user never
+    expires. **Admins have no expiry — they are 'god mode' and always
+    return None.**"""
+    if (user.get("role") or "").lower() == "admin":
+        return None
     explicit = _parse_iso(user.get("service_expiry_date"))
     if explicit:
         return explicit
     created = _parse_iso(user.get("created_at"))
     if not created:
         return None
-    term_y = float(user.get("service_term_years", DEFAULT_TERM_YEARS))
+    term_y = float(user.get("service_term_years") or DEFAULT_TERM_YEARS)
     return created + timedelta(days=term_y * 365.25)
 
 
 def _summary(user: dict) -> dict:
     exp = _expiry_for(user)
     now = datetime.now(timezone.utc)
+    is_admin = (user.get("role") or "").lower() == "admin"
     days_left = (exp - now).days if exp else None
+    if is_admin:
+        # God-mode label — never counts down, never expires, never reminded.
+        status = "never_expires"
+        term_years_out = None
+    else:
+        status = (
+            "expired"   if days_left is not None and days_left < 0 else
+            "expiring"  if days_left is not None and days_left <= DEFAULT_REMINDER_DAYS else
+            "active"
+        ) if days_left is not None else "unknown"
+        raw_term = user.get("service_term_years")
+        term_years_out = float(raw_term) if raw_term is not None else DEFAULT_TERM_YEARS
     return {
         "id": user.get("id"),
         "email": user.get("email"),
         "full_name": user.get("full_name", ""),
         "role": user.get("role", "client"),
         "created_at": user.get("created_at"),
-        "service_term_years": float(user.get("service_term_years", DEFAULT_TERM_YEARS)),
+        "service_term_years": term_years_out,
         "service_expiry_date": exp.isoformat() if exp else None,
         "days_until_expiry": days_left,
-        "status": (
-            "expired"   if days_left is not None and days_left < 0 else
-            "expiring"  if days_left is not None and days_left <= DEFAULT_REMINDER_DAYS else
-            "active"
-        ) if days_left is not None else "unknown",
+        "status": status,
     }
 
 
@@ -106,6 +119,11 @@ async def update_renewal(user_id: str, payload: UpdateExpiryPayload, admin: dict
     existing = await db.users.find_one({"id": user_id})
     if not existing:
         raise HTTPException(status_code=404, detail="User not found")
+    if (existing.get("role") or "").lower() == "admin":
+        raise HTTPException(
+            status_code=400,
+            detail="Admin accounts never expire (god mode) — cannot set an expiry on an admin user.",
+        )
     update = {}
     if payload.service_expiry_date is not None:
         parsed = _parse_iso(payload.service_expiry_date) or _parse_iso(payload.service_expiry_date + "T00:00:00+00:00")

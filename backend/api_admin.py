@@ -60,10 +60,14 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     now_dt = datetime.now(timezone.utc)
-    # Stamp a 365-day service term explicitly so renewals never depend on env defaults
-    # shifting later. Renewal reminders are then sent 30 days before this date.
-    term_years = 1.0
-    service_expiry = (now_dt + timedelta(days=term_years * 365.25)).isoformat()
+    # 365-day service term is a CLIENT concept — admins are "god mode" and
+    # never expire. We only stamp expiry for non-admin roles.
+    role = req.role if req.role in ("admin", "client") else "client"
+    term_years = None
+    service_expiry = None
+    if role != "admin":
+        term_years = 1.0
+        service_expiry = (now_dt + timedelta(days=term_years * 365.25)).isoformat()
 
     user_doc = {
         "id": f"user_{uuid.uuid4().hex[:12]}",
@@ -73,7 +77,7 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
         "full_name": req.full_name,
         "company_name": req.company_name,
         "phone": req.phone,
-        "role": req.role if req.role in ("admin", "client") else "client",
+        "role": role,
         "is_active": True,
         "location_name": req.location_name,
         "latitude": req.latitude,

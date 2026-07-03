@@ -3156,3 +3156,247 @@ agent_communication:
       All production-readiness checks passed: deterministic seeding, MongoDB indexes,
       audit trail, and keep-going-until-real-data behavior all verified. One bug
       fixed during testing (WriteError on _id field in backfill).
+
+  - task: "Admin god-mode — admin accounts never expire (only client-created users do)"
+    implemented: true
+    working: true
+    file: "/app/backend/api_admin.py, /app/backend/api_renewals.py, /app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: |
+          User requirement: "admin login should be God mode no expiry, only
+          created user login get expired".
+
+          **CHANGES:**
+          1. `api_admin.py::create_user` — no longer stamps
+             `service_term_years` / `service_expiry_date` when role="admin".
+             For client role, still stamps `term_years=1.0` and
+             `service_expiry_date = created_at + 365.25 days`.
+          2. `api_renewals.py::_expiry_for()` — returns None immediately if
+             `user.role == "admin"`. Cascade: `scan_and_remind()` already
+             skips users with no expiry, so admins never receive reminder
+             emails.
+          3. `api_renewals.py::_summary()` — for admin users, sets
+             `status: "never_expires"`, `days_until_expiry: null`,
+             `service_expiry_date: null`, `service_term_years: null`.
+             Frontend can display a "God mode / Never expires" label.
+          4. `api_renewals.py::update_renewal()` (PUT `/api/renewals/{user_id}`)
+             — now returns 400 if the target user is an admin, with message
+             "Admin accounts never expire (god mode) — cannot set an expiry".
+          5. `server.py::startup_event()` — new **god-mode migration**: on
+             every startup, `UPDATE users SET service_expiry_date=null,
+             service_term_years=null WHERE role="admin"`, AND purges any
+             stale `renewal_reminders_state` markers previously written for
+             admin users. Idempotent + non-fatal. Ensures pre-existing admin
+             records get cleaned up in preview and after redeploy to prod.
+
+          **RETEST FOCUS:**
+          1. Create a fresh admin via `POST /api/admin/users` with role=admin
+             → response `user.service_expiry_date` is null and
+             `user.service_term_years` is null.
+          2. Create a fresh client via `POST /api/admin/users` with
+             role=client → still gets `service_expiry_date ≈ now+365d` and
+             `service_term_years: 1.0`. (regression)
+          3. `GET /api/renewals` — admin users appear with
+             `status: "never_expires"`, `days_until_expiry: null`. Clients
+             appear with normal `active`/`expiring`/`expired` status.
+          4. `PUT /api/renewals/{admin_user_id}` with any body → 400 with
+             message mentioning "god mode" / "never expire".
+          5. `PUT /api/renewals/{client_user_id}` → still works, allows
+             extending the client's expiry.
+          6. `POST /api/renewals/run-now` — the seed admin
+             (admin@envirolytics.com) should NEVER be counted in `due` or
+             `sent`. Only clients within the 30-day window fire.
+          7. Verify migration on startup — after the restart, check that
+             the seed admin user in the DB has
+             `service_expiry_date: null` and `service_term_years: null`.
+             (`GET /api/admin/users/list` and inspect the admin entry.)
+          8. Regression: existing client renewal reminder flow still works
+             (create a client, push their expiry into the 30-day window
+             via PUT, run-now → sent count includes them).
+          9. No login is blocked — the change is metadata-only (login flow
+             was never gated on expiry). Both admins and clients can still
+             log in normally regardless of expiry state.
+        -working: true
+        -agent: "testing"
+        -comment: |
+          ✅ VERIFIED: ALL 10 TESTS PASSED - Admin God-Mode feature working perfectly.
+          
+          **Test Coverage Summary:**
+          
+          **Test 1: Create new admin — no expiry stamped ✅**
+          - POST /api/admin/users/create with role="admin" → 200
+          - Response: user.role="admin", user.service_term_years=null, user.service_expiry_date=null
+          - Verified via GET /api/admin/users/list — admin has null expiry fields
+          
+          **Test 2: Create new client — normal 1-year stamp ✅**
+          - POST /api/admin/users/create with role="client" → 200
+          - Response: user.service_term_years=1.0, user.service_expiry_date ≈ now+365 days
+          - Expiry date verified to be within 2 days of expected (365 days from now)
+          
+          **Test 3: GET /api/renewals returns "never_expires" for admins ✅**
+          - GET /api/renewals → 200
+          - Seed admin (admin@envirolytics.com): status="never_expires", days_until_expiry=null, service_expiry_date=null, service_term_years=null
+          - Test admin (godmode1@test.com): status="never_expires", days_until_expiry=null
+          - Test client (client_expiry@test.com): status="active", days_until_expiry=365, service_expiry_date set
+          
+          **Test 4: Migration cleaned pre-existing admins ✅**
+          - GET /api/admin/users/list → 200
+          - Found 2 admin users (seed admin + test admin)
+          - Both admins have service_expiry_date=null and service_term_years=null
+          - Migration successfully cleaned all admin users on startup
+          
+          **Test 5: PUT expiry on admin is blocked ✅**
+          - PUT /api/renewals/{test_admin_id} with service_expiry_date → 400
+          - Error message: "Admin accounts never expire (god mode) — cannot set an expiry on an admin user."
+          - PUT /api/renewals/{seed_admin_id} with service_expiry_date → 400
+          - Both admins correctly blocked from having expiry set
+          
+          **Test 6: PUT expiry on client still works ✅**
+          - PUT /api/renewals/{client_id} with service_expiry_date=today+10 days → 200
+          - Response: status="expiring", days_until_expiry=9
+          - Verified via GET /api/renewals — client status updated to "expiring"
+          
+          **Test 7: POST /api/renewals/run-now — admins never counted as due ✅**
+          - POST /api/renewals/run-now → 200
+          - Response: checked=7, due=1, sent=1
+          - Only the client (within 30-day window) counted as due
+          - NO admin users counted in 'due' or 'sent'
+          
+          **Test 8: Auth flow still works for admins with no expiry ✅**
+          - POST /api/auth/login with seed admin credentials → 200
+          - POST /api/auth/login with test admin credentials → 200
+          - Both admins can login successfully despite having no expiry fields
+          
+          **Test 9: Regression checks ✅**
+          - GET /api/flowmeter/status → 200, connected=true
+          - GET /api/instrument-registry → 200
+          - GET /api/admin/users/list → 200
+          - All existing endpoints working correctly
+          
+          **Test 10: Sort order in GET /api/renewals ✅**
+          - GET /api/renewals → 200
+          - Renewals list sorted correctly:
+            * Clients with numeric days_until_expiry sorted ascending (9, 363, 365, 365, 365)
+            * Admins with days_until_expiry=null sorted to the end (positions 6-7)
+          - Sort order verified: admins with None come after all clients with numeric days
+          
+          **Cleanup ✅**
+          - Deleted test admin (godmode1@test.com) → 200
+          - Deleted test client (client_expiry@test.com) → 200
+          - No test data left in database
+          
+          **CONCLUSION:**
+          The Admin God-Mode feature is PRODUCTION-READY and working exactly as specified.
+          All 10 test cases passed. Admins never expire (service_term_years=null, service_expiry_date=null),
+          clients get 1-year expiry stamps, renewals endpoint returns "never_expires" for admins,
+          migration cleaned pre-existing admins, PUT expiry on admin is blocked (400), PUT expiry on
+          client works, run-now never counts admins as due, auth flow works for admins, all regression
+          checks passed, and sort order is correct (admins at end).
+
+
+
+
+  - agent: "testing"
+    message: |
+      ✅ ADMIN GOD-MODE FEATURE VERIFICATION COMPLETE (10/10 TESTS PASSED)
+      
+      **Test Request:** Test the new Admin God-Mode feature — admins never expire, only client users do
+      
+      **Result: ALL TESTS PASSED ✅**
+      
+      **Summary:**
+      - All 10 test cases from review request completed successfully
+      - Admin user creation no longer stamps expiry fields (service_term_years=null, service_expiry_date=null)
+      - Client user creation still stamps 1-year expiry (service_term_years=1.0, expiry ≈ now+365 days)
+      - GET /api/renewals returns status="never_expires" for admins
+      - Migration cleaned all pre-existing admin users (removed expiry fields)
+      - PUT expiry on admin is blocked with 400 error
+      - PUT expiry on client still works correctly
+      - POST /api/renewals/run-now never counts admins as due
+      - Auth flow works for admins with no expiry
+      - All regression checks passed
+      - Sort order correct (admins with None at end)
+      
+      **Key Findings:**
+      
+      1. **Admin Creation (Test 1) ✅**
+         - POST /api/admin/users/create with role="admin" → 200
+         - Response: user.role="admin", user.service_term_years=null, user.service_expiry_date=null
+         - Verified via GET /api/admin/users/list — admin has null expiry fields
+      
+      2. **Client Creation (Test 2) ✅**
+         - POST /api/admin/users/create with role="client" → 200
+         - Response: user.service_term_years=1.0, user.service_expiry_date ≈ now+365 days
+         - Expiry date verified to be within 2 days of expected
+      
+      3. **Renewals Endpoint (Test 3) ✅**
+         - GET /api/renewals → 200
+         - Seed admin: status="never_expires", days_until_expiry=null, service_expiry_date=null, service_term_years=null
+         - Test admin: status="never_expires", days_until_expiry=null
+         - Test client: status="active", days_until_expiry=365, service_expiry_date set
+      
+      4. **Migration (Test 4) ✅**
+         - GET /api/admin/users/list → 200
+         - Found 2 admin users (seed admin + test admin)
+         - Both admins have service_expiry_date=null and service_term_years=null
+         - Migration successfully cleaned all admin users on startup
+      
+      5. **PUT Expiry on Admin Blocked (Test 5) ✅**
+         - PUT /api/renewals/{test_admin_id} with service_expiry_date → 400
+         - Error message: "Admin accounts never expire (god mode) — cannot set an expiry on an admin user."
+         - PUT /api/renewals/{seed_admin_id} with service_expiry_date → 400
+         - Both admins correctly blocked from having expiry set
+      
+      6. **PUT Expiry on Client Works (Test 6) ✅**
+         - PUT /api/renewals/{client_id} with service_expiry_date=today+10 days → 200
+         - Response: status="expiring", days_until_expiry=9
+         - Verified via GET /api/renewals — client status updated to "expiring"
+      
+      7. **Run-Now Admins Not Counted (Test 7) ✅**
+         - POST /api/renewals/run-now → 200
+         - Response: checked=7, due=1, sent=1
+         - Only the client (within 30-day window) counted as due
+         - NO admin users counted in 'due' or 'sent'
+      
+      8. **Auth Flow Works (Test 8) ✅**
+         - POST /api/auth/login with seed admin credentials → 200
+         - POST /api/auth/login with test admin credentials → 200
+         - Both admins can login successfully despite having no expiry fields
+      
+      9. **Regression Checks (Test 9) ✅**
+         - GET /api/flowmeter/status → 200, connected=true
+         - GET /api/instrument-registry → 200
+         - GET /api/admin/users/list → 200
+         - All existing endpoints working correctly
+      
+      10. **Sort Order (Test 10) ✅**
+          - GET /api/renewals → 200
+          - Renewals list sorted correctly:
+            * Clients with numeric days_until_expiry sorted ascending (9, 363, 365, 365, 365)
+            * Admins with days_until_expiry=null sorted to the end (positions 6-7)
+          - Sort order verified: admins with None come after all clients with numeric days
+      
+      **Cleanup:**
+      - Deleted test admin (godmode1@test.com) → 200
+      - Deleted test client (client_expiry@test.com) → 200
+      - No test data left in database
+      
+      **No Issues Found:**
+      - No API errors (all endpoints return correct status codes)
+      - No exceptions in backend logs
+      - No data integrity issues
+      - No authorization bypasses
+      - No regression failures
+      
+      **CONCLUSION:**
+      The Admin God-Mode feature is PRODUCTION-READY and working exactly as specified.
+      All 10 test cases passed. Admins never expire (service_term_years=null, service_expiry_date=null),
+      clients get 1-year expiry stamps, renewals endpoint returns "never_expires" for admins,
+      migration cleaned pre-existing admins, PUT expiry on admin is blocked (400), PUT expiry on
+      client works, run-now never counts admins as due, auth flow works for admins, all regression
+      checks passed, and sort order is correct (admins at end).
