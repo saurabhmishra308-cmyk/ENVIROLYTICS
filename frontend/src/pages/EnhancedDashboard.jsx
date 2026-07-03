@@ -187,12 +187,14 @@ const EnhancedDashboard = () => {
   const dwlrTiles = byType.dwlr.map((r) => ({
     hardware_id: r.hardware_id,
     label: 'DWLR',
-    value: pickValue(r.values, ['LEVEL', 'level', 'WATER_LEVEL'], '—'),
+    value: pickValue(r.values, ['LEVEL', 'LVL', 'level', 'WATER_LEVEL'], '—'),
     unit: 'mWC',
     status: 'active',
     meta: r.manual_water_temp_c != null
       ? `${Number(r.manual_water_temp_c).toFixed(1)}°C`
-      : (r.values?.BATTERY ? `Battery ${r.values.BATTERY}%` : null),
+      : (r.values?.WTEMP && Number(r.values.WTEMP) > 0 ? `${Number(r.values.WTEMP).toFixed(1)}°C`
+         : (r.values?.BATTERY ? `Battery ${r.values.BATTERY}%`
+            : (r.values?.BVOLT ? `${Number(r.values.BVOLT).toFixed(2)}V` : null))),
   }));
   if (dwlrTiles.length === 0) dwlrTiles.push({ hardware_id: '', label: 'DWLR', value: null, unit: 'mWC', status: 'inactive' });
 

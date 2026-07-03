@@ -51,14 +51,26 @@ const WaterLevelRecorder = () => {
       const merged = registered.map((reg) => {
         const lt = latestByHw[reg.hardware_id];
         const vals = lt?.values || {};
-        const level = typeof vals.LEVEL === 'number' ? vals.LEVEL
-                    : typeof vals.level === 'number' ? vals.level
-                    : (vals.LEVEL != null ? parseFloat(vals.LEVEL) : null);
+
+        // Water level — accept LEVEL (older firmware) or LVL (newer firmware).
+        // Backend normalises them, but be defensive on the client too.
+        const rawLevel = vals.LEVEL ?? vals.LVL ?? vals.level;
+        const level = typeof rawLevel === 'number' ? rawLevel
+                    : (rawLevel != null && rawLevel !== '' ? parseFloat(rawLevel) : null);
         const levelNum = Number.isFinite(level) ? level : null;
-        // Temperature is admin-set on the registry — device does NOT transmit it.
-        const temp = typeof reg.manual_water_temp_c === 'number' ? reg.manual_water_temp_c
-                    : (reg.manual_water_temp_c != null ? parseFloat(reg.manual_water_temp_c) : null);
-        const tempNum = Number.isFinite(temp) ? temp : null;
+
+        // Water temperature: prefer device-reported WTEMP when the on-board water
+        // temp sensor is enabled (WT_Enbl > 0 AND WTEMP is a real number > 0).
+        // Otherwise fall back to the admin-set manual value from the registry.
+        const wtEnabled = Number(vals.WT_Enbl ?? 0) > 0;
+        const wtemp = Number(vals.WTEMP ?? 0);
+        const deviceTemp = (wtEnabled && Number.isFinite(wtemp) && wtemp > 0) ? wtemp : null;
+        const manualTemp = typeof reg.manual_water_temp_c === 'number'
+          ? reg.manual_water_temp_c
+          : (reg.manual_water_temp_c != null ? parseFloat(reg.manual_water_temp_c) : null);
+        const tempNum = deviceTemp != null ? deviceTemp
+                      : (Number.isFinite(manualTemp) ? manualTemp : null);
+
         return {
           hardware_id: reg.hardware_id,
           label: reg.label || reg.hardware_id,
@@ -68,6 +80,11 @@ const WaterLevelRecorder = () => {
           imei: reg.imei || null,
           level_mwc: levelNum,
           temperature_c: tempNum,
+          temperature_source: deviceTemp != null ? 'device' : (manualTemp != null ? 'manual' : null),
+          ambient_temp_c: Number.isFinite(Number(vals.ATEMP)) ? Number(vals.ATEMP) : null,
+          battery_v: Number.isFinite(Number(vals.BVOLT)) ? Number(vals.BVOLT) : null,
+          signal: Number.isFinite(Number(vals.SIGNAL)) ? Number(vals.SIGNAL) : null,
+          firmware: vals.HVER || vals.VER || null,
           received_at: lt?.received_at || lt?.timestamp || null,
           never_reported: !lt,
         };
@@ -216,12 +233,42 @@ const WaterLevelRecorder = () => {
                       <p className="text-xl font-bold tabular-nums" style={{ color: '#1a2332' }}>
                         {typeof activeWell?.temperature_c === 'number' ? `${fmt(activeWell.temperature_c, 1)} °C` : '—'}
                       </p>
+                      {activeWell?.temperature_source && (
+                        <p className="text-[10px] uppercase tracking-wider text-gray-500 mt-1">
+                          {activeWell.temperature_source === 'device' ? 'from device sensor' : 'admin-set value'}
+                        </p>
+                      )}
                     </div>
                     <div className="p-3 bg-green-50 rounded-lg">
                       <p className="text-xs text-gray-600 mb-1">Hardware ID</p>
                       <p className="text-sm font-mono break-all" style={{ color: '#27ae60' }}>{activeWell?.hardware_id}</p>
                     </div>
                   </div>
+
+                  {/* Device diagnostics — only render when the newer-firmware payload
+                      supplies these fields (older format doesn't). */}
+                  {(activeWell?.ambient_temp_c != null || activeWell?.battery_v != null || activeWell?.signal != null) && (
+                    <div className="grid grid-cols-3 gap-2 mt-3">
+                      {activeWell.ambient_temp_c != null && (
+                        <div className="p-2 bg-amber-50 rounded-lg text-center">
+                          <p className="text-[10px] uppercase tracking-wider text-gray-500">Ambient</p>
+                          <p className="text-sm font-semibold text-amber-700 tabular-nums">{fmt(activeWell.ambient_temp_c, 1)} °C</p>
+                        </div>
+                      )}
+                      {activeWell.battery_v != null && (
+                        <div className="p-2 bg-lime-50 rounded-lg text-center">
+                          <p className="text-[10px] uppercase tracking-wider text-gray-500">Battery</p>
+                          <p className="text-sm font-semibold text-lime-700 tabular-nums">{fmt(activeWell.battery_v, 2)} V</p>
+                        </div>
+                      )}
+                      {activeWell.signal != null && (
+                        <div className="p-2 bg-sky-50 rounded-lg text-center">
+                          <p className="text-[10px] uppercase tracking-wider text-gray-500">Signal</p>
+                          <p className="text-sm font-semibold text-sky-700 tabular-nums">{activeWell.signal} dBm</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

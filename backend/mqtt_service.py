@@ -234,28 +234,47 @@ class MQTTFlowmeterService:
     async def process_instrument_data(self, instrument_type: str, hardware_id: str, data: Dict):
         """Generic instrument reading handler.
 
-        For DWLR the important field is `LEVEL` (metres of water column, mWC).
-        Temperature is NOT sent by the field device — it's stored on the
-        instrument_registry as `manual_water_temp_c` and set by admins.
+        Water level can arrive as either `LEVEL` (older firmware, topic P<id>/0
+        with 8-field payload) or `LVL` (newer firmware, topic P<id>/0 with
+        expanded 19-field payload including WTEMP, ATEMP, BVOLT, etc.). Both
+        formats are normalised in-place so downstream consumers just read
+        `values.LEVEL`.
+
+        Water temperature: newer firmware sends `WTEMP` (only meaningful when
+        `WT_Enbl > 0`). When absent or zero, we fall back to the admin-set
+        `manual_water_temp_c` on the instrument registry (handled by the API
+        enrichment step, not here).
         """
         try:
-            # Normalise LEVEL → float when present (device sends it as string)
             values = dict(data)
-            if "LEVEL" in values:
+
+            # --- String → number coercion for known fields (device sends as strings)
+            float_fields = (
+                "LEVEL", "LVL", "RAW", "WTEMP", "ATEMP", "BVOLT",
+                "D_SEN", "E_COM", "P_SEN", "APRES", "GINT", "SDINT",
+                "HVER", "WT_Enbl", "UNT", "HID", "FLOW",
+            )
+            for f in float_fields:
+                if f in values and values[f] is not None and values[f] != "":
+                    try:
+                        values[f] = float(values[f])
+                    except (TypeError, ValueError):
+                        pass
+            # SIGNAL is always integer
+            if "SIGNAL" in values and values["SIGNAL"] is not None:
                 try:
-                    values["LEVEL"] = float(values["LEVEL"])
+                    values["SIGNAL"] = int(float(values["SIGNAL"]))
                 except (TypeError, ValueError):
                     pass
-            if "SIGNAL" in values:
-                try:
-                    values["SIGNAL"] = int(values["SIGNAL"])
-                except (TypeError, ValueError):
-                    pass
-            if "UNT" in values:
-                try:
-                    values["UNT"] = float(values["UNT"])
-                except (TypeError, ValueError):
-                    pass
+
+            # --- Back-compat: unify LVL → LEVEL so every dashboard/query reads a
+            # single canonical field. If both are present, LVL wins (it's the
+            # newer firmware's authoritative field).
+            if "LVL" in values and isinstance(values["LVL"], (int, float)):
+                values["LEVEL"] = values["LVL"]
+            elif "LEVEL" in values and isinstance(values["LEVEL"], (int, float)):
+                # Also mirror the other way so both keys always resolve consistently.
+                values["LVL"] = values["LEVEL"]
 
             now_iso = datetime.now(timezone.utc).isoformat()
             doc = {
@@ -272,7 +291,11 @@ class MQTTFlowmeterService:
                 {"$set": doc},
                 upsert=True,
             )
-            print(f"[mqtt] Stored {instrument_type} reading for {hardware_id} (LEVEL={values.get('LEVEL')})")
+            print(
+                f"[mqtt] Stored {instrument_type} reading for {hardware_id} "
+                f"(LEVEL={values.get('LEVEL')}, WTEMP={values.get('WTEMP')}, "
+                f"BVOLT={values.get('BVOLT')})"
+            )
         except Exception as e:  # noqa: BLE001
             print(f"[mqtt] Error processing instrument data: {e}")
 
