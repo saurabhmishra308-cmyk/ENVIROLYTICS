@@ -197,6 +197,9 @@ async def startup_event():
     app.state.limits_task = asyncio.create_task(api_limits.background_loop())
     # Background loop for service-renewal reminders
     app.state.renewals_task = asyncio.create_task(api_renewals.background_loop())
+    # Background loop for dummy-data generation (offline-instrument safety net)
+    from dummy_data_service import dummy_data_loop
+    app.state.dummy_task = asyncio.create_task(dummy_data_loop(db))
     logger.info("Startup complete")
 
 

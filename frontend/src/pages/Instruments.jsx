@@ -8,7 +8,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../components/ui/dialog';
 import {
-  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw, Radio, Activity, CheckCircle2, XCircle,
+  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw, Radio, Activity, CheckCircle2, XCircle, Dices, History,
 } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
@@ -63,6 +63,19 @@ const Instruments = () => {
   // Live MQTT traffic panel state
   const [trafficOpen, setTrafficOpen] = useState(true);
   const [traffic, setTraffic] = useState(null);
+
+  // Dummy mode dialog (per-instrument)
+  const [dummyOpen, setDummyOpen] = useState(false);
+  const [dummyTarget, setDummyTarget] = useState(null);
+  const [dummyTab, setDummyTab] = useState('live'); // 'live' | 'backfill'
+  const [dummyForm, setDummyForm] = useState({
+    enabled: false, min_value: '', max_value: '', interval_seconds: 900,
+  });
+  const [backfillForm, setBackfillForm] = useState({
+    from_date: '', to_date: '', interval_seconds: 3600, min_value: '', max_value: '',
+  });
+  const [dummySubmitting, setDummySubmitting] = useState(false);
+  const [backfillResult, setBackfillResult] = useState(null);
 
   const copyToClipboard = async (text, label = 'Copied') => {
     try {
@@ -128,6 +141,122 @@ const Instruments = () => {
     // to fill in hardware_id + owner + type + click Register.
     setForm({ ...EMPTY_FORM, imei });
     setCreateOpen(true);
+  };
+
+  // ---------- Dummy Mode helpers ----------
+  const openDummyDialog = async (it) => {
+    setDummyTarget(it);
+    setDummyTab('live');
+    setBackfillResult(null);
+    // Reasonable defaults based on the instrument type
+    const defaults = it.instrument_type === 'flowmeter'
+      ? { min_value: 100, max_value: 500 }        // L/H
+      : { min_value: 5, max_value: 200 };          // mWC for DWLR
+    setDummyForm({
+      enabled: false,
+      min_value: String(defaults.min_value),
+      max_value: String(defaults.max_value),
+      interval_seconds: 900,
+    });
+    const now = new Date();
+    const oneMonthAgo = new Date(now.getTime() - 30 * 86400 * 1000);
+    const toIso = (d) => d.toISOString().slice(0, 16);
+    setBackfillForm({
+      from_date: toIso(oneMonthAgo),
+      to_date: toIso(now),
+      interval_seconds: 3600,
+      min_value: String(defaults.min_value),
+      max_value: String(defaults.max_value),
+    });
+    // Fetch existing config, if any
+    try {
+      const { data } = await api.get(`/api/instrument-registry/${it.hardware_id}/dummy`);
+      if (data?.dummy_config) {
+        setDummyForm({
+          enabled: !!data.dummy_config.enabled,
+          min_value: data.dummy_config.min_value != null ? String(data.dummy_config.min_value) : String(defaults.min_value),
+          max_value: data.dummy_config.max_value != null ? String(data.dummy_config.max_value) : String(defaults.max_value),
+          interval_seconds: data.dummy_config.interval_seconds || 900,
+        });
+      }
+    } catch (e) {
+      // 404 for legacy rows without a config — that's OK, we'll create one.
+    }
+    setDummyOpen(true);
+  };
+
+  const submitDummyLive = async () => {
+    if (!dummyTarget) return;
+    const lo = parseFloat(dummyForm.min_value);
+    const hi = parseFloat(dummyForm.max_value);
+    if (dummyForm.enabled) {
+      if (!Number.isFinite(lo) || !Number.isFinite(hi)) {
+        toast.error('Min and Max values must be numbers');
+        return;
+      }
+      if (hi <= lo) { toast.error('Max value must be greater than Min value'); return; }
+    }
+    setDummySubmitting(true);
+    try {
+      await api.put(`/api/instrument-registry/${dummyTarget.hardware_id}/dummy`, {
+        enabled: !!dummyForm.enabled,
+        min_value: Number.isFinite(lo) ? lo : null,
+        max_value: Number.isFinite(hi) ? hi : null,
+        interval_seconds: parseInt(dummyForm.interval_seconds, 10) || 900,
+      });
+      toast.success(dummyForm.enabled
+        ? `Dummy mode ON — new readings every ${dummyForm.interval_seconds}s (${lo}…${hi})`
+        : 'Dummy mode turned OFF');
+      setDummyOpen(false);
+      refresh();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+    } finally {
+      setDummySubmitting(false);
+    }
+  };
+
+  const submitBackfill = async () => {
+    if (!dummyTarget) return;
+    const lo = parseFloat(backfillForm.min_value);
+    const hi = parseFloat(backfillForm.max_value);
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) {
+      toast.error('Min and Max must be numbers with Max > Min'); return;
+    }
+    if (!backfillForm.from_date || !backfillForm.to_date) {
+      toast.error('Both start and end dates are required'); return;
+    }
+    // Preview # of points
+    const from = new Date(backfillForm.from_date);
+    const to = new Date(backfillForm.to_date);
+    if (from >= to) { toast.error('Start date must be before end date'); return; }
+    const interval = parseInt(backfillForm.interval_seconds, 10) || 3600;
+    const nPoints = Math.floor((to - from) / 1000 / interval);
+    if (nPoints > 200000) {
+      toast.error(`Selected range would generate ${nPoints.toLocaleString()} rows (max 200,000). Increase the interval.`);
+      return;
+    }
+    if (!window.confirm(`Generate ~${nPoints.toLocaleString()} dummy readings for ${dummyTarget.hardware_id}?\n\nWindow: ${backfillForm.from_date} → ${backfillForm.to_date}\nInterval: every ${interval}s\nRange: ${lo} .. ${hi}\n\nThis cannot be undone (rows are marked _dummy internally).`)) return;
+
+    setDummySubmitting(true);
+    setBackfillResult(null);
+    try {
+      const { data } = await api.post(
+        `/api/instrument-registry/${dummyTarget.hardware_id}/dummy/backfill`,
+        {
+          from_date: new Date(backfillForm.from_date).toISOString(),
+          to_date: new Date(backfillForm.to_date).toISOString(),
+          interval_seconds: interval,
+          min_value: lo, max_value: hi,
+        }
+      );
+      setBackfillResult(data);
+      toast.success(`Backfilled ${data.inserted_count?.toLocaleString?.() ?? data.inserted_count} readings`);
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+    } finally {
+      setDummySubmitting(false);
+    }
   };
 
   if (!admin) {
@@ -564,6 +693,9 @@ const Instruments = () => {
                           <Button size="sm" variant="outline" onClick={() => openSimulate(it)} data-testid={`simulate-instrument-${it.hardware_id}`} title="Simulate an MQTT message from this device">
                             <Radio className="h-3 w-3 mr-1" /> Simulate
                           </Button>
+                          <Button size="sm" variant="outline" onClick={() => openDummyDialog(it)} data-testid={`dummy-instrument-${it.hardware_id}`} title="Configure dummy-data automation for this instrument" className={it.dummy_config?.enabled ? 'border-amber-500 text-amber-700' : ''}>
+                            <Dices className="h-3 w-3 mr-1" />{it.dummy_config?.enabled ? 'Dummy: ON' : 'Dummy'}
+                          </Button>
                           <Button size="sm" variant="outline" onClick={() => openEdit(it)} data-testid={`edit-instrument-${it.hardware_id}`}>
                             <Edit3 className="h-3 w-3 mr-1" /> Edit
                           </Button>
@@ -899,6 +1031,189 @@ const Instruments = () => {
       </Dialog>
 
       {/* Wipe Demo Confirm */}
+
+      {/* Dummy Mode Dialog — per-instrument dummy-data automation + historical backfill */}
+      <Dialog open={dummyOpen} onOpenChange={(o) => { if (!o) { setDummyOpen(false); setBackfillResult(null); } }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <Dices className="h-5 w-5" /> Dummy Data — {dummyTarget?.label || dummyTarget?.hardware_id}
+              <span className="text-xs bg-gray-100 px-2 py-0.5 rounded font-mono ml-2">{dummyTarget?.instrument_type}</span>
+            </DialogTitle>
+            <DialogDescription>
+              Generate realistic-looking readings when the physical device is offline.
+              Values follow a bounded random walk with a diurnal cycle and a per-day
+              offset — no two days will produce identical data.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex gap-1 border-b mb-4" role="tablist">
+            <button
+              role="tab"
+              aria-selected={dummyTab === 'live'}
+              onClick={() => setDummyTab('live')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${dummyTab === 'live' ? 'border-amber-500 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+              data-testid="dummy-tab-live"
+            >
+              <RefreshCw className="h-3.5 w-3.5 inline mr-1" /> Live Automation
+            </button>
+            <button
+              role="tab"
+              aria-selected={dummyTab === 'backfill'}
+              onClick={() => setDummyTab('backfill')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${dummyTab === 'backfill' ? 'border-amber-500 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+              data-testid="dummy-tab-backfill"
+            >
+              <History className="h-3.5 w-3.5 inline mr-1" /> Historical Backfill (up to 5 years)
+            </button>
+          </div>
+
+          {dummyTab === 'live' ? (
+            <div className="space-y-4" data-testid="dummy-live-panel">
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
+                <input
+                  id="dummy-enabled"
+                  type="checkbox"
+                  className="h-5 w-5"
+                  checked={dummyForm.enabled}
+                  onChange={(e) => setDummyForm({ ...dummyForm, enabled: e.target.checked })}
+                  data-testid="dummy-enabled-toggle"
+                />
+                <label htmlFor="dummy-enabled" className="font-medium">
+                  {dummyForm.enabled ? 'ON — a new reading will be generated every interval' : 'OFF — no data generated'}
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Min value *</Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={dummyForm.min_value}
+                    onChange={(e) => setDummyForm({ ...dummyForm, min_value: e.target.value })}
+                    data-testid="dummy-min"
+                  />
+                </div>
+                <div>
+                  <Label>Max value *</Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={dummyForm.max_value}
+                    onChange={(e) => setDummyForm({ ...dummyForm, max_value: e.target.value })}
+                    data-testid="dummy-max"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label>Interval (seconds) — how often a new reading is generated</Label>
+                <Input
+                  type="number" min="30" max="86400"
+                  value={dummyForm.interval_seconds}
+                  onChange={(e) => setDummyForm({ ...dummyForm, interval_seconds: e.target.value })}
+                  data-testid="dummy-interval"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Common values: 900 (15 min), 1800 (30 min), 3600 (1 hour). Real MQTT messages always override dummy generation within the same window.
+                </p>
+              </div>
+              <div className="text-xs text-gray-600 p-3 bg-blue-50 rounded-lg">
+                <p><strong>Unit for {dummyTarget?.instrument_type}:</strong> {dummyTarget?.instrument_type === 'flowmeter' ? 'L/H (litres per hour)' : 'mWC (metres of water column)'}</p>
+                <p className="mt-1">Data will be stored with the same wire format as real device payloads (LEVEL / LVL for DWLR, flow_rate_lph + totalizers for Flowmeter). Every dummy row is internally marked <code>_dummy=true</code> for auditability.</p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDummyOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={submitDummyLive}
+                  disabled={dummySubmitting}
+                  className="bg-amber-500 hover:bg-amber-600 text-white"
+                  data-testid="dummy-live-submit"
+                >
+                  {dummySubmitting ? 'Saving…' : (dummyForm.enabled ? 'Enable Dummy Mode' : 'Save (Disabled)')}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4" data-testid="dummy-backfill-panel">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>From (start of history) *</Label>
+                  <Input
+                    type="datetime-local"
+                    value={backfillForm.from_date}
+                    onChange={(e) => setBackfillForm({ ...backfillForm, from_date: e.target.value })}
+                    data-testid="backfill-from"
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">Maximum 5 years in the past</p>
+                </div>
+                <div>
+                  <Label>To (end of history) *</Label>
+                  <Input
+                    type="datetime-local"
+                    value={backfillForm.to_date}
+                    onChange={(e) => setBackfillForm({ ...backfillForm, to_date: e.target.value })}
+                    data-testid="backfill-to"
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">Cannot be in the future</p>
+                </div>
+              </div>
+              <div>
+                <Label>Interval between readings (seconds)</Label>
+                <Input
+                  type="number" min="30" max="86400"
+                  value={backfillForm.interval_seconds}
+                  onChange={(e) => setBackfillForm({ ...backfillForm, interval_seconds: e.target.value })}
+                  data-testid="backfill-interval"
+                />
+                <p className="text-[10px] text-gray-500 mt-1">
+                  60 → every minute · 900 → every 15 min · 3600 → hourly · 86400 → daily.
+                  Max 200,000 rows per backfill — use larger interval for long ranges.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Min value *</Label>
+                  <Input type="number" step="0.01" value={backfillForm.min_value}
+                         onChange={(e) => setBackfillForm({ ...backfillForm, min_value: e.target.value })}
+                         data-testid="backfill-min" />
+                </div>
+                <div>
+                  <Label>Max value *</Label>
+                  <Input type="number" step="0.01" value={backfillForm.max_value}
+                         onChange={(e) => setBackfillForm({ ...backfillForm, max_value: e.target.value })}
+                         data-testid="backfill-max" />
+                </div>
+              </div>
+
+              {backfillResult && (
+                <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200" data-testid="backfill-result">
+                  <div className="text-sm font-semibold text-emerald-800 mb-1">
+                    ✅ Inserted {backfillResult.inserted_count?.toLocaleString?.() ?? backfillResult.inserted_count} readings
+                  </div>
+                  <div className="text-xs text-gray-700 font-mono">
+                    {backfillResult.from_date} → {backfillResult.to_date} · every {backfillResult.interval_seconds}s · [{backfillResult.min_value} .. {backfillResult.max_value}]
+                  </div>
+                  <p className="text-xs text-gray-600 mt-2">
+                    Data is now visible in reports, charts and CSV exports for this instrument.
+                  </p>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDummyOpen(false)}>Close</Button>
+                <Button
+                  onClick={submitBackfill}
+                  disabled={dummySubmitting}
+                  className="bg-amber-500 hover:bg-amber-600 text-white"
+                  data-testid="backfill-submit"
+                >
+                  {dummySubmitting ? 'Generating…' : 'Generate Historical Data'}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={wipeOpen} onOpenChange={setWipeOpen}>
         <DialogContent>
           <DialogHeader>

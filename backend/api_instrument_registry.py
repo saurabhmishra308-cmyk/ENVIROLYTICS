@@ -379,3 +379,131 @@ async def backfill_device_keys(admin: dict = Depends(require_admin)):
         )
         updated += 1
     return {"success": True, "updated": updated}
+
+
+# ============================================================================
+# DUMMY-DATA AUTOMATION — for instruments offline due to poor network
+# ============================================================================
+class DummyConfigRequest(BaseModel):
+    enabled: bool = Field(..., description="Turn dummy-data generation on/off")
+    min_value: Optional[float] = Field(None, description="Lower bound of the generated value")
+    max_value: Optional[float] = Field(None, description="Upper bound of the generated value")
+    interval_seconds: Optional[int] = Field(
+        900, ge=30, le=86400,
+        description="Seconds between dummy readings (30s..24h). Default 15min."
+    )
+
+
+@router.get("/{hardware_id}/dummy")
+async def get_dummy_config(hardware_id: str, admin: dict = Depends(require_admin)):
+    inst = await db.instrument_registry.find_one(
+        {"hardware_id": hardware_id}, {"_id": 0, "dummy_config": 1, "instrument_type": 1}
+    )
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+    return {
+        "hardware_id": hardware_id,
+        "instrument_type": inst.get("instrument_type"),
+        "dummy_config": inst.get("dummy_config") or {
+            "enabled": False, "min_value": None, "max_value": None,
+            "interval_seconds": 900,
+        },
+    }
+
+
+@router.put("/{hardware_id}/dummy")
+async def set_dummy_config(hardware_id: str, req: DummyConfigRequest,
+                            admin: dict = Depends(require_admin)):
+    """Enable/disable dummy-data generation for an instrument (admin only).
+
+    When enabling, `min_value` and `max_value` are required. `interval_seconds`
+    defaults to 15 minutes.
+    """
+    inst = await db.instrument_registry.find_one({"hardware_id": hardware_id}, {"_id": 0})
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+
+    if req.enabled:
+        if req.min_value is None or req.max_value is None:
+            raise HTTPException(status_code=400,
+                                detail="min_value and max_value are required when enabling dummy mode")
+        if req.max_value <= req.min_value:
+            raise HTTPException(status_code=400,
+                                detail="max_value must be strictly greater than min_value")
+
+    cfg = {
+        "enabled": bool(req.enabled),
+        "min_value": float(req.min_value) if req.min_value is not None else None,
+        "max_value": float(req.max_value) if req.max_value is not None else None,
+        "interval_seconds": int(req.interval_seconds or 900),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": admin.get("id"),
+        "last_generated_at": (inst.get("dummy_config") or {}).get("last_generated_at"),
+    }
+    await db.instrument_registry.update_one(
+        {"hardware_id": hardware_id},
+        {"$set": {"dummy_config": cfg}},
+    )
+    return {"success": True, "hardware_id": hardware_id, "dummy_config": cfg}
+
+
+@router.get("/dummy/all")
+async def list_dummy_enabled(admin: dict = Depends(require_admin)):
+    """List every instrument that has dummy mode currently ON."""
+    cursor = db.instrument_registry.find(
+        {"dummy_config.enabled": True},
+        {"_id": 0, "hardware_id": 1, "instrument_type": 1, "label": 1, "dummy_config": 1},
+    )
+    items = await cursor.to_list(length=500)
+    return {"count": len(items), "instruments": items}
+
+
+
+class DummyBackfillRequest(BaseModel):
+    from_date: str = Field(..., description="ISO date/datetime for the start of the backfill window (UTC assumed)")
+    to_date: str = Field(..., description="ISO date/datetime for the end of the window (UTC assumed)")
+    interval_seconds: int = Field(900, ge=30, le=86400,
+                                   description="Seconds between generated readings (30s..24h)")
+    min_value: float = Field(..., description="Lower bound of the generated values")
+    max_value: float = Field(..., description="Upper bound of the generated values")
+
+
+@router.post("/{hardware_id}/dummy/backfill")
+async def backfill_dummy_history(hardware_id: str, req: DummyBackfillRequest,
+                                  admin: dict = Depends(require_admin)):
+    """Backfill up to **5 years** of historical dummy readings for an instrument.
+
+    Timestamps use the exact same wire format as real IoT device payloads
+    (`TIME: YYMMDDHHMMSS` for DWLR, ISO 8601 for internal `timestamp` /
+    `received_at`), and generated values follow the same realistic bounded
+    random walk used by the live dummy loop, so the historical series looks
+    organic and never repeats exactly across days.
+
+    Guardrails:
+    * `from_date` cannot be more than 5 years in the past.
+    * `to_date` is clamped to `now` if it's in the future.
+    * Total rows per call are capped at 200,000 — use a larger interval if
+      the requested window would exceed that.
+    """
+    inst = await db.instrument_registry.find_one({"hardware_id": hardware_id}, {"_id": 0})
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+
+    try:
+        from_dt = datetime.fromisoformat(req.from_date.replace("Z", "+00:00"))
+        to_dt = datetime.fromisoformat(req.to_date.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+
+    from dummy_data_service import backfill_history  # local import to avoid startup cycle
+    try:
+        result = await backfill_history(
+            db, inst,
+            from_dt=from_dt, to_dt=to_dt,
+            interval_seconds=int(req.interval_seconds),
+            lo=float(req.min_value), hi=float(req.max_value),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"success": True, **result}
+
