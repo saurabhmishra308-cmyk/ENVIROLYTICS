@@ -159,7 +159,8 @@ async def latest_readings(
         async for reg in db.instrument_registry.find(
             {"hardware_id": {"$in": hw_ids}},
             {"_id": 0, "hardware_id": 1, "label": 1, "location_name": 1,
-             "instrument_type": 1, "owner_user_id": 1, "dummy_config": 1},
+             "instrument_type": 1, "owner_user_id": 1, "dummy_config": 1,
+             "plant_capacity_kld": 1, "tank_capacity_kld": 1},
         ):
             regs[reg["hardware_id"]] = reg
     for r in stp_items + do_items:

@@ -20,6 +20,8 @@ const TYPE_OPTIONS = [
   { value: 'ph', label: 'pH Sensor' },
   { value: 'tds', label: 'TDS Sensor' },
   { value: 'conductivity', label: 'Conductivity Sensor' },
+  { value: 'wq_stp', label: 'STP Water Quality (COD/BOD/TSS/pH)' },
+  { value: 'do_meter', label: 'DO Meter (Aeration Tanks)' },
 ];
 
 const CATEGORY_OPTIONS = [
@@ -39,6 +41,8 @@ const EMPTY_FORM = {
   category: 'groundwater_abstraction',
   imei: '',
   manual_water_temp_c: '',
+  plant_capacity_kld: '',
+  tank_capacity_kld: '',
 };
 
 const Instruments = () => {
@@ -299,6 +303,18 @@ const Instruments = () => {
     } else {
       delete out.manual_water_temp_c;
     }
+    // Plant + tank capacity for water-quality / DO meter instruments
+    if (out.instrument_type === 'wq_stp' || out.instrument_type === 'do_meter') {
+      for (const k of ['plant_capacity_kld', 'tank_capacity_kld']) {
+        const v = String(out[k] ?? '').trim();
+        if (v === '') { delete out[k]; continue; }
+        const n = parseFloat(v);
+        if (Number.isNaN(n)) delete out[k]; else out[k] = n;
+      }
+    } else {
+      delete out.plant_capacity_kld;
+      delete out.tank_capacity_kld;
+    }
     return out;
   };
 
@@ -336,6 +352,8 @@ const Instruments = () => {
       category: it.category || 'groundwater_abstraction',
       imei: it.imei || '',
       manual_water_temp_c: it.manual_water_temp_c != null ? String(it.manual_water_temp_c) : '',
+      plant_capacity_kld: it.plant_capacity_kld != null ? String(it.plant_capacity_kld) : '',
+      tank_capacity_kld: it.tank_capacity_kld != null ? String(it.tank_capacity_kld) : '',
     });
     setEditOpen(true);
   };
@@ -786,6 +804,24 @@ const Instruments = () => {
                 <p className="text-xs text-gray-500 mt-1">DWLR does not transmit temperature. This value is shown to the client (admin-only editable).</p>
               </div>
             )}
+            {(form.instrument_type === 'wq_stp' || form.instrument_type === 'do_meter') && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Plant Capacity (KLD)</Label>
+                  <Input type="number" step="1" value={form.plant_capacity_kld}
+                         onChange={(e) => setForm({ ...form, plant_capacity_kld: e.target.value })}
+                         placeholder="e.g. 500" data-testid="instrument-plant-cap" />
+                  <p className="text-[10px] text-gray-500 mt-1">Total plant treatment capacity (kilolitres per day).</p>
+                </div>
+                <div>
+                  <Label>Aeration Tank Capacity (KLD)</Label>
+                  <Input type="number" step="1" value={form.tank_capacity_kld}
+                         onChange={(e) => setForm({ ...form, tank_capacity_kld: e.target.value })}
+                         placeholder="e.g. 250" data-testid="instrument-tank-cap" />
+                  <p className="text-[10px] text-gray-500 mt-1">Individual aeration tank capacity (KLD).</p>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -854,6 +890,22 @@ const Instruments = () => {
                   data-testid="edit-instrument-manual-temp"
                 />
                 <p className="text-xs text-gray-500 mt-1">DWLR does not transmit temperature — admin-set value shown to the client.</p>
+              </div>
+            )}
+            {(form.instrument_type === 'wq_stp' || form.instrument_type === 'do_meter') && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Plant Capacity (KLD)</Label>
+                  <Input type="number" step="1" value={form.plant_capacity_kld}
+                         onChange={(e) => setForm({ ...form, plant_capacity_kld: e.target.value })}
+                         data-testid="edit-instrument-plant-cap" />
+                </div>
+                <div>
+                  <Label>Aeration Tank Capacity (KLD)</Label>
+                  <Input type="number" step="1" value={form.tank_capacity_kld}
+                         onChange={(e) => setForm({ ...form, tank_capacity_kld: e.target.value })}
+                         data-testid="edit-instrument-tank-cap" />
+                </div>
               </div>
             )}
           </div>

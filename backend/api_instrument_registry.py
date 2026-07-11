@@ -128,7 +128,7 @@ async def _enrich_with_owner(items: List[dict]) -> List[dict]:
 # ---------------------------------------------------------------- models
 class CreateInstrumentRequest(BaseModel):
     hardware_id: str = Field(..., min_length=1, max_length=64)
-    instrument_type: str = Field(..., description="flowmeter | dwlr | ph | tds | conductivity")
+    instrument_type: str = Field(..., description="flowmeter | dwlr | ph | tds | conductivity | wq_stp | do_meter")
     owner_user_id: str = Field(..., description="user.id of the assigned client")
     label: Optional[str] = None
     location_name: Optional[str] = None
@@ -137,6 +137,9 @@ class CreateInstrumentRequest(BaseModel):
     category: Optional[str] = None  # flowmeter only
     imei: Optional[str] = Field(None, description="SIM/IMEI carried in device payload — how live data is matched to the device")
     manual_water_temp_c: Optional[float] = Field(None, description="Admin-set water temperature (°C) for DWLR devices — device does not send this")
+    # STP / DO meter — capacity metadata used by the Water Quality dashboard
+    plant_capacity_kld: Optional[float] = Field(None, description="STP plant capacity in KLD (kilolitres per day)")
+    tank_capacity_kld: Optional[float] = Field(None, description="Individual aeration tank capacity in KLD")
 
 
 class UpdateInstrumentRequest(BaseModel):
@@ -149,6 +152,8 @@ class UpdateInstrumentRequest(BaseModel):
     category: Optional[str] = None
     imei: Optional[str] = None
     manual_water_temp_c: Optional[float] = None
+    plant_capacity_kld: Optional[float] = None
+    tank_capacity_kld: Optional[float] = None
 
 
 # ---------------------------------------------------------------- routes
@@ -207,6 +212,9 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
         "category": category,
         "imei": imei,
         "manual_water_temp_c": req.manual_water_temp_c if itype == "dwlr" else None,
+        # Capacity metadata — STP + DO meter only, ignored for other types.
+        "plant_capacity_kld": req.plant_capacity_kld if itype in ("wq_stp", "do_meter") else None,
+        "tank_capacity_kld": req.tank_capacity_kld if itype in ("wq_stp", "do_meter") else None,
         "device_key": secrets.token_urlsafe(24),  # for HTTPS ingestion auth
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": admin.get("id"),
@@ -269,6 +277,10 @@ async def update_instrument(hardware_id: str, req: UpdateInstrumentRequest, admi
     if req.manual_water_temp_c is not None:
         # Only meaningful for DWLR; store regardless (harmless for other types).
         updates["manual_water_temp_c"] = float(req.manual_water_temp_c)
+    if req.plant_capacity_kld is not None:
+        updates["plant_capacity_kld"] = float(req.plant_capacity_kld)
+    if req.tank_capacity_kld is not None:
+        updates["tank_capacity_kld"] = float(req.tank_capacity_kld)
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")

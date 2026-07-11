@@ -70,71 +70,244 @@ const Gauge2D = ({ value, min = 0, max = 100, unit = '', label = '', safeMin, sa
   );
 };
 
-// ------------------------- Aeration tank visualisation -------------------------
-const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, safeMax = 8, unit = 'mg/L' }) => {
+// ------------------------- Aeration tank visualisation (video-driven) -------------------------
+const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, safeMax = 8, unit = 'mg/L', capacityKld }) => {
   const v = typeof doValue === 'number' ? doValue : null;
-  // Bubble density and speed scale with DO — more oxygen = more/faster bubbles.
-  const bubbleCount = v == null ? 6 : Math.max(4, Math.min(24, Math.round(v * 1.8)));
-  const speed = v == null ? 5 : Math.max(1.4, 5 - (v / max) * 3.5); // seconds per rise
+  const videoRef = React.useRef(null);
+  // "Aeration active" = DO reading above the low-oxygen threshold. Below that,
+  // the diffuser is treated as stopped and the video pauses.
+  const aerationActive = v != null && v >= safeMin && v <= max;
   const alarm = v != null && (v < safeMin || v > safeMax);
-  const fillHeight = v == null ? 60 : 55 + Math.min(20, (v / max) * 20);
 
-  const bubbles = Array.from({ length: bubbleCount }, (_, i) => ({
-    left: 6 + Math.random() * 88,
-    delay: (i / bubbleCount) * speed,
-    size: 6 + Math.random() * 8,
-  }));
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (aerationActive) {
+      // Speed video playback with oxygen level (higher DO = more vigorous)
+      const rate = Math.max(0.4, Math.min(1.6, 0.4 + (v / max) * 1.2));
+      try { el.playbackRate = rate; } catch (_) {}
+      el.play().catch(() => {});
+    } else {
+      try { el.pause(); } catch (_) {}
+    }
+  }, [aerationActive, v, max]);
 
   return (
-    <div className="relative w-full max-w-[280px] mx-auto" data-testid={`aeration-tank-${tankNumber}`}>
-      <style>{`
-        @keyframes bubbleRise-${tankNumber} {
-          0% { transform: translateY(0) scale(0.6); opacity: 0; }
-          15% { opacity: 0.9; }
-          85% { opacity: 0.7; }
-          100% { transform: translateY(-140px) scale(1); opacity: 0; }
-        }
-      `}</style>
-      {/* Tank body */}
+    <div className="relative w-full" data-testid={`aeration-tank-${tankNumber}`}>
       <div
-        className={`relative rounded-b-2xl rounded-t-md border-4 ${alarm ? 'border-red-400' : 'border-sky-400'} overflow-hidden`}
-        style={{
-          height: 220,
-          background: 'linear-gradient(180deg, #dbeafe 0%, #93c5fd 30%, #3b82f6 100%)',
-          boxShadow: 'inset 0 -15px 25px rgba(0,0,0,0.25), 0 8px 20px rgba(0,0,0,0.15)',
-        }}
+        className={`relative rounded-2xl border-4 overflow-hidden shadow-xl ${alarm ? 'border-red-400' : (aerationActive ? 'border-sky-400' : 'border-gray-400')}`}
+        style={{ background: '#0f172a' }}
       >
-        {/* Water surface shimmer */}
-        <div className="absolute left-0 right-0 h-2 bg-white/50" style={{ top: `${100 - fillHeight}%` }} />
-        {/* Bubbles */}
-        {bubbles.map((b, i) => (
-          <span key={i}
-            className="absolute rounded-full bg-white/70"
-            style={{
-              left: `${b.left}%`, bottom: '4px', width: b.size, height: b.size,
-              animation: `bubbleRise-${tankNumber} ${speed}s ease-in ${b.delay}s infinite`,
-              boxShadow: 'inset -1px -1px 3px rgba(255,255,255,0.7), 0 0 3px rgba(255,255,255,0.5)',
-            }}
-          />
-        ))}
-        {/* Digital display panel */}
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/80 text-white rounded-md px-3 py-2 backdrop-blur-sm">
-          <div className="text-[9px] uppercase tracking-widest opacity-70 text-center">Tank {tankNumber} DO</div>
-          <div className={`text-2xl font-mono font-bold text-center tabular-nums ${alarm ? 'text-red-400' : 'text-emerald-300'}`}>
+        <video
+          ref={videoRef}
+          src="/aeration.mp4"
+          muted
+          loop
+          playsInline
+          preload="auto"
+          className="w-full h-56 object-cover"
+          style={{
+            filter: aerationActive ? 'saturate(1.05) brightness(0.95)' : 'grayscale(0.6) brightness(0.55)',
+            transition: 'filter 0.6s ease-in-out',
+          }}
+          data-testid={`aeration-video-${tankNumber}`}
+        />
+        {/* Digital readout overlay */}
+        <div className="absolute top-3 left-3 bg-black/70 rounded-md px-3 py-2 backdrop-blur">
+          <div className="text-[9px] uppercase tracking-widest text-white/70">Tank {tankNumber} · DO</div>
+          <div className={`text-2xl font-mono font-bold tabular-nums ${alarm ? 'text-red-400' : 'text-emerald-300'}`}>
             {v != null ? v.toFixed(2) : '--.--'}
           </div>
-          <div className="text-[9px] uppercase tracking-widest opacity-70 text-center">{unit}</div>
+          <div className="text-[9px] uppercase tracking-widest text-white/70">{unit}</div>
         </div>
-        {/* Diffuser at bottom */}
-        <div className="absolute bottom-0 left-0 right-0 h-3 bg-gray-700 border-t-2 border-gray-800" />
+        {/* Status badge */}
+        <div className="absolute top-3 right-3">
+          <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${aerationActive ? 'bg-emerald-500 text-white animate-pulse' : 'bg-gray-500 text-white'}`}
+                data-testid={`aeration-status-${tankNumber}`}>
+            {aerationActive ? '● AERATION ON' : '■ AERATION STOPPED'}
+          </span>
+        </div>
+        {capacityKld != null && (
+          <div className="absolute bottom-3 right-3 bg-black/70 rounded-md px-2 py-1 text-[10px] text-white">
+            Cap: <span className="font-mono font-bold">{capacityKld}</span> KLD
+          </div>
+        )}
       </div>
-      {/* Base */}
-      <div className="h-2 bg-gray-500 rounded-b-md" style={{ width: 'calc(100% + 20px)', marginLeft: -10 }} />
       <div className="mt-2 text-center">
-        <div className="text-xs font-semibold text-gray-800">Aeration Tank {tankNumber}</div>
+        <div className="text-sm font-semibold text-gray-800">Aeration Tank {tankNumber}</div>
         <div className="text-[10px] text-gray-500">Safe range: {safeMin}–{safeMax} {unit}</div>
         {alarm && <Badge variant="destructive" className="mt-1 text-[10px]">⚠ Out of safe range</Badge>}
       </div>
+    </div>
+  );
+};
+
+// ------------------------- STP Plant Flow Diagram (SVG) -------------------------
+const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceLabel }) => {
+  const cod = typeof values.COD === 'number' ? values.COD : null;
+  const bod = typeof values.BOD === 'number' ? values.BOD : null;
+  const tss = typeof values.TSS === 'number' ? values.TSS : null;
+  const ph  = typeof values.PH === 'number'  ? values.PH  : null;
+  const now = new Date().toLocaleString('en-IN', { hour12: true });
+
+  // Design palette — deliberately different from the reference (which used
+  // earth-tones + blue). Ours uses teal / emerald / amber / slate.
+  return (
+    <div className="relative w-full overflow-x-auto bg-gradient-to-br from-slate-50 to-emerald-50 rounded-xl p-4 border border-slate-200" data-testid="stp-plant-diagram">
+      <style>{`
+        @keyframes stpFlow  { 0% { stroke-dashoffset: 40; } 100% { stroke-dashoffset: 0; } }
+        @keyframes stpPulse { 0%,100% { opacity: 0.9; } 50% { opacity: 0.4; } }
+        @keyframes stpRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes stpBubbles { 0% { cy: 220; opacity: 0; } 20% { opacity: 1; } 100% { cy: 170; opacity: 0; } }
+      `}</style>
+
+      {/* Header value cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
+        <div className="rounded-lg bg-white shadow-sm border border-slate-200 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-widest text-slate-500">Plant</div>
+          <div className="text-sm font-semibold text-slate-900 truncate">{deviceLabel || '—'}</div>
+          {plantCapacityKld != null && <div className="text-[10px] text-emerald-700 font-mono">{plantCapacityKld} KLD</div>}
+        </div>
+        {[
+          { key: 'PH',  label: 'pH',  value: ph,  unit: '',       color: 'from-fuchsia-500 to-pink-500' },
+          { key: 'TSS', label: 'TSS', value: tss, unit,          color: 'from-amber-500 to-orange-500' },
+          { key: 'BOD', label: 'BOD', value: bod, unit,          color: 'from-emerald-500 to-teal-500' },
+          { key: 'COD', label: 'COD', value: cod, unit,          color: 'from-sky-500 to-cyan-500' },
+        ].map((c) => (
+          <div key={c.key} className={`rounded-lg text-white shadow-md bg-gradient-to-br ${c.color} px-3 py-2`} data-testid={`stp-card-${c.key.toLowerCase()}`}>
+            <div className="text-[10px] uppercase tracking-widest opacity-80">{c.label}</div>
+            <div className="text-xl font-bold tabular-nums">
+              {c.value != null ? c.value.toFixed(c.key === 'PH' ? 2 : 1) : '—'}
+            </div>
+            <div className="text-[9px] opacity-80">{c.unit}</div>
+          </div>
+        ))}
+      </div>
+      <div className="text-[10px] text-slate-500 mb-2 font-mono">Last data on: {now}</div>
+
+      {/* SVG plant diagram */}
+      <svg viewBox="0 0 900 260" className="w-full min-w-[820px]" xmlns="http://www.w3.org/2000/svg">
+        {/* Ground line */}
+        <line x1="10" y1="245" x2="890" y2="245" stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 3" />
+
+        {/* --- STAGE 1: Bar Screen + Equalization tank --- */}
+        <g transform="translate(20,90)">
+          <rect x="0" y="0" width="90" height="120" rx="6" fill="#e0f2fe" stroke="#0284c7" strokeWidth="2" />
+          <rect x="10" y="15" width="70" height="90" fill="url(#waterGrad1)" />
+          {/* Vertical bar screen strips */}
+          <g stroke="#475569" strokeWidth="1.5">
+            {[15,25,35,45,55,65,75].map(x => <line key={x} x1={x+5} y1="15" x2={x+5} y2="105" />)}
+          </g>
+          <text x="45" y="135" textAnchor="middle" className="fill-slate-800" fontSize="10" fontWeight="600">Equalization</text>
+          <text x="45" y="147" textAnchor="middle" className="fill-slate-500" fontSize="9">Bar Screen</text>
+        </g>
+
+        {/* Arrow 1 */}
+        <path d="M 115 150 L 155 150" stroke="#0891b2" strokeWidth="3" strokeDasharray="8 4"
+              style={{ animation: 'stpFlow 1s linear infinite' }} markerEnd="url(#arrow)" />
+
+        {/* --- STAGE 2: Aeration tank (large, central) --- */}
+        <g transform="translate(160,60)">
+          <rect x="0" y="30" width="180" height="150" rx="8" fill="#ccfbf1" stroke="#0d9488" strokeWidth="2.5" />
+          <rect x="8" y="55" width="164" height="120" fill="url(#waterGrad2)" />
+          {/* Bubbles rising */}
+          {[20,45,70,95,120,145].map((x, i) => (
+            <circle key={x} cx={x + 10} cy={165} r={4 + (i % 2)} fill="#38bdf8" opacity="0.75"
+                    style={{ animation: `stpBubbles 2.${(i * 3) % 10}s ease-in ${(i * 0.25)}s infinite` }} />
+          ))}
+          {/* Diffuser */}
+          <rect x="8" y="170" width="164" height="6" fill="#334155" />
+          {/* Blower with rotating impeller */}
+          <g transform="translate(-30, 90)">
+            <rect x="-8" y="-8" width="26" height="20" rx="3" fill="#f97316" />
+            <g style={{ transformOrigin: '5px 2px', animation: 'stpRotate 1.4s linear infinite' }}>
+              <circle cx="5" cy="2" r="7" fill="#fed7aa" />
+              <line x1="-1" y1="2" x2="11" y2="2" stroke="#7c2d12" strokeWidth="1.5" />
+              <line x1="5" y1="-4" x2="5" y2="8" stroke="#7c2d12" strokeWidth="1.5" />
+            </g>
+            <text x="5" y="30" textAnchor="middle" fontSize="8" className="fill-slate-600" fontWeight="600">BLOWER</text>
+          </g>
+          <text x="90" y="200" textAnchor="middle" className="fill-slate-800" fontSize="11" fontWeight="700">Aeration Tank</text>
+          <text x="90" y="212" textAnchor="middle" className="fill-emerald-700" fontSize="9">
+            Bacteria + O₂ → CO₂ + H₂O
+          </text>
+        </g>
+
+        {/* Arrow 2 */}
+        <path d="M 345 150 L 385 150" stroke="#0891b2" strokeWidth="3" strokeDasharray="8 4"
+              style={{ animation: 'stpFlow 1s linear infinite' }} markerEnd="url(#arrow)" />
+
+        {/* --- STAGE 3: Clarifier (settling) — conical --- */}
+        <g transform="translate(390,80)">
+          <path d="M 0 0 L 130 0 L 100 90 L 30 90 Z" fill="#fef3c7" stroke="#d97706" strokeWidth="2" />
+          <path d="M 8 8 L 122 8 L 96 82 L 34 82 Z" fill="url(#waterGrad3)" />
+          {/* Sludge layer */}
+          <path d="M 32 78 L 98 78 L 100 90 L 30 90 Z" fill="#78350f" opacity="0.4" />
+          {/* Skimmer arm */}
+          <line x1="15" y1="4" x2="115" y2="4" stroke="#334155" strokeWidth="2" />
+          <text x="65" y="115" textAnchor="middle" className="fill-slate-800" fontSize="10" fontWeight="600">Clarifier</text>
+          <text x="65" y="127" textAnchor="middle" className="fill-slate-500" fontSize="9">(Settling)</text>
+        </g>
+
+        {/* Arrow 3 */}
+        <path d="M 525 150 L 565 150" stroke="#0891b2" strokeWidth="3" strokeDasharray="8 4"
+              style={{ animation: 'stpFlow 1s linear infinite' }} markerEnd="url(#arrow)" />
+
+        {/* --- STAGE 4: PSF/ACF filters (two vertical columns) --- */}
+        <g transform="translate(570,60)">
+          <rect x="0" y="10" width="45" height="170" rx="18" fill="#fdf4ff" stroke="#a21caf" strokeWidth="2" />
+          <rect x="4" y="30" width="37" height="130" fill="url(#waterGrad4)" />
+          <circle cx="22" cy="100" r="10" fill="#c026d3" opacity="0.4" />
+          <text x="22" y="200" textAnchor="middle" className="fill-slate-800" fontSize="9" fontWeight="600">PSF</text>
+
+          <rect x="60" y="10" width="45" height="170" rx="18" fill="#f0fdfa" stroke="#0d9488" strokeWidth="2" />
+          <rect x="64" y="30" width="37" height="130" fill="url(#waterGrad4)" />
+          <circle cx="82" cy="100" r="10" fill="#14b8a6" opacity="0.4" />
+          <text x="82" y="200" textAnchor="middle" className="fill-slate-800" fontSize="9" fontWeight="600">ACF</text>
+          <text x="52" y="212" textAnchor="middle" className="fill-slate-500" fontSize="8">Softener</text>
+        </g>
+
+        {/* Arrow 4 */}
+        <path d="M 690 150 L 730 150" stroke="#0891b2" strokeWidth="3" strokeDasharray="8 4"
+              style={{ animation: 'stpFlow 1s linear infinite' }} markerEnd="url(#arrow)" />
+
+        {/* --- STAGE 5: Treated water tank + outlet --- */}
+        <g transform="translate(735,90)">
+          <rect x="0" y="0" width="90" height="120" rx="6" fill="#dcfce7" stroke="#16a34a" strokeWidth="2" />
+          <rect x="10" y="20" width="70" height="85" fill="url(#waterGrad5)" />
+          {/* Outlet tap */}
+          <rect x="82" y="70" width="18" height="8" fill="#334155" />
+          <text x="45" y="135" textAnchor="middle" className="fill-slate-800" fontSize="10" fontWeight="600">Treated</text>
+          <text x="45" y="147" textAnchor="middle" className="fill-slate-500" fontSize="9">Gardening / Flush</text>
+        </g>
+
+        {/* Gradient defs + arrow marker */}
+        <defs>
+          <linearGradient id="waterGrad1" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#7dd3fc" />
+            <stop offset="100%" stopColor="#0369a1" />
+          </linearGradient>
+          <linearGradient id="waterGrad2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#5eead4" />
+            <stop offset="100%" stopColor="#0f766e" />
+          </linearGradient>
+          <linearGradient id="waterGrad3" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#fde68a" />
+            <stop offset="100%" stopColor="#b45309" />
+          </linearGradient>
+          <linearGradient id="waterGrad4" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f0abfc" />
+            <stop offset="100%" stopColor="#86198f" />
+          </linearGradient>
+          <linearGradient id="waterGrad5" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#86efac" />
+            <stop offset="100%" stopColor="#15803d" />
+          </linearGradient>
+          <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#0891b2" />
+          </marker>
+        </defs>
+      </svg>
     </div>
   );
 };
@@ -381,7 +554,7 @@ const WaterQuality = () => {
         </Card>
       ) : tab === 'stp' ? (
         <>
-          {/* STP: gauges + flow animation */}
+          {/* STP: gauges + realistic plant flow diagram */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -404,10 +577,20 @@ const WaterQuality = () => {
                   />
                 ))}
               </div>
-              <div className="mt-8 pt-6 border-t">
-                <div className="text-sm font-semibold text-gray-700 mb-2">Treatment Process Flow</div>
-                <STPProcessFlow values={currentValues} />
-              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Treatment Plant Flow</CardTitle>
+              <CardDescription>Live plant schematic — animated pipes, aeration blower and bubble diffuser reflect current operation</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <STPPlantDiagram
+                values={currentValues}
+                unit={unit}
+                plantCapacityKld={currentDevice?._registry?.plant_capacity_kld}
+                deviceLabel={currentDevice?._registry?.label || selectedHw}
+              />
             </CardContent>
           </Card>
         </>
@@ -431,6 +614,7 @@ const WaterQuality = () => {
                   safeMin={doMeta.DO_TANK_1?.safe_min}
                   safeMax={doMeta.DO_TANK_1?.safe_max}
                   unit={unit}
+                  capacityKld={currentDevice?._registry?.tank_capacity_kld}
                 />
                 <AerationTank
                   tankNumber={2}
@@ -440,6 +624,7 @@ const WaterQuality = () => {
                   safeMin={doMeta.DO_TANK_2?.safe_min}
                   safeMax={doMeta.DO_TANK_2?.safe_max}
                   unit={unit}
+                  capacityKld={currentDevice?._registry?.tank_capacity_kld}
                 />
               </div>
             </CardContent>

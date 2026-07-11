@@ -3853,3 +3853,208 @@ agent_communication:
       The Water Quality (STP + DO Meter) feature is PRODUCTION-READY and working perfectly.
       All authentication, authorization, data routing, report generation, and permission
       management mechanisms are functioning correctly. The feature is ready for deployment.
+
+  - task: "Water Quality visual upgrade — video-driven aeration + realistic STP flow diagram + plant/tank capacity"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/api_instrument_registry.py, /app/backend/api_water_quality.py, /app/frontend/src/pages/WaterQuality.jsx, /app/frontend/src/pages/Instruments.jsx, /app/frontend/public/aeration.mp4"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: |
+          Enhancements to the Water Quality feature based on user feedback:
+
+          **1. Real video animation in DO Meter tab (auto play/pause):**
+          - Downloaded the 687 KB "Aeration tank in water treatment" MP4
+            to `/app/frontend/public/aeration.mp4` (served as static asset).
+          - `AerationTank` component rewritten to embed the video via
+            `<video ref={videoRef} src="/aeration.mp4" muted loop playsInline preload="auto">`.
+          - "Aeration active" logic: `DO >= safeMin AND DO <= max`.
+            * When active → `videoRef.current.play()` with playbackRate
+              scaled to the DO value (0.4x at low O₂, up to 1.6x at high).
+            * When inactive → `videoRef.current.pause()` + grayscale filter
+              applied so operators see visually that aeration stopped.
+          - Status badge overlay: "● AERATION ON" (green pulsing) or
+            "■ AERATION STOPPED" (grey). Digital readout still shown.
+
+          **2. Realistic STP plant flow diagram (SVG):**
+          - New `STPPlantDiagram` component renders a 900×260 SVG plant
+            schematic with 5 stages: Equalization (bar-screen), Aeration
+            (with blower + rising bubbles + diffuser strip), Clarifier
+            (conical settling with skimmer + sludge layer), PSF/ACF
+            filter columns, Treated water tank. Pipes between stages are
+            animated dashed lines (`stpFlow` keyframe).
+          - Blower has an SVG impeller that rotates continuously (CSS
+            `stpRotate`); bubbles use `stpBubbles` keyframe.
+          - Colour palette deliberately different from the reference image:
+            slate/teal/emerald + amber + fuchsia, not earthtone/blue.
+          - Header value cards on top show plant label, pH, TSS, BOD, COD
+            with parameter-specific gradient backgrounds.
+          - "Last data on: <timestamp>" annotation.
+
+          **3. Plant + tank capacity fields:**
+          - Registry schema: `plant_capacity_kld` and `tank_capacity_kld`
+            added to both `CreateInstrumentRequest` and `UpdateInstrumentRequest`.
+          - Only stored when `instrument_type` in ("wq_stp", "do_meter");
+            ignored for other types.
+          - `/api/water-quality/latest` enriches each device with these
+            fields on the `_registry` sub-object.
+          - Frontend Instruments create + edit dialogs show two capacity
+            inputs when type is wq_stp or do_meter.
+          - Frontend WaterQuality page displays capacity next to the plant
+            label (STP diagram header) and inside each aeration-tank widget
+            (bottom-right "Cap: XXX KLD" badge).
+
+          **4. Fixes carried over from prior session:**
+          - The dummy generator + backfill already write to `instrument_readings`
+            and update `instrument_latest`; capacity metadata is registry-level,
+            so no reading-schema changes needed.
+
+          **RETEST FOCUS:**
+          1. `POST /api/instrument-registry` with `instrument_type: "wq_stp"`,
+             `plant_capacity_kld: 500`, `tank_capacity_kld: 250` → stored.
+             `GET /api/instrument-registry` returns those two fields on the
+             instrument.
+          2. `PUT /api/instrument-registry/{hw}` updating `plant_capacity_kld`
+             works and persists.
+          3. `GET /api/water-quality/latest` — each item's `_registry` sub-doc
+             contains `plant_capacity_kld` and `tank_capacity_kld` (whichever
+             are set).
+          4. For non-STP types (e.g. `flowmeter`), capacity fields are ignored
+             on POST (not stored).
+          5. Regression: existing water-quality endpoints still work as
+             before (history, report CSV, report PDF, permissions).
+          6. Regression: existing DWLR/Flowmeter registration flow still works.
+          7. Frontend smoke: `/water-quality` page loads, STP diagram renders,
+             DO tab shows the video (play/pause based on DO value). No
+             console errors.
+
+
+        -working: true
+        -agent: "testing"
+        -comment: |
+          ✅ VERIFIED: ALL 8 TESTS PASSED - Water Quality capacity fields + regression working perfectly.
+          
+          **Test Coverage Summary:**
+          
+          **Test 1: Create wq_stp with capacity ✅**
+          - POST /api/instrument-registry with hardware_id="STP_CAP_TEST", instrument_type="wq_stp" → 200
+          - plant_capacity_kld=500.0, tank_capacity_kld=250.0 stored correctly
+          - GET /api/instrument-registry confirms both capacity fields present
+          
+          **Test 2: Create do_meter with capacity ✅**
+          - POST /api/instrument-registry with hardware_id="DO_CAP_TEST", instrument_type="do_meter" → 200
+          - tank_capacity_kld=300.0 stored, plant_capacity_kld=null (as expected)
+          - Capacity fields correctly stored for do_meter type
+          
+          **Test 3: Flowmeter capacity ignored ✅**
+          - POST /api/instrument-registry with hardware_id="FM_CAP_IGNORE_TEST", instrument_type="flowmeter" → 200
+          - plant_capacity_kld=999.0, tank_capacity_kld=888.0 sent in request
+          - Both capacity fields are null in registry (correctly ignored for non-STP types)
+          
+          **Test 4: Update capacity ✅**
+          - PUT /api/instrument-registry/STP_CAP_TEST with plant_capacity_kld=750.0 → 200
+          - GET /api/instrument-registry confirms plant_capacity_kld updated to 750.0
+          - tank_capacity_kld remains 250.0 (unchanged)
+          
+          **Test 5: WQ latest enrichment ✅**
+          - Enabled dummy data on STP_CAP_TEST (min=0, max=500, interval=60s)
+          - Waited 75 seconds for dummy tick
+          - GET /api/water-quality/latest → 200
+          - STP device includes _registry.plant_capacity_kld=750.0 and _registry.tank_capacity_kld=250.0
+          - Enrichment working correctly
+          
+          **Test 6: Non-admin auth check ✅**
+          - Created client user and logged in
+          - POST /api/instrument-registry as client → 403 Forbidden (correct)
+          - PUT /api/instrument-registry/STP_CAP_TEST as client → 403 Forbidden (correct)
+          - Admin-only access correctly enforced
+          
+          **Test 7: Regression WQ endpoints ✅**
+          - GET /api/water-quality/history/STP_CAP_TEST?range=daily → 200 with hourly buckets
+          - POST /api/water-quality/report format=csv → 200 with text/csv Content-Type
+          - POST /api/water-quality/report format=pdf → 200 with application/pdf Content-Type
+          - All existing WQ endpoints working correctly
+          
+          **Test 8: Regression other endpoints ✅**
+          - GET /api/flowmeter/status → 200 (connected: true)
+          - GET /api/water-quality/latest → 200 with stp[] and do[] arrays
+          - GET /api/instrument-registry → 200 (count: 11)
+          - Admin login still works
+          - Client login still works
+          - No shape changes beyond new _registry.plant_capacity_kld / tank_capacity_kld keys
+          
+          **Backend Logs Analysis:**
+          - No errors, exceptions, or tracebacks in backend logs (last 100 lines)
+          - All services running correctly
+          - Dummy data generation working correctly
+          
+          **Cleanup:**
+          - Deleted test devices: STP_CAP_TEST, DO_CAP_TEST, FM_CAP_IGNORE_TEST
+          - Deleted test user: user_d02b46538ce6
+          - No test data left in database
+          
+          **CONCLUSION:**
+          Water Quality capacity fields feature is PRODUCTION-READY and working perfectly.
+          All 8 test cases passed. Capacity fields (plant_capacity_kld, tank_capacity_kld)
+          are correctly stored for wq_stp and do_meter types, ignored for other types,
+          enriched in /api/water-quality/latest response, and admin-only access is enforced.
+          All regression tests passed - no breaking changes to existing endpoints.
+
+metadata:
+  created_by: "main_agent"
+  version: "1.9"
+  test_sequence: 9
+  run_ui: true
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "testing"
+    message: |
+      ✅ WATER QUALITY CAPACITY FIELDS + REGRESSION TEST COMPLETE (8/8 TESTS PASSED)
+      
+      **Test Request:** Test the new Water Quality capacity fields + regression
+      
+      **Result: ALL TESTS PASSED ✅**
+      
+      **Summary:**
+      - All 8 test cases from review request completed successfully
+      - Capacity fields (plant_capacity_kld, tank_capacity_kld) working for wq_stp and do_meter
+      - Capacity fields correctly ignored for non-STP types (flowmeter)
+      - PUT endpoint correctly updates capacity fields
+      - GET /api/water-quality/latest enriches with _registry.plant_capacity_kld and _registry.tank_capacity_kld
+      - Non-admin cannot create/edit capacity (403 Forbidden)
+      - All regression tests passed (WQ endpoints, other endpoints)
+      - No errors in backend logs
+      
+      **Test Results:**
+      ✅ Test 1: Create wq_stp with capacity (plant=500, tank=250)
+      ✅ Test 2: Create do_meter with capacity (tank=300, plant=null)
+      ✅ Test 3: Flowmeter capacity ignored (both null)
+      ✅ Test 4: Update capacity (plant updated to 750)
+      ✅ Test 5: WQ latest enrichment (_registry fields present)
+      ✅ Test 6: Non-admin auth check (403 on POST and PUT)
+      ✅ Test 7: Regression WQ endpoints (history, CSV, PDF)
+      ✅ Test 8: Regression other endpoints (flowmeter status, registry, login)
+      
+      **No Issues Found:**
+      - No API errors (all endpoints return correct status codes)
+      - No exceptions in backend logs
+      - No data integrity issues
+      - No authorization bypasses
+      - No regression failures
+      
+      **CONCLUSION:**
+      The Water Quality capacity fields feature is PRODUCTION-READY and working perfectly.
+      All capacity field operations (create, update, enrichment) working correctly with
+      proper type filtering (wq_stp/do_meter only) and admin-only access control. All
+      regression tests passed - no breaking changes to existing endpoints.
+
