@@ -12,6 +12,8 @@ import { isAdmin as _isAdmin } from '../mockData';
 import { LiveCameraWidget } from '../components/LiveCameraWidget';
 import { STPConfigDialog } from '../components/STPConfigDialog';
 import { AerationVideoUploader } from '../components/AerationVideoUploader';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 // ------------------------- Gauge (SVG, animated needle) -------------------------
 const Gauge2D = ({ value, min = 0, max = 100, unit = '', label = '', safeMin, safeMax }) => {
@@ -192,7 +194,7 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
   const energyMode = stpDerived?.energy_mode || 'auto';
 
   return (
-    <div className="relative w-full bg-white rounded-xl p-4 border border-slate-200" data-testid="stp-plant-diagram">
+    <div id={`scada-snapshot-${deviceLabel || 'stp'}`} className="relative w-full bg-white rounded-xl p-4 border border-slate-200" data-testid="stp-plant-diagram">
       <style>{`
         @keyframes stpFlow  { 0% { stroke-dashoffset: 40; } 100% { stroke-dashoffset: 0; } }
         @keyframes stpRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -414,11 +416,13 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           <FilterColumn x={1035} y={300} label="ACF" color="#3730a3" />
           <FilterColumn x={1070} y={300} label="Softener" color="#3730a3" />
 
-          {/* Energy Usage badge (top) — auto-computed OR manual override */}
+          {/* Energy Usage badge (top) — auto-computed OR manual override.
+              For non-admin clients we omit the mode suffix so it looks
+              identical whether the number is compiled or admin-entered. */}
           <g transform="translate(940, 165)">
             <rect x="0" y="0" width="90" height="22" fill="#ffffff" stroke="#f59e0b" strokeWidth="1.5" />
             <text x="45" y="14" textAnchor="middle" fontSize="9" fill="#78350f" fontWeight="600">
-              Energy Usage {energyMode === 'manual' ? '(manual)' : '(auto)'}
+              Energy Usage{canManage ? ` (${energyMode === 'manual' ? 'manual' : 'auto'})` : ''}
             </text>
             <rect x="0" y="24" width="90" height="30" fill="#fef3c7" stroke="#f59e0b" strokeWidth="1.5" />
             <text x="45" y="42" textAnchor="middle" fontSize="14" fill="#78350f" fontWeight="700" fontFamily="monospace">
@@ -432,8 +436,8 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
 
           {/* ═════════════════ STAGE 8: Gardening / Flushing Tank ═════════════════ */}
           <Tank x={1150} y={280} w={100} h={110} name="Gardening / Flushing Tank" fillLevel={0} capacityKld={gardeningKld} accent="#16a34a" />
-          {/* Show source badge (FM = flowmeter, manual = admin-entered) */}
-          {gf.source && (
+          {/* Source badge — admin-only. Clients never see whether the value is manual or flowmeter-derived. */}
+          {canManage && gf.source && (
             <g transform="translate(1150, 258)">
               <rect x="0" y="0" width={gf.source === 'flowmeter' ? 90 : 55} height="14" fill="#dcfce7" stroke="#16a34a" strokeWidth="0.75" />
               <text x={(gf.source === 'flowmeter' ? 90 : 55) / 2} y="10" textAnchor="middle" fontSize="8.5" fill="#166534" fontWeight="700">
@@ -480,9 +484,11 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
               <div className="text-2xl font-bold text-emerald-900 font-mono tabular-nums" data-testid="stp-gardening-kld">
                 {gardeningKld} <span className="text-sm font-medium">KLD</span>
               </div>
-              <div className="text-[10px] text-emerald-800 mt-0.5">
-                Source: {gf.source === 'flowmeter' ? `Linked flowmeter · ${gf.linked_flowmeter_hw_id}` : 'Manual (admin-entered)'}
-              </div>
+              {canManage && (
+                <div className="text-[10px] text-emerald-800 mt-0.5">
+                  Source: {gf.source === 'flowmeter' ? `Linked flowmeter · ${gf.linked_flowmeter_hw_id}` : 'Manual (admin-entered)'}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -668,6 +674,58 @@ const WaterQuality = () => {
 
   // STP config dialog
   const [showStpConfig, setShowStpConfig] = useState(false);
+  // Print-SCADA-snapshot button state
+  const [printing, setPrinting] = useState(false);
+
+  const printSCADASnapshot = async () => {
+    const label = currentDevice?._registry?.label || selectedHw || 'stp';
+    const node = document.getElementById(`scada-snapshot-${label}`);
+    if (!node) { toast.error('SCADA diagram not ready'); return; }
+    setPrinting(true);
+    try {
+      // 2× resolution so the exported PDF is sharp on A4 landscape
+      const canvas = await html2canvas(node, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false,
+        // Ensure animations don't blur the snapshot
+        onclone: (docClone) => {
+          docClone.querySelectorAll('[style*="animation"]').forEach((el) => {
+            el.style.animation = 'none';
+          });
+        },
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      // Title band
+      pdf.setFontSize(14);
+      pdf.setTextColor('#0f172a');
+      pdf.text(`STP SCADA Snapshot — ${label}`, 10, 12);
+      pdf.setFontSize(9);
+      pdf.setTextColor('#475569');
+      pdf.text(
+        `Exported: ${new Date().toLocaleString('en-IN', { hour12: false })} · Envirolytics Monitor`,
+        10, 17,
+      );
+
+      // Fit image into A4 landscape below the title band
+      const imgRatio = canvas.width / canvas.height;
+      const targetW = pageW - 20;
+      const targetH = Math.min(pageH - 30, targetW / imgRatio);
+      const finalW = targetH * imgRatio > targetW ? targetW : targetH * imgRatio;
+      pdf.addImage(imgData, 'PNG', (pageW - finalW) / 2, 22, finalW, targetH);
+
+      const fname = `scada_${label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      pdf.save(fname);
+      toast.success('SCADA snapshot exported');
+    } catch (e) {
+      toast.error('Snapshot export failed — see console');
+      console.error(e);
+    } finally { setPrinting(false); }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -869,13 +927,19 @@ const WaterQuality = () => {
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span>Treatment Plant Flow</span>
-                {isAdmin && (
-                  <Button size="sm" variant="outline" onClick={() => setShowStpConfig(true)} data-testid="stp-configure-plant-btn">
-                    ⚙ Configure Plant
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={printSCADASnapshot} disabled={printing} data-testid="stp-print-snapshot-btn">
+                    {printing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <FileText className="h-4 w-4 mr-1" />}
+                    Print SCADA snapshot
                   </Button>
-                )}
+                  {isAdmin && (
+                    <Button size="sm" variant="outline" onClick={() => setShowStpConfig(true)} data-testid="stp-configure-plant-btn">
+                      ⚙ Configure Plant
+                    </Button>
+                  )}
+                </div>
               </CardTitle>
-              <CardDescription>Live plant schematic — animated pipes, aeration blower and bubble diffuser reflect current operation. Admin can configure per-unit capacities, blower power &amp; energy compilation.</CardDescription>
+              <CardDescription>Live plant schematic — animated pipes, aeration blower and bubble diffuser reflect current operation. Export a PDF snapshot for compliance audits or monthly ops reviews.</CardDescription>
             </CardHeader>
             <CardContent>
               <STPPlantDiagram

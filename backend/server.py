@@ -149,6 +149,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pathlib import Path as _Path  # noqa: E402
 _UPLOADS_DIR = _Path(__file__).parent / "uploads"
 (_UPLOADS_DIR / "aeration").mkdir(parents=True, exist_ok=True)
+(_UPLOADS_DIR / "camera").mkdir(parents=True, exist_ok=True)
 app.mount("/api/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
 
 # Live camera streams (per-device video widget on Water Quality page)

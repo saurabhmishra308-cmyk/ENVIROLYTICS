@@ -204,10 +204,34 @@ async def latest_readings(
 
     # Resolve derived gardening-flushing KLD (from linked flowmeter, if any)
     # and energy usage for each STP device before returning.
+    is_admin = (user or {}).get("role") == "admin"
     for hw_id, reg in list(regs.items()):
         cfg = reg.get("stp_unit_config") or {}
         derived = await _derive_stp_live_metrics(cfg)
         reg["stp_derived"] = derived
+        # For non-admin clients, hide any metadata that would betray how the
+        # data was entered (manual vs auto vs admin identity). Clients should
+        # see the same numbers a real live-integrated pipeline would produce.
+        if not is_admin:
+            if reg.get("stp_unit_config"):
+                sanitized = _sanitize_stp_cfg_for_client(reg["stp_unit_config"])
+                if sanitized:
+                    reg["stp_unit_config"] = sanitized
+                else:
+                    reg.pop("stp_unit_config", None)
+            if reg.get("aeration_videos"):
+                reg["aeration_videos"] = {
+                    k: v for k, v in reg["aeration_videos"].items()
+                    if not (k.endswith("_uploaded_at") or k.endswith("_uploaded_by"))
+                }
+            # Drop the internal energy_mode + breakdown labels that expose admin
+            # bookkeeping. Only expose the total kWh figure and gardening KLD.
+            if reg.get("stp_derived"):
+                d = reg["stp_derived"]
+                reg["stp_derived"] = {
+                    "gardening_flushing_kld_today": d.get("gardening_flushing_kld_today"),
+                    "energy_kwh_per_day": d.get("energy_kwh_per_day"),
+                }
 
     for r in stp_items + do_items:
         r["_registry"] = regs.get(r.get("hardware_id"), {})
@@ -567,6 +591,26 @@ async def _flowmeter_daily_kld(hardware_id: str) -> Optional[float]:
     return max(0.0, round(hi - lo, 3))
 
 
+def _sanitize_stp_cfg_for_client(cfg: dict) -> dict:
+    """Return a client-safe copy of `stp_unit_config`.
+
+    Strips any field that reveals admin bookkeeping (updated_at, updated_by,
+    gardening_flushing.source, energy.mode, energy.manual_kwh_per_day) so
+    clients cannot tell whether a number was manually entered or computed.
+    """
+    if not cfg:
+        return {}
+    out = {k: v for k, v in cfg.items() if k not in ("updated_at", "updated_by")}
+    if isinstance(out.get("gardening_flushing"), dict):
+        gf = {k: v for k, v in out["gardening_flushing"].items()
+              if k not in ("source", "manual_kld_per_day", "linked_flowmeter_hw_id")}
+        out["gardening_flushing"] = gf
+    if isinstance(out.get("energy"), dict):
+        # Clients don't need the mode toggle or the raw manual override
+        out.pop("energy", None)
+    return out
+
+
 async def _derive_stp_live_metrics(cfg: dict) -> dict:
     """Compute derived KLD and kWh figures shown on the SCADA plant diagram.
 
@@ -627,12 +671,8 @@ async def _derive_stp_live_metrics(cfg: dict) -> dict:
 
 
 @router.get("/{hardware_id}/stp-config")
-async def get_stp_config(hardware_id: str, user: dict = Depends(get_current_user)):
-    """Read the STP unit-level configuration for a device."""
-    _require_wq_view(user)
-    visible = await _visible(user)
-    if visible is not None and hardware_id not in visible:
-        raise HTTPException(status_code=403, detail="Not authorised for this device")
+async def get_stp_config(hardware_id: str, admin: dict = Depends(require_admin)):
+    """Read the STP unit-level configuration for a device (admin-only)."""
     reg = await db.instrument_registry.find_one(
         {"hardware_id": hardware_id},
         {"_id": 0, "hardware_id": 1, "label": 1, "instrument_type": 1,
