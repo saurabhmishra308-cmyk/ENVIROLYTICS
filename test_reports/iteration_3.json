@@ -1,0 +1,44 @@
+{
+  "summary": "Live Camera Streaming Widget feature verified end-to-end. 18/18 backend camera-stream tests pass; UI renders camera widget beside DO tanks with correct telemetry overlay, admin-only Configure dialog, and non-admin users correctly hidden from the Configure button.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Camera config dialog (admin)", "issues": ["Radix Dialog console warning: 'Missing Description or aria-describedby={undefined} for DialogContent' — non-functional accessibility warning; wrap the tagline in <DialogDescription> or pass aria-describedby to silence."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_camera_streams.py",
+    "/app/test_reports/pytest/camera_streams.xml"
+  ],
+  "action_items": [
+    "(Optional a11y polish) Wrap the 'Device: <hw>' hint in the CameraConfigDialog inside a <DialogDescription> component (or pass aria-describedby) to fix the Radix DialogContent console warning."
+  ],
+  "critical_code_review_comments": [
+    "api_camera.py is well-scoped (~190 lines) with clear helpers _detect_type / _youtube_id / _embed_url. Regex handles youtube.com/shorts/, /watch?v=, /embed/, /live/, /v/ and youtu.be/. Falls back to substring match for edge cases. MongoDB _id correctly stripped via _serialize.",
+    "POST is upsert-on-hardware_id (unique index enforced in server.py line 217). Send twice for the same device -> single doc updated. Verified in test_upsert_on_same_hardware_id.",
+    "GET /by-device/{hw} correctly returns null (not 404) when no camera configured, so the UI branch 'No camera configured' renders. Non-owner client -> 403 verified.",
+    "PUT re-detects stream_type when stream_url is supplied but stream_type omitted (line 168-169). DELETE returns 404 idempotently.",
+    "api_water_quality.latest_readings() correctly enriches with registered-but-unreported devices (placeholder entries) — verified DO_TEST_001 seeded readings + new placeholder do_meter both appear in the response.",
+    "LiveCameraWidget.jsx: 16:9 aspect ratio locked with inline style, telemetry overlay uses tabular-nums + font-mono for stable digit width, embed URL from backend has autoplay/mute/loop/playlist params so YT Shorts loops seamlessly. iframe has 'allow=autoplay; encrypted-media; picture-in-picture' which lets YT autoplay muted (browsers allow muted autoplay).",
+    "WaterQuality.jsx correctly gates canManage={isAdmin} — verified in UI test (admin sees Configure btn, client does not).",
+    "Overlay data-testids overlay-do-tank-1 / overlay-do-tank-2 / overlay-timestamp all present and populated with the latest DO values (5.42 / 6.18 mg/L for DO_TEST_001)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_camera_streams.py"
+  ],
+  "success_rate": {
+    "backend": "100% (18/18 camera-stream tests pass in 2.98s)",
+    "frontend": "100% (widget render, overlay values, iframe embed, admin Configure dialog, client no-Configure — all verified)"
+  },
+  "test_credentials": "Admin: admin@envirolytics.com / Admin@Envirolytics2026. Ephemeral client 'test_client_ui_693d78@envirolytics.com / ClientPass123' was created and DELETED post-test.",
+  "seed_data_creation": "Created and cleaned up: TEST_DOSPARE_* do_meter registrations (owner=admin), TEST_DOOWN_* client-owned do_meter, TEST_UICLI_* client-owned do_meter + Rick Astley camera stream, and one TEST_cam_* client user. All cleanup ran successfully. DO_TEST_001 and its seeded YouTube Shorts stream_url preserved intact.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Camera Streams feature is complete. Backend: /api/camera-streams CRUD scoped by ownership, POST is upsert on hardware_id, PUT re-detects stream_type from URL, DELETE 404s idempotently. Frontend LiveCameraWidget renders iframe for youtube / <video> for mp4, telemetry overlay (Tank 1 DO, Tank 2 DO, live clock) sits top-right, Configure button and dialog are admin-only. water-quality/latest now includes placeholder entries for registered-but-unreported devices so the widget renders before first telemetry. Test suite at /app/backend/tests/test_camera_streams.py (18 tests, all green). Note: seeded DO_TEST_001 uses a shorts URL that YouTube blocks from external embed ('Video unavailable') — this is an upstream restriction, not a widget bug; test used dQw4w9WgXcQ to visually confirm playback works.",
+  "rca of the issue": "N/A — no bugs found. Only minor a11y console warning about missing DialogDescription inside CameraConfigDialog (cosmetic)."
+}

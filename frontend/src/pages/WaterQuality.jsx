@@ -5,10 +5,11 @@ import { Label } from '../components/ui/label';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { Droplets, Gauge, FlaskConical, Wind, Download, FileText, Loader2, RefreshCw } from 'lucide-react';
+import { Droplets, Gauge, FlaskConical, Wind, Download, FileText, Loader2, RefreshCw, Video } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin as _isAdmin } from '../mockData';
+import { LiveCameraWidget } from '../components/LiveCameraWidget';
 
 // ------------------------- Gauge (SVG, animated needle) -------------------------
 const Gauge2D = ({ value, min = 0, max = 100, unit = '', label = '', safeMin, safeMax }) => {
@@ -596,7 +597,7 @@ const WaterQuality = () => {
         </>
       ) : (
         <>
-          {/* DO: two aeration tanks */}
+          {/* DO: two aeration tanks + live camera */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -627,6 +628,30 @@ const WaterQuality = () => {
                   capacityKld={currentDevice?._registry?.tank_capacity_kld}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Live camera widget — right next to DO meter */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Video className="h-5 w-5 text-red-500" /> Live Camera Feed
+              </CardTitle>
+              <CardDescription>
+                Real-time video of the biological aeration tank with live DO telemetry overlay.
+                {isAdmin && ' Admins can configure the stream URL per device.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <LiveCameraWidget
+                hardwareId={selectedHw}
+                deviceLabel={currentDevice?._registry?.label || selectedHw}
+                telemetry={{
+                  DO_TANK_1: currentValues.DO_TANK_1,
+                  DO_TANK_2: currentValues.DO_TANK_2,
+                }}
+                canManage={isAdmin}
+              />
             </CardContent>
           </Card>
         </>

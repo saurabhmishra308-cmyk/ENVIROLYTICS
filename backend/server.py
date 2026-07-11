@@ -144,6 +144,11 @@ app.include_router(ingestion_router)
 from api_water_quality import router as water_quality_router  # noqa: E402
 app.include_router(water_quality_router)
 
+# Live camera streams (per-device video widget on Water Quality page)
+from api_camera import router as camera_router, set_db as _camera_set_db  # noqa: E402
+_camera_set_db(db)
+app.include_router(camera_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -209,6 +214,7 @@ async def startup_event():
         await db.audit_log.create_index([("entity_type", 1), ("entity_id", 1)])
         await db.certificates.create_index([("user_id", 1), ("cert_type", 1)])
         await db.renewals.create_index("user_id")
+        await db.camera_streams.create_index("hardware_id", unique=True)
         logger.info("MongoDB indexes ensured")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Index creation skipped/failed (non-fatal): {e}")

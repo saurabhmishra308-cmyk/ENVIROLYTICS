@@ -151,6 +151,30 @@ async def latest_readings(
         r["values"] = vals
         do_items.append(r)
 
+    # Include registered devices that have never reported live data yet — the
+    # UI still needs to render them (with placeholder values) so admins can
+    # configure cameras, download reports, or verify device provisioning.
+    seen_hw = {r.get("hardware_id") for r in stp_items + do_items}
+    async for reg in db.instrument_registry.find(
+        {"instrument_type": {"$in": ["wq_stp", "do_meter"]}},
+        {"_id": 0},
+    ):
+        hw = reg.get("hardware_id")
+        if hw in seen_hw:
+            continue
+        if visible is not None and hw not in visible:
+            continue
+        placeholder = {
+            "hardware_id": hw,
+            "instrument_type": reg.get("instrument_type"),
+            "values": {},
+            "received_at": None,
+        }
+        if reg.get("instrument_type") == "wq_stp":
+            stp_items.append(placeholder)
+        else:
+            do_items.append(placeholder)
+
     # Enrich with registry meta so the UI can render a card even for devices
     # that never reported live yet.
     hw_ids = [r["hardware_id"] for r in stp_items + do_items if r.get("hardware_id")]
