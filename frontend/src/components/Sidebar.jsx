@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 import { isAdmin } from '../mockData';
+import api from '../lib/api';
 import { 
   LayoutDashboard, 
   BarChart3, 
@@ -12,6 +13,7 @@ import {
   Award,
   History,
   Cpu,
+  Droplets,
   ChevronRight
 } from 'lucide-react';
 
@@ -19,6 +21,22 @@ const Sidebar = () => {
   const location = useLocation();
   const { isDarkMode } = useTheme();
   const admin = isAdmin();
+  const [wqAllowed, setWqAllowed] = useState(admin);
+
+  // Ask the backend if the current user has water-quality permission.
+  // Admins always pass. Clients only see the tab when explicitly granted.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get('/api/water-quality/me/permission');
+        if (!cancelled) setWqAllowed(!!data?.view_water_quality);
+      } catch (e) {
+        if (!cancelled) setWqAllowed(admin);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [admin]);
 
   const baseMenu = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -29,6 +47,9 @@ const Sidebar = () => {
     { path: '/user', icon: Users, label: 'User' },
     { path: '/certificates', icon: Award, label: 'Certificates' },
   ];
+  if (wqAllowed) {
+    baseMenu.push({ path: '/water-quality', icon: Droplets, label: 'Water Quality' });
+  }
   const menuItems = admin
     ? [...baseMenu, { path: '/instruments', icon: Cpu, label: 'Instruments' }, { path: '/audit-log', icon: History, label: 'Audit Log' }]
     : baseMenu;

@@ -393,6 +393,26 @@ const UserPage = () => {
                           <Button size="sm" variant="outline" onClick={() => toggleStatus(u)} data-testid={`toggle-status-${u.id}`}>
                             <Power className="h-3 w-3 mr-1" /> {u.is_active ? 'Deactivate' : 'Activate'}
                           </Button>
+                          {u.role !== 'admin' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className={((u.permissions || []).includes('view_water_quality')) ? 'border-sky-500 text-sky-700' : ''}
+                              onClick={async () => {
+                                try {
+                                  const has = (u.permissions || []).includes('view_water_quality');
+                                  await api.put(`/api/water-quality/permissions/${u.id}`, { view_water_quality: !has });
+                                  toast.success(has ? 'Water-quality access revoked' : 'Water-quality access granted');
+                                  fetchUsers();
+                                } catch (e) {
+                                  toast.error(formatApiError(e?.response?.data?.detail));
+                                }
+                              }}
+                              data-testid={`wq-toggle-${u.id}`}
+                            >
+                              💧 {((u.permissions || []).includes('view_water_quality')) ? 'WQ: ON' : 'WQ'}
+                            </Button>
+                          )}
                           {u.id !== me?.id && (
                             <Button size="sm" variant="outline" className="text-red-600 border-red-600" onClick={() => deleteUser(u)} data-testid={`delete-user-${u.id}`}>
                               <Trash2 className="h-3 w-3" />

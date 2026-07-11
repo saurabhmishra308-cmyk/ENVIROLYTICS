@@ -79,10 +79,22 @@ async def get_current_user(request: Request) -> Dict:
     user.pop("_id", None)
     # Normalise permissions so the frontend always sees a complete map.
     perms = user.get("permissions") or {}
-    user["permissions"] = {
-        k: bool(perms.get(k, False))
+    # Handle both dict and list formats for permissions
+    if isinstance(perms, list):
+        # Convert list to dict (e.g., ["view_water_quality"] -> {"view_water_quality": True})
+        perms_dict = {k: True for k in perms}
+    else:
+        perms_dict = perms
+    # Create normalized permissions dict with standard permissions
+    normalized_perms = {
+        k: bool(perms_dict.get(k, False))
         for k in ("dashboard", "reports", "analysis", "certificates", "audit", "limits")
     }
+    # Preserve any additional permissions (like view_water_quality)
+    for k, v in perms_dict.items():
+        if k not in normalized_perms:
+            normalized_perms[k] = bool(v)
+    user["permissions"] = normalized_perms
     # Admins implicitly have everything.
     if user.get("role") == "admin":
         user["permissions"] = {k: True for k in user["permissions"]}

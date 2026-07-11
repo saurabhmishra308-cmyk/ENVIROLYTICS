@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/instrument-registry", tags=["instrument-registry
 db = None
 mqtt_service = None
 
-SUPPORTED_TYPES = {"flowmeter", "dwlr", "ph", "tds", "conductivity"}
+SUPPORTED_TYPES = {"flowmeter", "dwlr", "ph", "tds", "conductivity", "wq_stp", "do_meter"}
 FLOWMETER_CATEGORIES = {"groundwater_abstraction", "stp_inlet", "stp_outlet"}
 
 # Canonical demo device IDs (also defined in field_simulator.py)

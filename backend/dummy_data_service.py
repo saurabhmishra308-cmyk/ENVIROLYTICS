@@ -265,6 +265,148 @@ async def _generate_flowmeter(db: AsyncIOMotorDatabase, reg: Dict[str, Any], cfg
 
 
 # ---------------------------------------------------------------------------
+# WATER QUALITY (STP) + DO METER dummy generators
+# Values stay in mg/L canonical. Each parameter has its own bounded random
+# walk anchored at plausible operating ranges. pH is treated as its own band.
+# ---------------------------------------------------------------------------
+_WQ_STP_PARAMS = ("COD", "BOD", "TSS", "PH")
+_DO_METER_PARAMS = ("DO_TANK_1", "DO_TANK_2")
+
+
+def _param_walk(prev: Optional[float], lo: float, hi: float,
+                 hour_utc: int, day_seed: int, std_frac: float = 0.02) -> float:
+    """Same shape as `_next_dummy_value` but with a configurable step size — used per parameter."""
+    if hi <= lo:
+        return round((lo + hi) / 2.0, 3)
+    r = hi - lo
+    base = prev if prev is not None else (lo + hi) / 2.0
+    base = min(max(base, lo), hi)
+    step = random.gauss(0.0, r * std_frac)
+    diurnal = math.sin(2.0 * math.pi * (hour_utc / 24.0)) * (r * 0.008)
+    day_rng = random.Random(day_seed)
+    daily_offset = day_rng.gauss(0.0, r * 0.015)
+    pull = ((lo + hi) / 2.0 - base) * 0.03
+    value = min(max(base + step + diurnal + daily_offset + pull, lo), hi)
+    return round(value, 3)
+
+
+async def _generate_wq_stp(db: AsyncIOMotorDatabase, reg: Dict[str, Any], cfg: Dict[str, Any],
+                            ts_utc: Optional[datetime] = None,
+                            update_latest: bool = True) -> Dict[str, Any]:
+    """Generate one STP reading with COD, BOD, TSS, PH."""
+    hw = reg["hardware_id"]
+    now = ts_utc or datetime.now(timezone.utc)
+    # cfg.min/max are used as OVERALL scale; individual parameters use fixed bands.
+    scale_lo = float(cfg.get("min_value", 0))
+    scale_hi = float(cfg.get("max_value", 500))
+    day_seed = _day_seed(hw, now)
+
+    prev_doc = await db.instrument_latest.find_one(
+        {"instrument_type": "wq_stp", "hardware_id": hw}, {"_id": 0, "values": 1}
+    )
+    prev_values = (prev_doc or {}).get("values") or {}
+
+    def _prev(k):
+        v = prev_values.get(k)
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    # Realistic operating bands (mg/L except pH):
+    #   COD 30-300 (post-treatment ~100), BOD 5-80 (post-treatment ~20),
+    #   TSS 10-150 (post-treatment ~30), pH 6.5-8.5
+    cod = _param_walk(_prev("COD"), max(30, scale_lo * 0.06), min(scale_hi * 0.6, 300), now.hour, day_seed, 0.02)
+    bod = _param_walk(_prev("BOD"), 5, 80, now.hour, day_seed ^ 0x1111, 0.025)
+    tss = _param_walk(_prev("TSS"), 10, 150, now.hour, day_seed ^ 0x2222, 0.025)
+    ph = _param_walk(_prev("PH"), 6.5, 8.5, now.hour, day_seed ^ 0x3333, 0.005)
+
+    values = {
+        "COD": cod, "BOD": bod, "TSS": tss, "PH": ph,
+        "IMEI": reg.get("imei") or "",
+        "TIME": now.strftime("%y%m%d%H%M%S"),
+        "VER": "DUMMY-1",
+        "_dummy": True,
+    }
+    doc = {
+        "instrument_type": "wq_stp",
+        "hardware_id": hw,
+        "imei": reg.get("imei"),
+        "values": values,
+        "timestamp": values["TIME"],
+        "received_at": now.isoformat(),
+        "_dummy": True,
+    }
+    await db.instrument_readings.insert_one(dict(doc))
+    if update_latest:
+        latest_doc = {k: v for k, v in doc.items() if k != "_id"}
+        await db.instrument_latest.update_one(
+            {"instrument_type": "wq_stp", "hardware_id": hw},
+            {"$set": latest_doc},
+            upsert=True,
+        )
+    logger.info("[dummy] STP %s → COD=%.1f BOD=%.1f TSS=%.1f pH=%.2f", hw, cod, bod, tss, ph)
+    return {"values": values}
+
+
+async def _generate_do_meter(db: AsyncIOMotorDatabase, reg: Dict[str, Any], cfg: Dict[str, Any],
+                              ts_utc: Optional[datetime] = None,
+                              update_latest: bool = True) -> Dict[str, Any]:
+    """Generate one DO-meter reading (two aeration tanks)."""
+    hw = reg["hardware_id"]
+    now = ts_utc or datetime.now(timezone.utc)
+    lo = float(cfg.get("min_value", 0.0))
+    hi = float(cfg.get("max_value", 20.0))
+    # Enforce sensible DO range even if admin sets weird bounds
+    lo = max(0.0, min(lo, 15.0))
+    hi = max(lo + 1.0, min(hi, 20.0))
+    day_seed = _day_seed(hw, now)
+
+    prev_doc = await db.instrument_latest.find_one(
+        {"instrument_type": "do_meter", "hardware_id": hw}, {"_id": 0, "values": 1}
+    )
+    prev_values = (prev_doc or {}).get("values") or {}
+
+    def _prev(k):
+        v = prev_values.get(k)
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    do1 = _param_walk(_prev("DO_TANK_1"), lo, hi, now.hour, day_seed, 0.02)
+    do2 = _param_walk(_prev("DO_TANK_2"), lo, hi, now.hour, day_seed ^ 0xAAAA, 0.02)
+
+    values = {
+        "DO_TANK_1": do1, "DO_TANK_2": do2,
+        "IMEI": reg.get("imei") or "",
+        "TIME": now.strftime("%y%m%d%H%M%S"),
+        "VER": "DUMMY-1",
+        "_dummy": True,
+    }
+    doc = {
+        "instrument_type": "do_meter",
+        "hardware_id": hw,
+        "imei": reg.get("imei"),
+        "values": values,
+        "timestamp": values["TIME"],
+        "received_at": now.isoformat(),
+        "_dummy": True,
+    }
+    await db.instrument_readings.insert_one(dict(doc))
+    if update_latest:
+        latest_doc = {k: v for k, v in doc.items() if k != "_id"}
+        await db.instrument_latest.update_one(
+            {"instrument_type": "do_meter", "hardware_id": hw},
+            {"$set": latest_doc},
+            upsert=True,
+        )
+    logger.info("[dummy] DO %s → T1=%.2f T2=%.2f mg/L", hw, do1, do2)
+    return {"values": values}
+
+
+
+# ---------------------------------------------------------------------------
 # HISTORICAL BACKFILL — generate data for arbitrary past windows
 # ---------------------------------------------------------------------------
 MAX_BACKFILL_YEARS = 5
@@ -365,6 +507,56 @@ async def backfill_history(db: AsyncIOMotorDatabase, reg: Dict[str, Any],
             prev_flow = flow_lph
             prev_fwd = fwd
             prev_rev = rev
+        elif itype == "wq_stp":
+            day_seed = _day_seed(hw, ts)
+            cod = _param_walk(prev_level, 30, 300, ts.hour, day_seed, 0.02)
+            bod = _param_walk(None, 5, 80, ts.hour, day_seed ^ 0x1111, 0.025)
+            tss = _param_walk(None, 10, 150, ts.hour, day_seed ^ 0x2222, 0.025)
+            ph  = _param_walk(None, 6.5, 8.5, ts.hour, day_seed ^ 0x3333, 0.005)
+            time_str = ts.strftime("%y%m%d%H%M%S")
+            values = {
+                "COD": cod, "BOD": bod, "TSS": tss, "PH": ph,
+                "IMEI": reg.get("imei") or "",
+                "TIME": time_str, "VER": "DUMMY-1", "_dummy": True,
+            }
+            reading = {
+                "instrument_type": "wq_stp",
+                "hardware_id": hw,
+                "imei": reg.get("imei"),
+                "values": values,
+                "timestamp": time_str,
+                "received_at": ts.isoformat(),
+                "_dummy": True,
+                "_backfilled": True,
+            }
+            batch.append(reading)
+            latest_doc = reading
+            prev_level = cod  # anchor the walk on COD for continuity
+        elif itype == "do_meter":
+            day_seed = _day_seed(hw, ts)
+            lo_do = max(0.0, min(lo, 15.0))
+            hi_do = max(lo_do + 1.0, min(hi, 20.0))
+            do1 = _param_walk(prev_level, lo_do, hi_do, ts.hour, day_seed, 0.02)
+            do2 = _param_walk(None, lo_do, hi_do, ts.hour, day_seed ^ 0xAAAA, 0.02)
+            time_str = ts.strftime("%y%m%d%H%M%S")
+            values = {
+                "DO_TANK_1": do1, "DO_TANK_2": do2,
+                "IMEI": reg.get("imei") or "",
+                "TIME": time_str, "VER": "DUMMY-1", "_dummy": True,
+            }
+            reading = {
+                "instrument_type": "do_meter",
+                "hardware_id": hw,
+                "imei": reg.get("imei"),
+                "values": values,
+                "timestamp": time_str,
+                "received_at": ts.isoformat(),
+                "_dummy": True,
+                "_backfilled": True,
+            }
+            batch.append(reading)
+            latest_doc = reading
+            prev_level = do1
         else:  # dwlr (default)
             day_seed = _day_seed(hw, ts)
             lvl = _next_dummy_value(prev_level, lo, hi, ts.hour, day_seed)
@@ -432,11 +624,11 @@ async def backfill_history(db: AsyncIOMotorDatabase, reg: Dict[str, Any],
                 )
         else:
             existing = await db.instrument_latest.find_one(
-                {"instrument_type": "dwlr", "hardware_id": hw}, {"received_at": 1}
+                {"instrument_type": itype, "hardware_id": hw}, {"received_at": 1}
             )
             if not existing or (existing.get("received_at") or "") < latest_doc_clean["received_at"]:
                 await db.instrument_latest.update_one(
-                    {"instrument_type": "dwlr", "hardware_id": hw},
+                    {"instrument_type": itype, "hardware_id": hw},
                     {"$set": latest_doc_clean}, upsert=True
                 )
 
@@ -490,6 +682,10 @@ async def _tick(db: AsyncIOMotorDatabase) -> None:
             itype = (reg.get("instrument_type") or "dwlr").lower()
             if itype == "flowmeter":
                 await _generate_flowmeter(db, reg, cfg)
+            elif itype == "wq_stp":
+                await _generate_wq_stp(db, reg, cfg)
+            elif itype == "do_meter":
+                await _generate_do_meter(db, reg, cfg)
             else:
                 await _generate_dwlr(db, reg, cfg)
             await db.instrument_registry.update_one(

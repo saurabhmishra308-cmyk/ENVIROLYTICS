@@ -123,8 +123,14 @@ async def login(req: LoginRequest, request: Request):
         user_id=user["id"], email=user["email"], role=user.get("role", "client")
     )
     perms = user.get("permissions") or {}
+    # Handle both dict and list formats for permissions
+    if isinstance(perms, list):
+        # Convert list to dict (e.g., ["view_water_quality"] -> {"view_water_quality": True})
+        perms_dict = {k: True for k in perms}
+    else:
+        perms_dict = perms
     permissions = {
-        k: bool(perms.get(k, False))
+        k: bool(perms_dict.get(k, False))
         for k in ("dashboard", "reports", "analysis", "certificates", "audit", "limits")
     }
     if user.get("role") == "admin":

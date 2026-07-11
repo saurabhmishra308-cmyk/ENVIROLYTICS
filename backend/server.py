@@ -140,6 +140,10 @@ app.include_router(renewals_router)
 app.include_router(instrument_registry_router)
 app.include_router(ingestion_router)
 
+# Water quality (STP) + DO meter dashboards & reports
+from api_water_quality import router as water_quality_router  # noqa: E402
+app.include_router(water_quality_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

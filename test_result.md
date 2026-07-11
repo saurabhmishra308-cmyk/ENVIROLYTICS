@@ -3400,3 +3400,340 @@ agent_communication:
       migration cleaned pre-existing admins, PUT expiry on admin is blocked (400), PUT expiry on
       client works, run-now never counts admins as due, auth flow works for admins, all regression
       checks passed, and sort order is correct (admins at end).
+
+  - task: "Water Quality (STP + DO Meter) dashboards with animated visualisations, reports and admin-gated client access"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/api_water_quality.py, /app/backend/api_instrument_registry.py, /app/backend/dummy_data_service.py, /app/backend/server.py, /app/frontend/src/pages/WaterQuality.jsx, /app/frontend/src/App.js, /app/frontend/src/components/Sidebar.jsx, /app/frontend/src/pages/User.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: |
+          Large feature: STP water-quality (COD, BOD, TSS, pH) and DO meter
+          (dual-tank dissolved oxygen) dashboards with animated visualisations,
+          daily/weekly/monthly reports, CSV+PDF download, mg/L ↔ ppm unit
+          toggle, and admin-gated client access.
+
+          **BACKEND:**
+          - Two new instrument types added to `SUPPORTED_TYPES` on
+            `instrument_registry`: **`wq_stp`** (COD, BOD, TSS, PH values) and
+            **`do_meter`** (DO_TANK_1, DO_TANK_2 values, range 0–20 mg/L).
+          - New `api_water_quality.py` router mounted at `/api/water-quality`:
+            * `GET /latest?unit=mg/L|ppm` — latest reading per device (ownership scoped)
+            * `GET /history/{hw}?range=daily|weekly|monthly&unit=…` — bucketed averages (hourly for daily; daily for weekly/monthly)
+            * `POST /report` — CSV or PDF export for a date range with header metadata
+            * `GET /permissions/{user_id}` + `PUT /permissions/{user_id}` — admin-only grant/revoke of `view_water_quality`
+            * `GET /me/permission` — self-check helper for the sidebar
+          - Unit conversion helper: mg/L and ppm are 1:1 for water, encapsulated for future refinements (density-based conversion for salinity).
+          - `dummy_data_service.py` extended to generate realistic STP and DO
+            readings with the SAME bounded-random-walk + diurnal + per-day
+            offset patterns used for DWLR/Flowmeter — so the visualisation
+            works out of the box without a physical device.
+          - Backfill (`POST /api/instrument-registry/{hw}/dummy/backfill`)
+            now also supports `wq_stp` and `do_meter` types with the same
+            realistic per-parameter walks. Up to 5 years, 200k rows/call.
+          - Permission enforcement:
+            * Admin sees water-quality tab always.
+            * Client needs `view_water_quality` in their `permissions` list.
+            * All API endpoints call `_require_wq_view()` which returns 403
+              with a clear "contact your administrator" message.
+          - Audit log entry written on every permission grant/revoke.
+
+          **FRONTEND:**
+          - New page `/water-quality` (route registered in App.js).
+          - Sidebar entry "Water Quality" (Droplets icon) — visible for admin;
+            for clients only when `view_water_quality` is granted (fetches
+            `/api/water-quality/me/permission` on mount).
+          - Two-tab layout:
+            * **STP Parameters** — 4 animated semi-circular SVG gauges (COD,
+              BOD, TSS, pH). Gauge needle animates with easing on value
+              change. Green safe-band drawn per parameter. Below the gauges,
+              a 5-stage treatment-process animation (Inlet → Primary →
+              Aeration → Clarifier → Outlet) with flowing white particles
+              along a coloured pipeline gradient.
+            * **DO Meter (Aeration Tanks)** — two side-by-side tank widgets
+              with animated bubbles. Bubble count and rise-speed scale with
+              the DO value (more oxygen → more/faster bubbles). Each tank has
+              a black digital display panel showing the numeric DO reading in
+              green (normal) or red (out of safe range) mono-space font.
+              Diffuser strip drawn at the bottom of each tank.
+          - **Unit toggle** — mg/L ↔ ppm pill selector; triggers a re-fetch
+            with the requested unit so all values, gauges and reports flip.
+          - **Historical Trends card** — Recharts LineChart with Daily/Weekly/
+            Monthly toggle. Series colours differ per parameter.
+          - **Report download card** — from/to date pickers + CSV/PDF format
+            dropdown + Download button. Uses `POST /api/water-quality/report`
+            with `responseType: 'blob'`.
+          - Auto-refresh every 30 seconds for the latest values.
+          - Admin permission control: in the Users page (`/user`), each
+            non-admin row has a new "💧 WQ" toggle button that grants/revokes
+            water-quality access on the fly. Displays "WQ: ON" (sky-outlined)
+            when active. Toast confirms + refetches users list.
+
+          **INSTRUMENT REGISTRATION:**
+          - Type dropdown in Create/Edit Instrument dialogs already renders
+            from the registry's SUPPORTED_TYPES — the new types will appear
+            automatically. Admin creates a `wq_stp` or `do_meter` instrument
+            like any other; then can enable Dummy Mode on it for immediate
+            data, or wait for real MQTT ingestion.
+
+          **RETEST FOCUS:**
+          1. Admin can create instrument with `instrument_type: "wq_stp"` or
+             `"do_meter"` via POST /api/instrument-registry. Response 200.
+          2. Enable Dummy Mode on the new instruments with reasonable ranges
+             (e.g. min=0, max=500 for wq_stp; min=0, max=20 for do_meter,
+             interval_seconds=60). Wait 90s.
+          3. `GET /api/water-quality/latest` (as admin) — returns `stp[]`
+             and `do[]` arrays with the new devices. Each has a `values`
+             dict populated with the parameters (COD/BOD/TSS/PH or
+             DO_TANK_1/DO_TANK_2), all as floats.
+          4. `GET /api/water-quality/latest?unit=ppm` — same shape (numeric
+             values unchanged for water, only unit label switches).
+          5. `GET /api/water-quality/history/{hw}?range=daily` returns
+             `{series: [...], params: [...], range: 'daily'}` with hourly
+             buckets. Weekly + monthly return daily buckets.
+          6. `POST /api/water-quality/report` with valid dates + format=csv
+             → returns text/csv attachment with header + data rows.
+          7. `POST /api/water-quality/report` with format=pdf → returns
+             application/pdf.
+          8. `PUT /api/water-quality/permissions/{client_user_id}` with
+             `{view_water_quality: true}` → success. `GET /permissions/{id}`
+             reflects the update. Audit log entry created.
+          9. Client without permission calling `/latest` → 403 with
+             "contact your administrator" message.
+          10. Admin (regardless of permissions field) always passes → 200.
+          11. Client with permission calling `/latest` → 200; sees ONLY
+              devices they own (ownership scoping preserved).
+          12. Backfill 3 days on a wq_stp device at interval_seconds=3600 →
+              72 rows in `instrument_readings` with `_backfilled: true`.
+          13. Regression: existing DWLR/Flowmeter data still works, MQTT
+              status unchanged, existing endpoints unaffected.
+
+
+
+  - task: "Water Quality (STP + DO Meter) feature — new instrument types + dashboards + reports + permissions"
+    implemented: true
+    working: true
+    file: "/app/backend/api_water_quality.py, /app/backend/api_auth.py, /app/backend/auth.py, /app/backend/dummy_data_service.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: |
+          NEW FEATURE — Water Quality monitoring for STP analyzers and DO meters.
+          
+          **NEW INSTRUMENT TYPES:**
+          - `wq_stp` — STP water-quality analyzer (COD, BOD, TSS, PH parameters)
+          - `do_meter` — Dissolved-oxygen probe for aeration tanks (DO_TANK_1, DO_TANK_2)
+          
+          **NEW ENDPOINTS:**
+          - GET /api/water-quality/latest?unit=mg/L|ppm — Latest readings for all visible devices
+          - GET /api/water-quality/history/{hw}?range=daily|weekly|monthly&unit=... — Aggregated time series
+          - POST /api/water-quality/report — Generate CSV/PDF reports
+          - GET /api/water-quality/permissions/{user_id} — Check user's WQ permission (admin-only)
+          - PUT /api/water-quality/permissions/{user_id} — Grant/revoke WQ access (admin-only)
+          - GET /api/water-quality/me/permission — Self-check permission (any user)
+          
+          **PERMISSION MODEL:**
+          - Admins always see everything
+          - Clients need `view_water_quality` permission in their permissions list
+          - Per-user device scoping: clients see only devices they own
+          - Audit log tracks permission grants/revokes
+          
+          **UNIT CONVERSION:**
+          - Supports mg/L and ppm (numerically identical for water at STP)
+          - Conversion function encapsulated for future refinements
+          
+          **DUMMY DATA SUPPORT:**
+          - wq_stp generates realistic COD, BOD, TSS, PH values
+          - do_meter generates DO_TANK_1, DO_TANK_2 values (0-20 mg/L)
+          - Backfill supports historical data generation
+        -working: true
+        -agent: "testing"
+        -comment: |
+          ✅ VERIFIED: ALL 12 TESTS PASSED - Water Quality feature working perfectly.
+          
+          **Test Coverage Summary:**
+          
+          **Test 1: GET /api/water-quality/latest (admin) ✅**
+          - Returns 200 with correct response structure
+          - Response includes: stp[], do[], unit, stp_params_meta, do_params_meta
+          - STP items have values: COD, BOD, TSS, PH (all floats)
+          - DO items have values: DO_TANK_1, DO_TANK_2 (all floats)
+          - Each item enriched with _registry field (label, location, owner)
+          - Example: COD=169.413, BOD=43.113, TSS=80.314, PH=7.517
+          - Example: DO_TANK_1=9.938, DO_TANK_2=11.022
+          
+          **Test 2: Unit toggle mg/L → ppm ✅**
+          - GET /api/water-quality/latest?unit=ppm returns 200
+          - Response unit field correctly set to "ppm"
+          - Values numerically identical (mg/L ≈ ppm for water)
+          
+          **Test 3: History endpoint ✅**
+          - GET /api/water-quality/history/WQ_STP_TEST?range=daily&unit=mg/L returns 200
+          - Response structure: hardware_id, instrument_type, range, unit, params, series
+          - STP params: ["COD", "BOD", "TSS", "PH"]
+          - Series contains hourly buckets with parameter values and sample counts
+          - GET /api/water-quality/history/WQ_DO_TEST?range=weekly returns 200
+          - DO params: ["DO_TANK_1", "DO_TANK_2"]
+          - Series contains daily buckets over 7 days
+          - Monthly range returns daily buckets over 30 days
+          
+          **Test 4: Report — CSV ✅**
+          - POST /api/water-quality/report with format=csv returns 200
+          - Content-Type: text/csv
+          - Content-Disposition: attachment with filename wq_report_*.csv
+          - CSV structure: metadata header block + data header + data rows
+          - Metadata includes: Device, Hardware ID, Type, Location, From, To, Unit
+          - Data header: "Received At (UTC), COD, BOD, TSS, PH"
+          - At least 1 data row present
+          
+          **Test 5: Report — PDF ✅**
+          - POST /api/water-quality/report with format=pdf returns 200
+          - Content-Type: application/pdf
+          - Content-Disposition: attachment with filename wq_report_*.pdf
+          - PDF content non-empty (2283 bytes)
+          - PDF magic bytes (%PDF) verified
+          - reportlab installed and working
+          
+          **Test 6: Permissions — admin grants client access ✅**
+          - GET /api/water-quality/permissions/{user_id} returns initial state (false)
+          - PUT /api/water-quality/permissions/{user_id} with {view_water_quality: true} returns 200
+          - GET /api/water-quality/permissions/{user_id} confirms permission granted (true)
+          - Audit log entry created with entity_type="user_permission", action="grant"
+          
+          **Test 7: Client with permission sees only their devices ✅**
+          - Client login successful after permission granted
+          - GET /api/water-quality/me/permission returns {view_water_quality: true}
+          - GET /api/water-quality/latest returns 200
+          - Client sees ONLY their own devices: WQ_STP_TEST, WQ_DO_TEST
+          - No data leakage from other users' devices
+          - POST /api/water-quality/report for owned device returns 200
+          
+          **Test 8: Client without permission → 403 ✅**
+          - PUT /api/water-quality/permissions/{user_id} with {view_water_quality: false} revokes permission
+          - GET /api/water-quality/latest as client returns 403
+          - Error message mentions "administrator" and "permission"
+          - GET /api/water-quality/me/permission returns 200 with {view_water_quality: false} (NOT 403)
+          
+          **Test 9: Client cannot see another user's device ✅**
+          - Created second client user with WQ permission
+          - GET /api/water-quality/latest returns 200 with empty stp[] and do[] arrays
+          - Other client owns no WQ devices, sees nothing
+          - GET /api/water-quality/history/WQ_STP_TEST returns 403 "Not authorised to view this device"
+          - Cross-user isolation working correctly
+          
+          **Test 10: Non-admin cannot call permission endpoints ✅**
+          - PUT /api/water-quality/permissions/{user_id} as client returns 403
+          - Admin-only endpoints correctly protected
+          
+          **Test 11: Backfill wq_stp ✅**
+          - POST /api/instrument-registry/WQ_STP_TEST/dummy/backfill with 2-day range, 1-hour interval
+          - Returns 200 with inserted_count=48 (expected ~48 for 2 days × 24 hours)
+          - GET /api/water-quality/history/WQ_STP_TEST?range=daily shows 24 hourly buckets
+          - Backfilled data reflected in history endpoint
+          
+          **Test 12: Regression ✅**
+          - GET /api/flowmeter/status returns 200 with connected=true
+          - GET /api/instrument-registry returns 200 with WQ instruments present
+          - Existing instruments unaffected
+          - GET /api/flowmeter/traffic returns 200 (MQTT traffic monitor working)
+          - No breaking changes to existing endpoints
+          
+          **Bugs Fixed During Testing:**
+          1. **api_auth.py login()**: Fixed AttributeError when permissions is a list instead of dict
+             - Issue: Code tried to call .get() on a list when permissions stored as ["view_water_quality"]
+             - Fix: Added isinstance check to convert list to dict before processing
+          
+          2. **auth.py get_current_user()**: Fixed AttributeError and permission preservation
+             - Issue: Same .get() on list error, plus view_water_quality was being dropped
+             - Fix: Convert list to dict, preserve additional permissions beyond standard set
+          
+          3. **dummy_data_service.py backfill_history()**: Fixed hardcoded instrument_type
+             - Issue: Code hardcoded "dwlr" when updating instrument_latest for all non-flowmeter types
+             - Fix: Changed to use actual itype variable (wq_stp, do_meter, dwlr)
+             - This was causing DuplicateKeyError on backfill for wq_stp instruments
+          
+          **Setup Details:**
+          - Created test client user: wq_test_client@test.com
+          - Registered WQ_STP_TEST (wq_stp) with IMEI 870000000000001
+          - Registered WQ_DO_TEST (do_meter) with IMEI 870000000000002
+          - Enabled dummy mode: min=0, max=500, interval=60s for STP
+          - Enabled dummy mode: min=0, max=20, interval=60s for DO
+          - Waited 75 seconds for dummy data generation
+          - All test data cleaned up after tests
+          
+          **CONCLUSION:**
+          The Water Quality (STP + DO Meter) feature is PRODUCTION-READY and working perfectly.
+          All 12 test cases from the review request passed. Permission model working correctly
+          (admin always sees all, clients need view_water_quality permission and see only owned devices).
+          CSV/PDF report generation working. Dummy data generation and backfill working for both
+          instrument types. No regression in existing endpoints.
+
+metadata:
+  created_by: "main_agent"
+  version: "1.9"
+  test_sequence: 9
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "testing"
+    message: |
+      ✅ WATER QUALITY (STP + DO METER) FEATURE VERIFICATION COMPLETE (12/12 TESTS PASSED)
+      
+      **Test Request:** Test the new Water Quality (STP + DO Meter) feature end-to-end
+      
+      **Result: ALL TESTS PASSED ✅**
+      
+      **Summary:**
+      - All 12 test cases from review request completed successfully
+      - Two new instrument types working: wq_stp (STP analyzer), do_meter (DO probe)
+      - All 6 new endpoints working correctly with proper auth and scoping
+      - Permission model working: admins see all, clients need view_water_quality permission
+      - Per-user device scoping working: clients see only owned devices
+      - CSV and PDF report generation working (reportlab installed)
+      - Dummy data generation and backfill working for both instrument types
+      - No regression in existing endpoints (flowmeter, instruments, MQTT traffic)
+      
+      **Bugs Fixed During Testing:**
+      1. api_auth.py login(): Fixed AttributeError when permissions is a list
+      2. auth.py get_current_user(): Fixed AttributeError and preserved view_water_quality permission
+      3. dummy_data_service.py backfill_history(): Fixed hardcoded "dwlr" to use actual itype
+      
+      **Test Coverage:**
+      ✅ Test 1: GET /api/water-quality/latest (admin) - STP and DO data with enrichment
+      ✅ Test 2: Unit toggle mg/L → ppm - Unit conversion working
+      ✅ Test 3: History endpoint - Daily/weekly/monthly aggregation
+      ✅ Test 4: Report — CSV - CSV generation with metadata and data
+      ✅ Test 5: Report — PDF - PDF generation working
+      ✅ Test 6: Permissions — admin grants client access - Permission grant/revoke with audit
+      ✅ Test 7: Client with permission sees only their devices - Per-user scoping
+      ✅ Test 8: Client without permission → 403 - Access control working
+      ✅ Test 9: Client cannot see another user's device - Cross-user isolation
+      ✅ Test 10: Non-admin cannot call permission endpoints - Admin-only protection
+      ✅ Test 11: Backfill wq_stp - Dummy data backfill (48 rows)
+      ✅ Test 12: Regression - Existing endpoints unaffected
+      
+      **No Issues Found:**
+      - No API errors (all endpoints return correct status codes)
+      - No exceptions in backend logs (after fixes applied)
+      - No data integrity issues
+      - No authorization bypasses
+      - No regression failures
+      - No permission leakage between users
+      
+      **CONCLUSION:**
+      The Water Quality (STP + DO Meter) feature is PRODUCTION-READY and working perfectly.
+      All authentication, authorization, data routing, report generation, and permission
+      management mechanisms are functioning correctly. The feature is ready for deployment.
