@@ -356,14 +356,14 @@ const EnhancedDashboard = () => {
           testId="section-water-level"
         />
 
-        {/* === WATER QUALITY === */}
+        {/* === BOREWELL WATER QUALITY === */}
         <Card className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`} style={{ borderTopColor: '#8e44ad' }} data-testid="section-water-quality">
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg" style={{ backgroundColor: '#8e44ad' }}><FlaskConical className="h-5 w-5 text-white" /></div>
               <div>
-                <CardTitle className={text}>Water Quality</CardTitle>
-                <CardDescription className={muted}>pH, Conductivity, TDS sensors + STP Inlet / Outlet flowmeters</CardDescription>
+                <CardTitle className={text}>Borewell Water Quality</CardTitle>
+                <CardDescription className={muted}>pH, Conductivity, TDS sensors on the borewell supply</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -392,31 +392,7 @@ const EnhancedDashboard = () => {
                 ))}
               </div>
             </div>
-
-            {/* STP Flowmeters */}
-            <div>
-              <h3 className={`text-sm font-semibold mb-2 flex items-center gap-2 ${text}`}>
-                <Factory className="h-4 w-4" /> STP Flowmeters — inlet &amp; outlet (m³/hr, totaliser in KL)
-              </h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                  <p className={`text-xs uppercase tracking-wide mb-2 ${muted}`}>STP Inlet</p>
-                  {stpInlet.length === 0 ? (
-                    <p className={`text-xs italic ${muted}`}>No STP inlet flowmeter registered.</p>
-                  ) : stpInlet.map((a) => (
-                    <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#16a085" onClick={() => navigate('/flowmeter')} />
-                  ))}
-                </div>
-                <div>
-                  <p className={`text-xs uppercase tracking-wide mb-2 ${muted}`}>STP Outlet</p>
-                  {stpOutlet.length === 0 ? (
-                    <p className={`text-xs italic ${muted}`}>No STP outlet flowmeter registered.</p>
-                  ) : stpOutlet.map((a) => (
-                    <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#d35400" onClick={() => navigate('/flowmeter')} />
-                  ))}
-                </div>
-              </div>
-            </div>
+            {/* STP Flowmeters block moved to the Water Quality tab (/water-quality). */}
           </CardContent>
         </Card>
 

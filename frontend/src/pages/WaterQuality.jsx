@@ -13,6 +13,7 @@ import { LiveCameraWidget } from '../components/LiveCameraWidget';
 import { STPConfigDialog } from '../components/STPConfigDialog';
 import { AerationVideoUploader } from '../components/AerationVideoUploader';
 import { DOTankConfigDialog } from '../components/DOTankConfigDialog';
+import { FlowmeterTile } from '../components/FlowmeterTile';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
@@ -728,6 +729,28 @@ const WaterQuality = () => {
     } finally { setPrinting(false); }
   };
 
+  // STP flowmeters (inlet + outlet) — sourced from flowmeter-mgmt aggregate endpoint.
+  const [stpFlowmeters, setStpFlowmeters] = useState({ inlet: [], outlet: [] });
+
+  const loadStpFlowmeters = async () => {
+    try {
+      const { data } = await api.get('/api/flowmeter-mgmt/categories');
+      const cats = data?.categories || data?.items || data || [];
+      const relevant = cats.filter((c) => c.category === 'stp_inlet' || c.category === 'stp_outlet');
+      if (!relevant.length) { setStpFlowmeters({ inlet: [], outlet: [] }); return; }
+      const results = await Promise.all(
+        relevant.map((c) =>
+          api.get(`/api/flowmeter-mgmt/${encodeURIComponent(c.hardware_id)}/aggregate`)
+            .then((r) => ({ ...r.data, category: c.category, label: c.label || c.hardware_id }))
+            .catch(() => null),
+        ),
+      );
+      const inlet = results.filter((a) => a && a.category === 'stp_inlet');
+      const outlet = results.filter((a) => a && a.category === 'stp_outlet');
+      setStpFlowmeters({ inlet, outlet });
+    } catch (_) { setStpFlowmeters({ inlet: [], outlet: [] }); }
+  };
+
   const load = async () => {
     setLoading(true);
     try {
@@ -741,6 +764,8 @@ const WaterQuality = () => {
       toast.error(msg);
       setPayload({ error: msg });
     } finally { setLoading(false); }
+    // Refresh flowmeter aggregates in parallel
+    loadStpFlowmeters();
   };
 
   useEffect(() => { load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [unit]);
@@ -954,6 +979,36 @@ const WaterQuality = () => {
                 canManage={isAdmin}
                 onEditConfig={() => setShowStpConfig(true)}
               />
+            </CardContent>
+          </Card>
+
+          {/* STP Flowmeters — inlet & outlet (moved from Dashboard) */}
+          <Card data-testid="stp-flowmeters-card">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Droplets className="h-5 w-5 text-sky-600" /> STP Flowmeters — inlet &amp; outlet
+              </CardTitle>
+              <CardDescription>Live m³/hr and cumulative KL totaliser for the STP inlet and outlet flowmeters.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-wide mb-2 text-gray-600 font-semibold">STP Inlet</p>
+                  {stpFlowmeters.inlet.length === 0 ? (
+                    <p className="text-xs italic text-gray-500" data-testid="stp-inlet-empty">No STP inlet flowmeter registered.</p>
+                  ) : stpFlowmeters.inlet.map((a) => (
+                    <FlowmeterTile key={a.hardware_id} agg={a} color="#16a085" onClick={() => window.open('/flowmeter', '_self')} />
+                  ))}
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide mb-2 text-gray-600 font-semibold">STP Outlet</p>
+                  {stpFlowmeters.outlet.length === 0 ? (
+                    <p className="text-xs italic text-gray-500" data-testid="stp-outlet-empty">No STP outlet flowmeter registered.</p>
+                  ) : stpFlowmeters.outlet.map((a) => (
+                    <FlowmeterTile key={a.hardware_id} agg={a} color="#d35400" onClick={() => window.open('/flowmeter', '_self')} />
+                  ))}
+                </div>
+              </div>
             </CardContent>
           </Card>
         </>
