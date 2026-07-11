@@ -6,7 +6,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { useTheme } from '../contexts/ThemeContext';
-import { LogOut, Sun, Moon, Droplets, TrendingUp, Activity, MapPin, FlaskConical, AlertCircle, Factory } from 'lucide-react';
+import { LogOut, Sun, Moon, Droplets, TrendingUp, Activity, MapPin, FlaskConical, AlertCircle, Factory, Wind } from 'lucide-react';
 import axios from 'axios';
 
 import WeatherCard from '../components/WeatherCard';
@@ -80,6 +80,9 @@ const EnhancedDashboard = () => {
   const [byType, setByType] = useState({ dwlr: [], ph: [], tds: [], conductivity: [] });
   const [mqttStatus, setMqttStatus] = useState({ connected: false });
   const [locations, setLocations] = useState([]);
+  // STP + DO live snapshot for the compact tile rows
+  const [stpDevices, setStpDevices] = useState([]);
+  const [doDevices, setDoDevices] = useState([]);
 
   const LATITUDE = useMemo(() => 26.8467, []);
   const LONGITUDE = useMemo(() => 80.9462, []);
@@ -127,6 +130,12 @@ const EnhancedDashboard = () => {
         conductivity: grouped.conductivity || [],
       });
       setMqttStatus(statusRes.data || { connected: false });
+      // Pull STP + DO latest snapshots for the compact tile rows.
+      try {
+        const wqRes = await api.get('/api/water-quality/latest');
+        setStpDevices(wqRes.data?.stp || []);
+        setDoDevices(wqRes.data?.do || []);
+      } catch (_) { /* ignore — the dashboard still renders without WQ */ }
     } catch (e) { logError(e, 'fetchLive'); }
   }, []);
 
@@ -393,6 +402,144 @@ const EnhancedDashboard = () => {
               </div>
             </div>
             {/* STP Flowmeters block moved to the Water Quality tab (/water-quality). */}
+          </CardContent>
+        </Card>
+
+        {/* === STP EFFLUENT (compact live tile row) — full visuals live in /water-quality === */}
+        <Card
+          className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''} cursor-pointer hover:shadow-md transition-shadow`}
+          style={{ borderTopColor: '#c2410c' }}
+          data-testid="section-stp-effluent"
+          onClick={() => navigate('/water-quality')}
+        >
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg" style={{ backgroundColor: '#c2410c' }}>
+                <Factory className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <CardTitle className={text}>Sewerage Treatment Plant water quality parameter</CardTitle>
+                <CardDescription className={muted}>
+                  Live COD / BOD / TSS / pH per STP device — click for full SCADA view
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {stpDevices.length === 0 ? (
+              <p className={`text-xs italic ${muted}`} data-testid="stp-tiles-empty">No STP device configured.</p>
+            ) : (
+              <div className="space-y-4">
+                {stpDevices.map((d) => {
+                  const v = d.values || {};
+                  const reg = d._registry || {};
+                  const params = [
+                    { k: 'PH',  label: 'pH',  val: v.PH,  unit: '',      color: '#3730a3' },
+                    { k: 'TSS', label: 'TSS', val: v.TSS, unit: 'mg/L',  color: '#c2410c' },
+                    { k: 'BOD', label: 'BOD', val: v.BOD, unit: 'mg/L',  color: '#166534' },
+                    { k: 'COD', label: 'COD', val: v.COD, unit: 'mg/L',  color: '#a16207' },
+                  ];
+                  return (
+                    <div key={d.hardware_id} data-testid={`stp-tile-row-${d.hardware_id}`}>
+                      <div className={`text-xs font-semibold mb-1.5 ${text}`}>
+                        {reg.label || d.hardware_id}
+                        {reg.plant_capacity_kld != null && (
+                          <span className={`ml-2 text-[10px] font-mono ${muted}`}>· {reg.plant_capacity_kld} KLD</span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {params.map((p) => (
+                          <div
+                            key={p.k}
+                            className={`p-2.5 rounded border-2 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}
+                            style={{ borderColor: p.val != null ? p.color : '#cbd5e1' }}
+                            data-testid={`stp-tile-${d.hardware_id}-${p.k}`}
+                          >
+                            <p className={`text-[10px] uppercase tracking-wide font-semibold ${muted}`}>{p.label}</p>
+                            <p className="text-xl font-bold tabular-nums" style={{ color: p.color }}>
+                              {p.val != null ? Number(p.val).toFixed(p.k === 'PH' ? 1 : 0) : '—'}
+                              {p.unit && <span className="text-[10px] ml-1 opacity-70">{p.unit}</span>}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* === DO METER — AERATION TANK (compact live tile row) === */}
+        <Card
+          className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''} cursor-pointer hover:shadow-md transition-shadow`}
+          style={{ borderTopColor: '#0284c7' }}
+          data-testid="section-do-meter"
+          onClick={() => navigate('/water-quality')}
+        >
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg" style={{ backgroundColor: '#0284c7' }}>
+                <Wind className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <CardTitle className={text}>DO Meter (Aeration Tank) parameter</CardTitle>
+                <CardDescription className={muted}>
+                  Live Dissolved Oxygen readings per aeration tank — click for animated view
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {doDevices.length === 0 ? (
+              <p className={`text-xs italic ${muted}`} data-testid="do-tiles-empty">No DO meter configured.</p>
+            ) : (
+              <div className="space-y-4">
+                {doDevices.map((d) => {
+                  const v = d.values || {};
+                  const reg = d._registry || {};
+                  const tanks = [
+                    { n: 1, val: v.DO_TANK_1, cap: reg.do_tank_config?.tank_1_kld },
+                    { n: 2, val: v.DO_TANK_2, cap: reg.do_tank_config?.tank_2_kld },
+                  ];
+                  return (
+                    <div key={d.hardware_id} data-testid={`do-tile-row-${d.hardware_id}`}>
+                      <div className={`text-xs font-semibold mb-1.5 ${text}`}>{reg.label || d.hardware_id}</div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {tanks.map((t) => {
+                          const alarm = t.val != null && (t.val < 2 || t.val > 8);
+                          const active = t.val != null && !alarm;
+                          const borderColor = alarm ? '#dc2626' : (active ? '#0284c7' : '#cbd5e1');
+                          return (
+                            <div
+                              key={t.n}
+                              className={`p-3 rounded border-2 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'} flex items-center justify-between`}
+                              style={{ borderColor }}
+                              data-testid={`do-tile-${d.hardware_id}-tank${t.n}`}
+                            >
+                              <div>
+                                <p className={`text-[10px] uppercase tracking-wide font-semibold ${muted}`}>Tank {t.n} DO</p>
+                                <p className="text-2xl font-bold tabular-nums" style={{ color: borderColor }}>
+                                  {t.val != null ? Number(t.val).toFixed(2) : '—'}
+                                  <span className="text-[10px] ml-1 opacity-70">mg/L</span>
+                                </p>
+                              </div>
+                              {t.cap != null && (
+                                <div className={`text-right ${muted}`}>
+                                  <p className="text-[9px] uppercase tracking-wide">Capacity</p>
+                                  <p className="text-sm font-mono font-bold">{t.cap} <span className="text-[9px]">KLD</span></p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
 
