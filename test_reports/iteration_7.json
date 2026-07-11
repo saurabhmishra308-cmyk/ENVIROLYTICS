@@ -1,0 +1,70 @@
+{
+  "summary": "Iteration-7 full regression sweep — ALL PASS. Backend: 14/14 new pytest cases (test_iteration7_regression.py) + 12/12 iteration-6 tests re-verified (26/26 total in 7.72s). Frontend Playwright verified every new/regressed test-id on the Dashboard and Water Quality tab as admin. Ownership of STP_TEST_001 + DO_TEST_001 was reassigned to client user_dd92c46509ff for sanitization tests and RESTORED to user_52eee1f7927c at teardown.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/water-quality/latest (client role)", "issue": "stp_unit_config.energy is kept as a null field (not fully popped) when it was never configured as a dict. _sanitize_stp_cfg_for_client only pops when isinstance(energy, dict). No admin data leaks (value is None), but the key remains on the wire — spec says 'stp_unit_config.energy... all stripped for client role'. Suggest changing to `out.pop('energy', None)` unconditionally."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_test_ids": {
+    "dashboard": [
+      "dashboard-page",
+      "section-water-quality (title='Borewell Water Quality', description mentions 'borewell supply', ZERO STP-Flowmeter leftovers)",
+      "section-stp-effluent (title='Sewerage Treatment Plant water quality parameter', clickable → /water-quality)",
+      "stp-tile-row-STP_TEST_001 with stp-tile-STP_TEST_001-PH=7.8, -TSS=30, -BOD=5, -COD=70",
+      "stp-stale-STP_TEST_001 = 'Just now' (green pill)",
+      "section-do-meter (title='DO Meter (Aeration Tank) parameter', clickable → /water-quality)",
+      "do-tile-row-DO_TEST_001 with do-tile-DO_TEST_001-tank1 (5.42 mg/L, 250 KLD) and tank2 (6.18 mg/L, 180 KLD)",
+      "do-stale-DO_TEST_001 = '6 hr ago' (amber pill — traffic-light working)",
+      "location-map-legend contains legend-wq_stp ('STP Effluent Analyser') and legend-do_meter ('DO Meter (Aeration Tank)') chips"
+    ],
+    "water_quality": [
+      "stp-flowmeters-card renders under SCADA diagram with STP Inlet & STP Outlet columns",
+      "stp-inlet-empty ('No STP inlet flowmeter registered.') and stp-outlet-empty ('No STP outlet flowmeter registered.') visible",
+      "stp-print-snapshot-btn triggers PDF download (scada_STP_Effluent_Analyser_2026-07-11.pdf)",
+      "stp-configure-plant-btn present (admin only)",
+      "aeration-custom-badge-* count = 0 (confirmed removed)",
+      "camera-timestamp-banner + camera-live-clock updating between 2s reads (14:27:14 → 14:27:16 IST)",
+      "do-configure-tanks-btn, aeration-upload-btn-1, aeration-upload-btn-2 all PRESENT for admin"
+    ]
+  },
+  "backend_endpoints_verified": [
+    "POST /api/auth/login (admin + client) — 200",
+    "GET /api/water-quality/latest (admin) — full _registry.plant_capacity_kld + do_tank_config + stp_derived + energy fields",
+    "GET /api/water-quality/latest (client, after ownership reassign) — gardening_flushing.{source,manual_kld,linked_fm_id,linked_flowmeter_hw_id} stripped, updated_by/updated_at stripped, stp_derived reduced to {gardening_flushing_kld_today, energy_kwh_per_day}, aeration_videos.*_uploaded_by/_uploaded_at stripped, do_tank_config.updated_by/updated_at stripped",
+    "PUT /api/water-quality/{hw}/stp-config — param_ranges + dummy_auto_push round-trip; dummy_auto_push.enabled=true syncs registry.dummy_config.enabled=true, auto_from_stp_cfg=true; toggling off flips registry back",
+    "PUT /api/water-quality/{hw}/do-tank-config — admin 200, client 403, wrong-type (STP hw) 400, unknown hw 404",
+    "GET /api/water-quality/{hw}/stp-config — client 403",
+    "POST /api/water-quality/{hw}/aeration-video/1 — 200, populates _registry.aeration_videos.tank_1",
+    "DELETE /api/water-quality/{hw}/aeration-video/1 — removes registry field",
+    "POST /api/camera-streams/{hw}/upload (mp4) — 200 for admin",
+    "GET /api/camera-streams/by-device/{hw} (client) — no integration_config / created_by / updated_by / uploaded_by / uploaded_at fields",
+    "GET /api/flowmeter-mgmt/categories — 200 (drives Dashboard groundwater tiles + WaterQuality STP Flowmeters card)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration7_regression.py",
+    "/app/backend/tests/test_iteration6_wq.py",
+    "/app/test_reports/pytest/iter7.xml",
+    "/app/test_reports/pytest/iter7_full.xml"
+  ],
+  "action_items": [
+    "(minor) In backend/api_water_quality.py:_sanitize_stp_cfg_for_client change `if isinstance(out.get('energy'), dict): out.pop('energy', None)` → `out.pop('energy', None)` (unconditional). Same defensive-clean recommendation for future null-schema fields."
+  ],
+  "critical_code_review_comments": [
+    "Dashboard timeSince helper (EnhancedDashboard.jsx L89-101) correctly maps <1 min → 'Just now' green, <1 hr → 'N min ago' green, <24 hr → 'N hr ago' amber, <7 days → 'N day(s) ago' red, ≥ 7 days → 'N days ago' dark-red. Verified live pill colours in Playwright: STP fresh = green (Just now), DO stale = amber (6 hr ago). Excellent 4-level traffic-light UX.",
+    "The whole section-stp-effluent + section-do-meter Cards use `onClick={() => navigate('/water-quality')}` on the Card wrapper. Because the header (h3/CardTitle) is inside, mouse clicks anywhere in the empty area also navigate — that is the intended UX. No stopPropagation collision with inner elements.",
+    "LocationMap.jsx TYPE_STYLES already exposes wq_stp (orange-red #c2410c) and do_meter (sky-blue #0284c7). The legend uses `presentTypes` which is derived from actually-rendered instrument_type values — good, prevents dead legend chips when the client has no such device.",
+    "WaterQuality.jsx STPPlantDiagram export via html2canvas/jsPDF still works (SCADA PDF downloaded successfully: scada_STP_Effluent_Analyser_2026-07-11.pdf) — animations are disabled via onclone snippet before capture, so no motion-blur.",
+    "The extracted FlowmeterTile.jsx now shared between Dashboard + WaterQuality avoids the duplicate FlowmeterTile definition still present in EnhancedDashboard.jsx (L36-69). Consider swapping the dashboard's inline FlowmeterTile for the shared component in a follow-up cleanup to enforce DRY.",
+    "Client sanitization: `_sanitize_stp_cfg_for_client` still leaves `energy: None` on the client payload when the field was never set. Suggest unconditional pop as noted in action_items."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration7_regression.py"],
+  "success_rate": {"backend": "100% (26/26 in 7.72s, incl. iter-6 regression)", "frontend": "100% (all iter-7 test-ids verified)"},
+  "test_credentials": "Admin: admin@envirolytics.com / Admin@Envirolytics2026. Client: testclient@envirolytics.com / Client@Test2026 (id=user_dd92c46509ff). Sourced from /app/memory/test_credentials.md.",
+  "seed_data_creation": "No new persistent seed. TestAerationVideo uploads a fake mp4 to tank_1 then DELETEs it (registry.aeration_videos.tank_1 restored to falsy). TestCameraStreams uploads a fake mp4 snapshot which is retained. Ownership of STP_TEST_001 + DO_TEST_001 was reassigned to user_dd92c46509ff during TestWaterQualityLatest.test_client_sanitization + TestCameraStreams.test_client_sanitized_by_device and RESTORED to user_52eee1f7927c by both `reassign_to_client` fixture teardown and the explicit `test_zzz_restore_ownership` guard at the end. do_tank_config on DO_TEST_001 persisted as {250, 180}. STP_TEST_001 stp_unit_config.param_ranges + dummy_auto_push re-enabled at end.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New pytest module /app/backend/tests/test_iteration7_regression.py extends the iter-6 module with full-sweep coverage: latest sanitization, STP-config param_ranges + dummy_auto_push flip, DO tank config, aeration video upload+delete, camera-streams (video-only) upload + client GET sanitization, and flowmeter-mgmt categories. Both iter-6 + iter-7 tests are complementary and should be run together for full regression. The Dashboard-side test-ids (section-stp-effluent, section-do-meter, stp-tile-*, do-tile-*, stp-stale-*, do-stale-*, stp-tiles-empty, do-tiles-empty) plus WaterQuality-tab test-ids (stp-flowmeters-card, stp-inlet-empty, stp-outlet-empty, stp-print-snapshot-btn, do-configure-tanks-btn, stp-configure-plant-btn, aeration-upload-btn-1/2, camera-timestamp-banner, camera-live-clock) are all mounted for the seeded STP_TEST_001 + DO_TEST_001 devices. LocationMap legend keys legend-wq_stp and legend-do_meter appear only when the map has ≥1 marker of that type — because both devices have lat/lng, they always show for admin (and for the client after reassignment).",
+  "rca of the issue": "N/A — all iteration-7 features function as specified. Sole minor gap: `_sanitize_stp_cfg_for_client` leaves an `energy: None` key on the client payload when the STP admin never populated the energy sub-config. Non-security (value is null), but the spec explicitly asks the key be stripped. One-line fix in backend/api_water_quality.py:644."
+}
