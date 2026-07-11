@@ -84,6 +84,22 @@ const EnhancedDashboard = () => {
   const [stpDevices, setStpDevices] = useState([]);
   const [doDevices, setDoDevices] = useState([]);
 
+  // Human-readable "time since last reading" + traffic-light colour used by
+  // the STP & DO tile rows so ops can spot silent instruments at a glance.
+  const timeSince = (iso) => {
+    if (!iso) return { label: 'No data yet', color: '#94a3b8', level: 'never' };
+    const ms = Date.now() - new Date(iso).getTime();
+    if (Number.isNaN(ms) || ms < 0) return { label: 'No data yet', color: '#94a3b8', level: 'never' };
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1)  return { label: 'Just now',       color: '#10b981', level: 'fresh' };
+    if (mins < 60) return { label: `${mins} min ago`, color: '#10b981', level: 'fresh' };
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24)  return { label: `${hrs} hr ago`,   color: '#f59e0b', level: 'stale' };
+    const days = Math.floor(hrs / 24);
+    if (days < 7)  return { label: `${days} day${days === 1 ? '' : 's'} ago`, color: '#ef4444', level: 'silent' };
+    return { label: `${days} days ago`, color: '#7f1d1d', level: 'silent' };
+  };
+
   const LATITUDE = useMemo(() => 26.8467, []);
   const LONGITUDE = useMemo(() => 80.9462, []);
   const WEATHER_API_KEY = useMemo(() => process.env.REACT_APP_WEATHER_API_KEY, []);
@@ -433,6 +449,7 @@ const EnhancedDashboard = () => {
                 {stpDevices.map((d) => {
                   const v = d.values || {};
                   const reg = d._registry || {};
+                  const stale = timeSince(d.received_at);
                   const params = [
                     { k: 'PH',  label: 'pH',  val: v.PH,  unit: '',      color: '#3730a3' },
                     { k: 'TSS', label: 'TSS', val: v.TSS, unit: 'mg/L',  color: '#c2410c' },
@@ -441,11 +458,22 @@ const EnhancedDashboard = () => {
                   ];
                   return (
                     <div key={d.hardware_id} data-testid={`stp-tile-row-${d.hardware_id}`}>
-                      <div className={`text-xs font-semibold mb-1.5 ${text}`}>
-                        {reg.label || d.hardware_id}
-                        {reg.plant_capacity_kld != null && (
-                          <span className={`ml-2 text-[10px] font-mono ${muted}`}>· {reg.plant_capacity_kld} KLD</span>
-                        )}
+                      <div className={`text-xs font-semibold mb-1.5 ${text} flex items-center gap-2 flex-wrap`}>
+                        <span>
+                          {reg.label || d.hardware_id}
+                          {reg.plant_capacity_kld != null && (
+                            <span className={`ml-2 text-[10px] font-mono ${muted}`}>· {reg.plant_capacity_kld} KLD</span>
+                          )}
+                        </span>
+                        <span
+                          className="text-[10px] font-medium px-1.5 py-0.5 rounded-full text-white flex items-center gap-1"
+                          style={{ backgroundColor: stale.color }}
+                          data-testid={`stp-stale-${d.hardware_id}`}
+                          title={d.received_at ? `Last reading: ${new Date(d.received_at).toLocaleString('en-IN', { hour12: false })}` : 'No reading received yet'}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-white opacity-90" />
+                          {stale.label}
+                        </span>
                       </div>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {params.map((p) => (
@@ -499,13 +527,25 @@ const EnhancedDashboard = () => {
                 {doDevices.map((d) => {
                   const v = d.values || {};
                   const reg = d._registry || {};
+                  const stale = timeSince(d.received_at);
                   const tanks = [
                     { n: 1, val: v.DO_TANK_1, cap: reg.do_tank_config?.tank_1_kld },
                     { n: 2, val: v.DO_TANK_2, cap: reg.do_tank_config?.tank_2_kld },
                   ];
                   return (
                     <div key={d.hardware_id} data-testid={`do-tile-row-${d.hardware_id}`}>
-                      <div className={`text-xs font-semibold mb-1.5 ${text}`}>{reg.label || d.hardware_id}</div>
+                      <div className={`text-xs font-semibold mb-1.5 ${text} flex items-center gap-2 flex-wrap`}>
+                        <span>{reg.label || d.hardware_id}</span>
+                        <span
+                          className="text-[10px] font-medium px-1.5 py-0.5 rounded-full text-white flex items-center gap-1"
+                          style={{ backgroundColor: stale.color }}
+                          data-testid={`do-stale-${d.hardware_id}`}
+                          title={d.received_at ? `Last reading: ${new Date(d.received_at).toLocaleString('en-IN', { hour12: false })}` : 'No reading received yet'}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-white opacity-90" />
+                          {stale.label}
+                        </span>
+                      </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {tanks.map((t) => {
                           const alarm = t.val != null && (t.val < 2 || t.val > 8);
