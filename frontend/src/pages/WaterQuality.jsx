@@ -84,12 +84,14 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
     const el = videoRef.current;
     if (!el) return;
     if (aerationActive) {
-      // Speed video playback with oxygen level (higher DO = more vigorous)
-      const rate = Math.max(0.4, Math.min(1.6, 0.4 + (v / max) * 1.2));
-      try { el.playbackRate = rate; } catch (_) {}
+      // Very slow, meditative playback — user asked for "very slow movement".
+      // Range: 0.15× (low O2) → 0.35× (high O2). Even the fastest is well below
+      // normal speed so bubble rise looks tranquil.
+      const rate = Math.max(0.15, Math.min(0.35, 0.15 + (v / max) * 0.25));
+      try { el.playbackRate = rate; } catch (_) { /* noop */ }
       el.play().catch(() => {});
     } else {
-      try { el.pause(); } catch (_) {}
+      try { el.pause(); } catch (_) { /* noop */ }
     }
   }, [aerationActive, v, max]);
 
@@ -109,9 +111,10 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
           className="w-full h-56 object-cover"
           style={{
             filter: aerationActive ? 'saturate(1.05) brightness(0.95)' : 'grayscale(0.6) brightness(0.55)',
-            transition: 'filter 0.6s ease-in-out, transform 0.6s ease-in-out',
-            transform: 'scale(1.25)',
+            // 25% more zoom on top of the previous 1.25 → 1.5625× (≈ +55% overall).
+            transform: 'scale(1.5625)',
             transformOrigin: 'center center',
+            transition: 'filter 0.6s ease-in-out, transform 0.6s ease-in-out',
           }}
           data-testid={`aeration-video-${tankNumber}`}
         />
@@ -145,175 +148,357 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
   );
 };
 
-// ------------------------- STP Plant Flow Diagram (SVG) -------------------------
-const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceLabel }) => {
+// ------------------------- STP Plant Flow Diagram (industrial SCADA-style) -------------------------
+const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceLabel, lastReceivedAt }) => {
   const cod = typeof values.COD === 'number' ? values.COD : null;
   const bod = typeof values.BOD === 'number' ? values.BOD : null;
   const tss = typeof values.TSS === 'number' ? values.TSS : null;
   const ph  = typeof values.PH === 'number'  ? values.PH  : null;
-  const now = new Date().toLocaleString('en-IN', { hour12: true });
+  const doVal = typeof values.DO === 'number' ? values.DO : null;
+  const tds = typeof values.TDS === 'number' ? values.TDS : null;
+  const orp = typeof values.ORP === 'number' ? values.ORP : null;
+  const turb = typeof values.TURBIDITY === 'number' ? values.TURBIDITY : (typeof values.Turbidity === 'number' ? values.Turbidity : null);
 
-  // Design palette — deliberately different from the reference (which used
-  // earth-tones + blue). Ours uses teal / emerald / amber / slate.
+  const fmtTime = (iso) => {
+    if (!iso) return '--:--';
+    try { return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }); }
+    catch (_) { return '--:--'; }
+  };
+  const stamp = fmtTime(lastReceivedAt || new Date().toISOString());
+
+  // Colour palette matching the reference image exactly
+  const CARDS = [
+    { key: 'PH',  label: 'pH Value',  value: ph,  fmt: (v) => v.toFixed(1),          bg: '#3730a3' }, // indigo
+    { key: 'TSS', label: 'TSS Value', value: tss, fmt: (v) => v.toFixed(0),          bg: '#c2410c' }, // orange-700
+    { key: 'BOD', label: 'BOD Value', value: bod, fmt: (v) => v.toFixed(0),          bg: '#166534' }, // green-800
+    { key: 'COD', label: 'COD Value', value: cod, fmt: (v) => v.toFixed(0),          bg: '#a16207' }, // yellow-700 / amber
+  ];
+
+  // "0 KLD" flow badges over each active pump (mirrors the reference).
+  // In future these could be wired to real per-pump flow telemetry.
+  const KLD_LIVE = 0;
+
   return (
-    <div className="relative w-full overflow-x-auto bg-gradient-to-br from-slate-50 to-emerald-50 rounded-xl p-4 border border-slate-200" data-testid="stp-plant-diagram">
+    <div className="relative w-full bg-white rounded-xl p-4 border border-slate-200" data-testid="stp-plant-diagram">
       <style>{`
         @keyframes stpFlow  { 0% { stroke-dashoffset: 40; } 100% { stroke-dashoffset: 0; } }
-        @keyframes stpPulse { 0%,100% { opacity: 0.9; } 50% { opacity: 0.4; } }
         @keyframes stpRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         @keyframes stpBubbles { 0% { cy: 220; opacity: 0; } 20% { opacity: 1; } 100% { cy: 170; opacity: 0; } }
+        @keyframes stpBlink { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
       `}</style>
 
-      {/* Header value cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
-        <div className="rounded-lg bg-white shadow-sm border border-slate-200 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-widest text-slate-500">Plant</div>
-          <div className="text-sm font-semibold text-slate-900 truncate">{deviceLabel || '—'}</div>
-          {plantCapacityKld != null && <div className="text-[10px] text-emerald-700 font-mono">{plantCapacityKld} KLD</div>}
-        </div>
-        {[
-          { key: 'PH',  label: 'pH',  value: ph,  unit: '',       color: 'from-fuchsia-500 to-pink-500' },
-          { key: 'TSS', label: 'TSS', value: tss, unit,          color: 'from-amber-500 to-orange-500' },
-          { key: 'BOD', label: 'BOD', value: bod, unit,          color: 'from-emerald-500 to-teal-500' },
-          { key: 'COD', label: 'COD', value: cod, unit,          color: 'from-sky-500 to-cyan-500' },
-        ].map((c) => (
-          <div key={c.key} className={`rounded-lg text-white shadow-md bg-gradient-to-br ${c.color} px-3 py-2`} data-testid={`stp-card-${c.key.toLowerCase()}`}>
-            <div className="text-[10px] uppercase tracking-widest opacity-80">{c.label}</div>
-            <div className="text-xl font-bold tabular-nums">
-              {c.value != null ? c.value.toFixed(c.key === 'PH' ? 2 : 1) : '—'}
+      {/* ─────────────── Header: 4 colored value cards + Water Quality summary ─────────────── */}
+      <div className="flex flex-col xl:flex-row gap-3 mb-5">
+        {/* Left: 4 value cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-1">
+          {CARDS.map((c) => (
+            <div
+              key={c.key}
+              className="rounded shadow-md text-white overflow-hidden"
+              style={{ background: c.bg }}
+              data-testid={`stp-card-${c.key.toLowerCase()}`}
+            >
+              <div className="grid grid-cols-[1fr_auto] items-center border-b border-white/25">
+                <div className="px-3 py-2 text-xs font-medium">{c.label} -</div>
+                <div className="px-4 py-2 text-lg font-semibold tabular-nums min-w-[64px] text-center">
+                  {c.value != null ? c.fmt(c.value) : '0'}
+                </div>
+              </div>
+              <div className="grid grid-cols-[1fr_auto] items-center">
+                <div className="px-3 py-1.5 text-[11px] opacity-90">Last Data On -</div>
+                <div className="px-4 py-1.5 text-xs font-mono tabular-nums opacity-95">{stamp}</div>
+              </div>
             </div>
-            <div className="text-[9px] opacity-80">{c.unit}</div>
-          </div>
-        ))}
-      </div>
-      <div className="text-[10px] text-slate-500 mb-2 font-mono">Last data on: {now}</div>
-
-      {/* SVG plant diagram */}
-      <svg viewBox="0 0 900 260" className="w-full min-w-[820px]" xmlns="http://www.w3.org/2000/svg">
-        {/* Ground line */}
-        <line x1="10" y1="245" x2="890" y2="245" stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 3" />
-
-        {/* --- STAGE 1: Bar Screen + Equalization tank --- */}
-        <g transform="translate(20,90)">
-          <rect x="0" y="0" width="90" height="120" rx="6" fill="#e0f2fe" stroke="#0284c7" strokeWidth="2" />
-          <rect x="10" y="15" width="70" height="90" fill="url(#waterGrad1)" />
-          {/* Vertical bar screen strips */}
-          <g stroke="#475569" strokeWidth="1.5">
-            {[15,25,35,45,55,65,75].map(x => <line key={x} x1={x+5} y1="15" x2={x+5} y2="105" />)}
-          </g>
-          <text x="45" y="135" textAnchor="middle" className="fill-slate-800" fontSize="10" fontWeight="600">Equalization</text>
-          <text x="45" y="147" textAnchor="middle" className="fill-slate-500" fontSize="9">Bar Screen</text>
-        </g>
-
-        {/* Arrow 1 */}
-        <path d="M 115 150 L 155 150" stroke="#0891b2" strokeWidth="3" strokeDasharray="8 4"
-              style={{ animation: 'stpFlow 1s linear infinite' }} markerEnd="url(#arrow)" />
-
-        {/* --- STAGE 2: Aeration tank (large, central) --- */}
-        <g transform="translate(160,60)">
-          <rect x="0" y="30" width="180" height="150" rx="8" fill="#ccfbf1" stroke="#0d9488" strokeWidth="2.5" />
-          <rect x="8" y="55" width="164" height="120" fill="url(#waterGrad2)" />
-          {/* Bubbles rising */}
-          {[20,45,70,95,120,145].map((x, i) => (
-            <circle key={x} cx={x + 10} cy={165} r={4 + (i % 2)} fill="#38bdf8" opacity="0.75"
-                    style={{ animation: `stpBubbles 2.${(i * 3) % 10}s ease-in ${(i * 0.25)}s infinite` }} />
           ))}
-          {/* Diffuser */}
-          <rect x="8" y="170" width="164" height="6" fill="#334155" />
-          {/* Blower with rotating impeller */}
-          <g transform="translate(-30, 90)">
-            <rect x="-8" y="-8" width="26" height="20" rx="3" fill="#f97316" />
-            <g style={{ transformOrigin: '5px 2px', animation: 'stpRotate 1.4s linear infinite' }}>
-              <circle cx="5" cy="2" r="7" fill="#fed7aa" />
-              <line x1="-1" y1="2" x2="11" y2="2" stroke="#7c2d12" strokeWidth="1.5" />
-              <line x1="5" y1="-4" x2="5" y2="8" stroke="#7c2d12" strokeWidth="1.5" />
-            </g>
-            <text x="5" y="30" textAnchor="middle" fontSize="8" className="fill-slate-600" fontWeight="600">BLOWER</text>
+        </div>
+
+        {/* Right: Water Quality summary box */}
+        <div className="xl:w-[220px] rounded border border-slate-300 bg-white shadow-sm p-2" data-testid="stp-wq-summary">
+          <div className="text-[10px] text-slate-600 font-semibold text-center border-b border-slate-200 pb-1 mb-1">Water Quality</div>
+          <table className="w-full text-[10px] leading-4">
+            <tbody>
+              {[
+                { k: 'pH', v: ph, unit: '', danger: ph != null && (ph < 6.5 || ph > 8.5) },
+                { k: 'TDS (in ppm)', v: tds, unit: '', danger: tds != null && tds > 500 },
+                { k: 'ORP (in mV)', v: orp, unit: '', danger: false },
+                { k: 'Turbidity (in NTU)', v: turb, unit: '', danger: false },
+                { k: 'TSS (in ppm)', v: tss, unit: '', danger: tss != null && tss > 100 },
+                { k: 'BOD (in mg/L)', v: bod, unit: '', danger: bod != null && bod > 30 },
+                { k: 'COD (in mg/L)', v: cod, unit: '', danger: cod != null && cod > 250 },
+                { k: 'DO (in mg/L)', v: doVal, unit: '', danger: doVal != null && doVal < 2 },
+              ].map((row) => (
+                <tr key={row.k}>
+                  <td className="text-slate-700 pr-1 whitespace-nowrap">{row.k} :</td>
+                  <td className={`text-right font-mono tabular-nums ${row.danger ? 'text-red-600' : 'text-slate-900'}`}>
+                    {row.v != null ? Number(row.v).toString() : '0'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ─────────────── Plant capacity banner ─────────────── */}
+      <div className="flex items-center justify-between text-xs text-slate-600 mb-2 px-1">
+        <div>
+          <span className="font-semibold text-slate-800">{deviceLabel || 'STP Plant'}</span>
+          {plantCapacityKld != null && (
+            <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 font-mono text-[11px]" data-testid="stp-plant-capacity">
+              Capacity: <b>{plantCapacityKld}</b> KLD
+            </span>
+          )}
+        </div>
+        <div className="text-[10px] text-slate-500 font-mono">Live plant schematic · SCADA view</div>
+      </div>
+
+      {/* ─────────────── SCADA-style plant diagram ─────────────── */}
+      <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
+        <svg viewBox="0 0 1440 480" className="w-full min-w-[1360px]" xmlns="http://www.w3.org/2000/svg">
+          {/* Backdrop grid to feel like an SCADA HMI */}
+          <defs>
+            <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f1f5f9" strokeWidth="0.5" />
+            </pattern>
+            <linearGradient id="waterFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#7dd3fc" />
+              <stop offset="100%" stopColor="#0369a1" />
+            </linearGradient>
+            <linearGradient id="tankBrown" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#e5d3b3" />
+              <stop offset="100%" stopColor="#a68a64" />
+            </linearGradient>
+            <marker id="arrGreen" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#22c55e" />
+            </marker>
+            <marker id="arrBlue" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#0284c7" />
+            </marker>
+          </defs>
+          <rect width="1440" height="480" fill="url(#grid)" />
+
+          {/* ── Top output rail (green — treated water to Gardening + Cooling Tower) ── */}
+          <path d="M 1090 55 L 1090 260 L 1330 260 L 1330 55" fill="none" stroke="#16a34a" strokeWidth="3" />
+          <path d="M 1200 55 L 1200 260 L 1420 260 L 1420 55" fill="none" stroke="#16a34a" strokeWidth="3" />
+          {/* Destination labels */}
+          <g>
+            <rect x="1055" y="30" width="80" height="28" rx="3" fill="#ffffff" stroke="#16a34a" strokeWidth="1.5" />
+            <text x="1095" y="49" textAnchor="middle" fontSize="12" fill="#065f46" fontWeight="600">Gardening</text>
           </g>
-          <text x="90" y="200" textAnchor="middle" className="fill-slate-800" fontSize="11" fontWeight="700">Aeration Tank</text>
-          <text x="90" y="212" textAnchor="middle" className="fill-emerald-700" fontSize="9">
-            Bacteria + O₂ → CO₂ + H₂O
-          </text>
-        </g>
+          <g>
+            <rect x="1370" y="30" width="100" height="28" rx="3" fill="#ffffff" stroke="#16a34a" strokeWidth="1.5" />
+            <text x="1420" y="49" textAnchor="middle" fontSize="12" fill="#065f46" fontWeight="600">Cooling Tower</text>
+          </g>
 
-        {/* Arrow 2 */}
-        <path d="M 345 150 L 385 150" stroke="#0891b2" strokeWidth="3" strokeDasharray="8 4"
-              style={{ animation: 'stpFlow 1s linear infinite' }} markerEnd="url(#arrow)" />
+          {/* Flow particles on green rail */}
+          <g stroke="#22c55e" strokeWidth="1" fill="none" strokeDasharray="6 8" style={{ animation: 'stpFlow 1.2s linear infinite' }}>
+            <path d="M 1090 60 L 1090 260 L 1420 260 L 1420 60" />
+          </g>
 
-        {/* --- STAGE 3: Clarifier (settling) — conical --- */}
-        <g transform="translate(390,80)">
-          <path d="M 0 0 L 130 0 L 100 90 L 30 90 Z" fill="#fef3c7" stroke="#d97706" strokeWidth="2" />
-          <path d="M 8 8 L 122 8 L 96 82 L 34 82 Z" fill="url(#waterGrad3)" />
-          {/* Sludge layer */}
-          <path d="M 32 78 L 98 78 L 100 90 L 30 90 Z" fill="#78350f" opacity="0.4" />
-          {/* Skimmer arm */}
-          <line x1="15" y1="4" x2="115" y2="4" stroke="#334155" strokeWidth="2" />
-          <text x="65" y="115" textAnchor="middle" className="fill-slate-800" fontSize="10" fontWeight="600">Clarifier</text>
-          <text x="65" y="127" textAnchor="middle" className="fill-slate-500" fontSize="9">(Settling)</text>
-        </g>
+          {/* ═════════════════ STAGE 1: Bar Screen ═════════════════ */}
+          <g transform="translate(20, 300)">
+            <rect x="0" y="0" width="20" height="70" fill="#fef3c7" stroke="#a16207" strokeWidth="1" />
+            {[8, 18, 28, 38, 48, 58].map((y) => (
+              <line key={y} x1="4" y1={y} x2="16" y2={y - 4} stroke="#78350f" strokeWidth="1.5" />
+            ))}
+            <text x="10" y="88" textAnchor="middle" fontSize="9" fill="#475569" fontWeight="500">Bar</text>
+            <text x="10" y="99" textAnchor="middle" fontSize="9" fill="#475569" fontWeight="500">Screen</text>
+          </g>
 
-        {/* Arrow 3 */}
-        <path d="M 525 150 L 565 150" stroke="#0891b2" strokeWidth="3" strokeDasharray="8 4"
-              style={{ animation: 'stpFlow 1s linear infinite' }} markerEnd="url(#arrow)" />
+          {/* Blue inlet pipe */}
+          <path d="M 42 335 L 90 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)" />
 
-        {/* --- STAGE 4: PSF/ACF filters (two vertical columns) --- */}
-        <g transform="translate(570,60)">
-          <rect x="0" y="10" width="45" height="170" rx="18" fill="#fdf4ff" stroke="#a21caf" strokeWidth="2" />
-          <rect x="4" y="30" width="37" height="130" fill="url(#waterGrad4)" />
-          <circle cx="22" cy="100" r="10" fill="#c026d3" opacity="0.4" />
-          <text x="22" y="200" textAnchor="middle" className="fill-slate-800" fontSize="9" fontWeight="600">PSF</text>
+          {/* ═════════════════ STAGE 2: Equalization Tank ═════════════════ */}
+          <Tank x={95} y={280} w={110} h={110} name="Equalization Tank" fillLevel={0} capacityKld={KLD_LIVE} />
 
-          <rect x="60" y="10" width="45" height="170" rx="18" fill="#f0fdfa" stroke="#0d9488" strokeWidth="2" />
-          <rect x="64" y="30" width="37" height="130" fill="url(#waterGrad4)" />
-          <circle cx="82" cy="100" r="10" fill="#14b8a6" opacity="0.4" />
-          <text x="82" y="200" textAnchor="middle" className="fill-slate-800" fontSize="9" fontWeight="600">ACF</text>
-          <text x="52" y="212" textAnchor="middle" className="fill-slate-500" fontSize="8">Softener</text>
-        </g>
+          {/* Sewage Transfer Pump 1 (top-side pump) */}
+          <PumpBadge x={165} y={215} label="Sewage Transfer&#10;Pump - 1" flowKld={KLD_LIVE} />
+          {/* Pipe from Equalization → up → across to blowers/aeration */}
+          <path d="M 200 335 L 240 335" stroke="#0284c7" strokeWidth="4" />
+          <path d="M 200 300 L 200 260 L 285 260" stroke="#0284c7" strokeWidth="4" />
 
-        {/* Arrow 4 */}
-        <path d="M 690 150 L 730 150" stroke="#0891b2" strokeWidth="3" strokeDasharray="8 4"
-              style={{ animation: 'stpFlow 1s linear infinite' }} markerEnd="url(#arrow)" />
+          {/* ═════════════════ STAGE 3: Air Blowers (3×) ═════════════════ */}
+          <AirBlower x={240} y={355} label="Air Blower - 1" />
+          <AirBlower x={310} y={355} label="Air Blower - 2" />
+          <AirBlower x={380} y={355} label="Air Blower - 3" />
 
-        {/* --- STAGE 5: Treated water tank + outlet --- */}
-        <g transform="translate(735,90)">
-          <rect x="0" y="0" width="90" height="120" rx="6" fill="#dcfce7" stroke="#16a34a" strokeWidth="2" />
-          <rect x="10" y="20" width="70" height="85" fill="url(#waterGrad5)" />
-          {/* Outlet tap */}
-          <rect x="82" y="70" width="18" height="8" fill="#334155" />
-          <text x="45" y="135" textAnchor="middle" className="fill-slate-800" fontSize="10" fontWeight="600">Treated</text>
-          <text x="45" y="147" textAnchor="middle" className="fill-slate-500" fontSize="9">Gardening / Flush</text>
-        </g>
+          {/* Air pipes running above blowers into aeration diffuser */}
+          <path d="M 260 355 L 260 300 L 480 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3" />
+          <path d="M 330 355 L 330 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3" />
+          <path d="M 400 355 L 400 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3" />
 
-        {/* Gradient defs + arrow marker */}
-        <defs>
-          <linearGradient id="waterGrad1" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#7dd3fc" />
-            <stop offset="100%" stopColor="#0369a1" />
-          </linearGradient>
-          <linearGradient id="waterGrad2" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#5eead4" />
-            <stop offset="100%" stopColor="#0f766e" />
-          </linearGradient>
-          <linearGradient id="waterGrad3" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#fde68a" />
-            <stop offset="100%" stopColor="#b45309" />
-          </linearGradient>
-          <linearGradient id="waterGrad4" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#f0abfc" />
-            <stop offset="100%" stopColor="#86198f" />
-          </linearGradient>
-          <linearGradient id="waterGrad5" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#86efac" />
-            <stop offset="100%" stopColor="#15803d" />
-          </linearGradient>
-          <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#0891b2" />
-          </marker>
-        </defs>
-      </svg>
+          {/* ═════════════════ STAGE 4: Aeration Tank ═════════════════ */}
+          <g transform="translate(460, 280)">
+            <rect x="0" y="0" width="130" height="110" fill="url(#tankBrown)" stroke="#78350f" strokeWidth="1.5" />
+            {/* Water fill */}
+            <rect x="4" y="20" width="122" height="86" fill="#a5b4fc" opacity="0.7" />
+            {/* Diffuser plate */}
+            <rect x="10" y="98" width="110" height="4" fill="#334155" />
+            {/* Air bubbles */}
+            {[15, 30, 45, 60, 75, 90, 105].map((x, i) => (
+              <g key={x}>
+                <circle cx={x} cy={85 - (i % 3) * 15} r={2.5} fill="#38bdf8" style={{ animation: `stpBubbles 2.${(i*2)%9}s ease-in ${(i*0.2)}s infinite` }} />
+                <circle cx={x + 5} cy={70 - (i % 4) * 10} r={2} fill="#7dd3fc" style={{ animation: `stpBubbles 2.${(i*3)%9}s ease-in ${(i*0.35)}s infinite` }} />
+              </g>
+            ))}
+            <text x="65" y="128" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600">Aeration Tank</text>
+          </g>
+
+          {/* Sludge Transfer pumps (mid, above pipe) */}
+          <PumpBadge x={615} y={230} label="Sludge Transfer&#10;Pump - 1" flowKld={KLD_LIVE} />
+          <PumpBadge x={685} y={230} label="Sludge Transfer&#10;Pump - 2" flowKld={KLD_LIVE} />
+
+          {/* Aeration → Settling pipe */}
+          <path d="M 590 335 L 640 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)" />
+
+          {/* ═════════════════ STAGE 5: Settling Tank (trapezoid clarifier) ═════════════════ */}
+          <g transform="translate(645, 285)">
+            <path d="M 0 0 L 90 0 L 70 85 L 20 85 Z" fill="#93c5fd" stroke="#1d4ed8" strokeWidth="1.5" />
+            <path d="M 4 4 L 86 4 L 68 78 L 22 78 Z" fill="#dbeafe" opacity="0.7" />
+            <line x1="10" y1="8" x2="80" y2="8" stroke="#1e293b" strokeWidth="1.5" />
+            <text x="45" y="108" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600">Settling Tank</text>
+          </g>
+
+          {/* Settling → Filter Feed */}
+          <path d="M 735 335 L 785 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)" />
+
+          {/* ═════════════════ STAGE 6: Filter Feed Tank ═════════════════ */}
+          <Tank x={790} y={280} w={100} h={110} name="Filter Feed Tank" fillLevel={0} capacityKld={KLD_LIVE} />
+
+          {/* Filter Feed Pumps (2×) — vertical blue pump cylinders */}
+          <FeedPump x={905} y={280} label="Filter Feed&#10;Pump - 1" flowKld={KLD_LIVE} />
+          <FeedPump x={950} y={280} label="Filter Feed&#10;Pump - 2" flowKld={KLD_LIVE} />
+
+          {/* Filter feed → PSF pipe */}
+          <path d="M 890 335 L 900 335" stroke="#0284c7" strokeWidth="4" />
+          <path d="M 985 320 L 1005 320 L 1005 300" stroke="#22c55e" strokeWidth="3" />
+
+          {/* ═════════════════ STAGE 7: PSF / ACF / Softener columns ═════════════════ */}
+          <FilterColumn x={1000} y={300} label="PSF" color="#3730a3" />
+          <FilterColumn x={1035} y={300} label="ACF" color="#3730a3" />
+          <FilterColumn x={1070} y={300} label="Softener" color="#3730a3" />
+
+          {/* Energy Usage badge (top) */}
+          <g transform="translate(940, 175)">
+            <rect x="0" y="0" width="70" height="22" fill="#ffffff" stroke="#f59e0b" strokeWidth="1.5" />
+            <text x="35" y="14" textAnchor="middle" fontSize="9" fill="#78350f" fontWeight="600">Energy Usage</text>
+            <rect x="0" y="24" width="70" height="24" fill="#fef3c7" stroke="#f59e0b" strokeWidth="1.5" />
+            <text x="35" y="41" textAnchor="middle" fontSize="14" fill="#78350f" fontWeight="700" fontFamily="monospace">0</text>
+          </g>
+
+          {/* PSF outlet → Gardening tank */}
+          <path d="M 1105 320 L 1145 320" stroke="#22c55e" strokeWidth="3" markerEnd="url(#arrGreen)" />
+
+          {/* ═════════════════ STAGE 8: Gardening / Flushing Tank ═════════════════ */}
+          <Tank x={1150} y={280} w={100} h={110} name="Gardening / Flushing Tank" fillLevel={0} capacityKld={KLD_LIVE} accent="#16a34a" />
+
+          {/* Gardening pumps */}
+          <FeedPump x={1265} y={280} label="Gardening&#10;Pump - 1" flowKld={KLD_LIVE} />
+          <FeedPump x={1305} y={280} label="Gardening&#10;Pump - 2" flowKld={KLD_LIVE} />
+
+          {/* ═════════════════ STAGE 9: Treated Water Tank ═════════════════ */}
+          <Tank x={1355} y={280} w={80} h={110} name="Treated Water Tank" fillLevel={0} capacityKld={KLD_LIVE} accent="#0891b2" />
+          <FeedPump x={1345} y={410} label="Cooling Tower&#10;Pump - 1" flowKld={KLD_LIVE} compact />
+          <FeedPump x={1385} y={410} label="Cooling Tower&#10;Pump - 2" flowKld={KLD_LIVE} compact />
+
+          {/* Bottom ground line */}
+          <line x1="0" y1="470" x2="1440" y2="470" stroke="#cbd5e1" strokeWidth="1" />
+        </svg>
+      </div>
     </div>
   );
 };
+
+// ------------------------- Sub-components used by the plant SVG -------------------------
+const Tank = ({ x, y, w, h, name, fillLevel = 0, capacityKld, accent = '#a16207' }) => {
+  const fillH = Math.max(2, (h - 20) * (fillLevel / 100 || 0.05));
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <rect x="0" y="0" width={w} height={h} fill="url(#tankBrown)" stroke={accent} strokeWidth="1.5" />
+      {/* Fill level indicator (blue) */}
+      <rect x="4" y={h - fillH - 4} width={w - 8} height={fillH} fill="#60a5fa" opacity="0.85" />
+      {/* Level % */}
+      <text x={w / 2} y={h / 2} textAnchor="middle" fontSize="12" fill="#1e293b" fontWeight="700">{fillLevel}%</text>
+      {/* Capacity badge on bottom-left */}
+      <g transform={`translate(2, ${h - 20})`}>
+        <rect x="0" y="0" width="42" height="16" fill="#ffffff" stroke={accent} strokeWidth="1" />
+        <text x="21" y="12" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600" fontFamily="monospace">{capacityKld} KLD</text>
+      </g>
+      {/* Label under */}
+      <rect x={-4} y={h + 6} width={w + 8} height="18" fill="#ffffff" stroke="#94a3b8" strokeWidth="0.5" />
+      <text x={w / 2} y={h + 19} textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600">{name}</text>
+    </g>
+  );
+};
+
+const PumpBadge = ({ x, y, label, flowKld }) => (
+  <g transform={`translate(${x}, ${y})`}>
+    <rect x="-24" y="0" width="48" height="20" fill="#ffffff" stroke="#94a3b8" strokeWidth="1" />
+    {label.split('\n').map((ln, i) => (
+      <text key={i} x="0" y={i === 0 ? 9 : 17} textAnchor="middle" fontSize="7.5" fill="#1e293b" fontWeight="500">{ln}</text>
+    ))}
+    {/* KLD flow bubble above */}
+    <g transform="translate(0, -30)">
+      <rect x="-16" y="0" width="32" height="14" rx="2" fill="#ffffff" stroke="#0284c7" strokeWidth="1" />
+      <text x="0" y="10" textAnchor="middle" fontSize="9" fill="#0369a1" fontWeight="700" fontFamily="monospace">{flowKld} KLD</text>
+    </g>
+    <text x="0" y="30" textAnchor="middle" fontSize="8" fill="#64748b" fontFamily="monospace">00:00 HH:MM</text>
+    {/* Pump icon */}
+    <g transform="translate(-8, 22)">
+      <circle cx="8" cy="8" r="8" fill="#f59e0b" style={{ animation: 'stpBlink 2s ease-in-out infinite' }} />
+      <g style={{ transformOrigin: '8px 8px', animation: 'stpRotate 2s linear infinite' }}>
+        <line x1="8" y1="2" x2="8" y2="14" stroke="#78350f" strokeWidth="1.5" />
+        <line x1="2" y1="8" x2="14" y2="8" stroke="#78350f" strokeWidth="1.5" />
+      </g>
+    </g>
+  </g>
+);
+
+const AirBlower = ({ x, y, label }) => (
+  <g transform={`translate(${x}, ${y})`}>
+    <rect x="0" y="0" width="50" height="35" fill="#3b82f6" stroke="#1e40af" strokeWidth="1.2" rx="3" />
+    {/* Impeller */}
+    <g transform="translate(25, 17)">
+      <circle cx="0" cy="0" r="10" fill="#bfdbfe" />
+      <g style={{ transformOrigin: '0 0', animation: 'stpRotate 0.8s linear infinite' }}>
+        <line x1="-8" y1="0" x2="8" y2="0" stroke="#1e3a8a" strokeWidth="2" />
+        <line x1="0" y1="-8" x2="0" y2="8" stroke="#1e3a8a" strokeWidth="2" />
+      </g>
+      <circle cx="0" cy="0" r="2.5" fill="#1e3a8a" />
+    </g>
+    <text x="25" y="52" textAnchor="middle" fontSize="8.5" fill="#1e293b" fontWeight="600">{label}</text>
+  </g>
+);
+
+const FeedPump = ({ x, y, label, flowKld, compact = false }) => (
+  <g transform={`translate(${x}, ${y})`}>
+    {/* KLD flow bubble above */}
+    <g transform="translate(20, -20)">
+      <rect x="-16" y="0" width="32" height="14" rx="2" fill="#ffffff" stroke="#0284c7" strokeWidth="1" />
+      <text x="0" y="10" textAnchor="middle" fontSize="9" fill="#0369a1" fontWeight="700" fontFamily="monospace">{flowKld} KLD</text>
+    </g>
+    <rect x="0" y="0" width="40" height={compact ? 30 : 40} fill="#60a5fa" stroke="#1d4ed8" strokeWidth="1.2" rx="3" />
+    <g transform={`translate(20, ${compact ? 15 : 20})`}>
+      <circle cx="0" cy="0" r="9" fill="#dbeafe" />
+      <g style={{ transformOrigin: '0 0', animation: 'stpRotate 1.2s linear infinite' }}>
+        <line x1="-7" y1="0" x2="7" y2="0" stroke="#1e3a8a" strokeWidth="1.8" />
+        <line x1="0" y1="-7" x2="0" y2="7" stroke="#1e3a8a" strokeWidth="1.8" />
+      </g>
+    </g>
+    {label.split('\n').map((ln, i) => (
+      <text key={i} x="20" y={(compact ? 42 : 52) + i * 10} textAnchor="middle" fontSize="8" fill="#1e293b" fontWeight="500">{ln}</text>
+    ))}
+  </g>
+);
+
+const FilterColumn = ({ x, y, label, color = '#3730a3' }) => (
+  <g transform={`translate(${x}, ${y})`}>
+    <rect x="0" y="0" width="28" height="70" rx="10" fill={color} stroke="#1e1b4b" strokeWidth="1.2" />
+    <rect x="4" y="8" width="20" height="54" rx="6" fill="#818cf8" opacity="0.7" />
+    <circle cx="14" cy="35" r="5" fill="#c7d2fe" opacity="0.9" />
+    <text x="14" y="88" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600">{label}</text>
+  </g>
+);
 
 // ------------------------- STP process flow animation -------------------------
 const STPProcessFlow = ({ values = {} }) => {
@@ -593,6 +778,7 @@ const WaterQuality = () => {
                 unit={unit}
                 plantCapacityKld={currentDevice?._registry?.plant_capacity_kld}
                 deviceLabel={currentDevice?._registry?.label || selectedHw}
+                lastReceivedAt={currentDevice?.received_at}
               />
             </CardContent>
           </Card>

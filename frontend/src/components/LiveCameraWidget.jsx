@@ -68,13 +68,41 @@ export const LiveCameraWidget = ({
             <Loader2 className="h-8 w-8 animate-spin" />
           </div>
         ) : !hasStream ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-2">
-            <VideoOff className="h-12 w-12" />
-            <div className="text-sm font-medium">No camera configured</div>
-            {canManage && (
-              <div className="text-xs opacity-70">Click &quot;Configure&quot; below to add a stream URL</div>
-            )}
-          </div>
+          // No live camera configured — show a looping demo aeration clip so
+          // the widget looks alive. Overlay makes it explicit that this is
+          // a placeholder, not a real camera. Admin can attach a stream via
+          // the Configure button below.
+          <>
+            <video
+              key="demo-aeration"
+              src="/aeration.mp4"
+              className="absolute inset-0 w-full h-full object-cover"
+              autoPlay
+              muted
+              loop
+              playsInline
+              data-testid="camera-demo-video"
+              style={{
+                filter: 'brightness(0.75) saturate(0.9)',
+                transform: 'scale(1.15)',
+                transformOrigin: 'center',
+              }}
+            />
+            <div className="absolute inset-0 bg-slate-950/40" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-1.5 text-center px-6">
+              <VideoOff className="h-10 w-10 opacity-90" />
+              <div className="text-base font-semibold">No live camera attached</div>
+              <div className="text-xs opacity-80 max-w-sm">
+                Showing demo footage of an aeration tank.
+                {canManage
+                  ? ' Click "Configure" below to attach the live camera feed for this device.'
+                  : ' Ask your administrator to attach the live camera feed for this device.'}
+              </div>
+            </div>
+            <div className="absolute top-3 left-3 bg-amber-500/95 text-amber-950 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest shadow" data-testid="camera-demo-badge">
+              Demo Footage
+            </div>
+          </>
         ) : isYT ? (
           <iframe
             key={stream.embed_url}
