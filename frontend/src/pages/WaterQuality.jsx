@@ -109,7 +109,9 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
           className="w-full h-56 object-cover"
           style={{
             filter: aerationActive ? 'saturate(1.05) brightness(0.95)' : 'grayscale(0.6) brightness(0.55)',
-            transition: 'filter 0.6s ease-in-out',
+            transition: 'filter 0.6s ease-in-out, transform 0.6s ease-in-out',
+            transform: 'scale(1.25)',
+            transformOrigin: 'center center',
           }}
           data-testid={`aeration-video-${tankNumber}`}
         />
