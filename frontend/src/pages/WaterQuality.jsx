@@ -319,7 +319,7 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           </g>
 
           {/* Blue inlet pipe */}
-          <path d="M 42 335 L 90 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)" />
+          <path d="M 42 335 L 90 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)"  fill="none" />
 
           {/* ═════════════════ STAGE 2: Equalization Tank ═════════════════ */}
           <Tank x={95} y={280} w={110} h={110} name="Equalization Tank" fillLevel={0} capacityKld={cfg.equalization_tank_kld} />
@@ -327,8 +327,8 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           {/* Sewage Transfer Pump 1 (top-side pump) */}
           <PumpBadge x={165} y={215} label="Sewage Transfer&#10;Pump - 1" flowKld={cfg.equalization_tank_kld} />
           {/* Pipe from Equalization → up → across to blowers/aeration */}
-          <path d="M 200 335 L 240 335" stroke="#0284c7" strokeWidth="4" />
-          <path d="M 200 300 L 200 260 L 285 260" stroke="#0284c7" strokeWidth="4" />
+          <path d="M 200 335 L 240 335" stroke="#0284c7" strokeWidth="4"  fill="none" />
+          <path d="M 200 300 L 200 260 L 285 260" stroke="#0284c7" strokeWidth="4"  fill="none" />
 
           {/* ═════════════════ STAGE 3: Air Blowers (up to 3× — driven by config) ═════════════════ */}
           {[0, 1, 2].map((i) => {
@@ -347,9 +347,9 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           })}
 
           {/* Air pipes running above blowers into aeration diffuser */}
-          <path d="M 260 355 L 260 300 L 480 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3" />
-          <path d="M 330 355 L 330 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3" />
-          <path d="M 400 355 L 400 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3" />
+          <path d="M 260 355 L 260 300 L 480 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3"  fill="none" />
+          <path d="M 330 355 L 330 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3"  fill="none" />
+          <path d="M 400 355 L 400 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3"  fill="none" />
 
           {/* ═════════════════ STAGE 4: Aeration Tank ═════════════════ */}
           <g transform="translate(460, 280)">
@@ -368,8 +368,8 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
             <text x="65" y="128" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600">Aeration Tank</text>
             {cfg.aeration_tank_kld != null && (
               <g>
-                <rect x="4" y="4" width="52" height="14" fill="#ffffff" stroke="#78350f" strokeWidth="0.75" />
-                <text x="30" y="14" textAnchor="middle" fontSize="9" fill="#78350f" fontWeight="700" fontFamily="monospace">{cfg.aeration_tank_kld} KLD</text>
+                <rect x="4" y="4" width="60" height="16" rx="2" fill="#78350f" stroke="#ffffff" strokeWidth="0.75" />
+                <text x="34" y="15" textAnchor="middle" fontSize="10" fill="#ffffff" fontWeight="700" fontFamily="monospace">{cfg.aeration_tank_kld} KLD</text>
               </g>
             )}
           </g>
@@ -379,7 +379,7 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           <PumpBadge x={685} y={230} label="Sludge Transfer&#10;Pump - 2" flowKld={cfg.settling_tank_kld} />
 
           {/* Aeration → Settling pipe */}
-          <path d="M 590 335 L 640 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)" />
+          <path d="M 590 335 L 640 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)"  fill="none" />
 
           {/* ═════════════════ STAGE 5: Settling Tank (trapezoid clarifier) ═════════════════ */}
           <g transform="translate(645, 285)">
@@ -396,7 +396,7 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           </g>
 
           {/* Settling → Filter Feed */}
-          <path d="M 735 335 L 785 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)" />
+          <path d="M 735 335 L 785 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)"  fill="none" />
 
           {/* ═════════════════ STAGE 6: Filter Feed Tank ═════════════════ */}
           <Tank x={790} y={280} w={100} h={110} name="Filter Feed Tank" fillLevel={0} capacityKld={cfg.filter_feed_tank_kld} />
@@ -406,8 +406,8 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           <FeedPump x={950} y={280} label="Filter Feed&#10;Pump - 2" flowKld={ffp.capacity_kld} />
 
           {/* Filter feed → PSF pipe */}
-          <path d="M 890 335 L 900 335" stroke="#0284c7" strokeWidth="4" />
-          <path d="M 985 320 L 1005 320 L 1005 300" stroke="#22c55e" strokeWidth="3" />
+          <path d="M 890 335 L 900 335" stroke="#0284c7" strokeWidth="4"  fill="none" />
+          <path d="M 985 320 L 1005 320 L 1005 300" stroke="#22c55e" strokeWidth="3"  fill="none" />
 
           {/* ═════════════════ STAGE 7: PSF / ACF / Softener columns ═════════════════ */}
           <FilterColumn x={1000} y={300} label="PSF" color="#3730a3" />
@@ -428,7 +428,7 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           </g>
 
           {/* PSF outlet → Gardening tank */}
-          <path d="M 1105 320 L 1145 320" stroke="#22c55e" strokeWidth="3" markerEnd="url(#arrGreen)" />
+          <path d="M 1105 320 L 1145 320" stroke="#22c55e" strokeWidth="3" markerEnd="url(#arrGreen)"  fill="none" />
 
           {/* ═════════════════ STAGE 8: Gardening / Flushing Tank ═════════════════ */}
           <Tank x={1150} y={280} w={100} h={110} name="Gardening / Flushing Tank" fillLevel={0} capacityKld={gardeningKld} accent="#16a34a" />
