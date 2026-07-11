@@ -639,9 +639,10 @@ def _sanitize_stp_cfg_for_client(cfg: dict) -> dict:
         gf = {k: v for k, v in out["gardening_flushing"].items()
               if k not in ("source", "manual_kld_per_day", "linked_flowmeter_hw_id")}
         out["gardening_flushing"] = gf
-    if isinstance(out.get("energy"), dict):
-        # Clients don't need the mode toggle or the raw manual override
-        out.pop("energy", None)
+    # Always drop the energy block for clients — even if it's null/empty the
+    # key itself still tells clients "there's a mode toggle admins can set",
+    # which is exactly what we want to hide.
+    out.pop("energy", None)
     return out
 
 
