@@ -7,8 +7,7 @@ import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { Droplets, Gauge, FlaskConical, Wind, Download, FileText, Loader2, RefreshCw } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import api from '../lib/api';
-import { formatApiError } from '../lib/errors';
+import api, { formatApiError } from '../lib/api';
 import { isAdmin as _isAdmin } from '../mockData';
 
 // ------------------------- Gauge (SVG, animated needle) -------------------------
