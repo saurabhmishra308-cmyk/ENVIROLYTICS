@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger, DialogDescription } from './ui/dialog';
 import { toast } from 'sonner';
 import api, { formatApiError } from '../lib/api';
 
@@ -246,7 +246,9 @@ const CameraConfigDialog = ({ open, onOpenChange, hardwareId, deviceLabel, exist
             <Video className="h-5 w-5 text-sky-600" />
             {existing ? 'Edit Camera Stream' : 'Add Camera Stream'}
           </DialogTitle>
-          <p className="text-xs text-gray-500">Device: <code className="bg-gray-100 px-1 rounded">{hardwareId}</code></p>
+          <DialogDescription className="text-xs text-gray-500">
+            Device: <code className="bg-gray-100 px-1 rounded">{hardwareId}</code>
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div>

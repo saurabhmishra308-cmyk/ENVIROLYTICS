@@ -576,6 +576,11 @@ const Instruments = () => {
                           <div className="text-xs">
                             <span className="font-mono font-semibold text-gray-900">{u.imei}</span>
                             <span className="text-gray-500"> · topic <span className="font-mono">{u.topic}</span> · {u.count} msg{u.count === 1 ? '' : 's'}</span>
+                            {u.last_seen && (
+                              <div className="text-[10px] text-gray-500 font-mono mt-0.5" data-testid={`unregistered-lastseen-${u.imei}`}>
+                                Last seen: {new Date(u.last_seen).toLocaleString([], { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              </div>
+                            )}
                           </div>
                           <Button size="sm" onClick={() => adoptUnknownImei(u.imei)} data-testid={`register-imei-${u.imei}`} className="bg-amber-600 hover:bg-amber-700 text-white">
                             <Plus className="h-3 w-3 mr-1" /> Register this
@@ -591,7 +596,7 @@ const Instruments = () => {
                   <table className="w-full text-xs" data-testid="mqtt-traffic-table">
                     <thead className="bg-gray-50 border-b sticky top-0">
                       <tr>
-                        <th className="text-left p-2 w-32">Time</th>
+                        <th className="text-left p-2 w-44">Time</th>
                         <th className="text-left p-2 w-8"></th>
                         <th className="text-left p-2 w-24">Topic</th>
                         <th className="text-left p-2 w-40">IMEI</th>
@@ -609,7 +614,7 @@ const Instruments = () => {
                         (traffic.recent || []).map((m) => (
                           <tr key={m.seq} className={`border-b ${m.dispatched ? 'bg-white' : 'bg-amber-50/50'}`}>
                             <td className="p-2 font-mono text-gray-600 whitespace-nowrap">
-                              {new Date(m.ts).toLocaleTimeString()}
+                              {new Date(m.ts).toLocaleString([], { year: '2-digit', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                               {m.source === 'simulate' && (
                                 <span className="ml-1 text-[10px] px-1 rounded bg-purple-100 text-purple-700">SIM</span>
                               )}

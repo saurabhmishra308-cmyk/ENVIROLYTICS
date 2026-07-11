@@ -1,52 +1,60 @@
-# Envirolytics Monitor — PRD / Working Memory
+# Envirolytics Monitor — PRD
 
-## Problem statement
-Production bug-fix + polish on the Envirolytics Monitor web app (React + FastAPI + MongoDB, JWT auth) cloned from https://github.com/saurabhmishra308-cmyk/ENVIROLYTICS.
-
-## Architecture
-- Frontend: React 19 + react-router-dom 7 + CRACO + Tailwind + shadcn/ui
-- Backend: FastAPI + Motor (async MongoDB), JWT auth (PyJWT)
-- DB: MongoDB at MONGO_URL/${DB_NAME}
-- External: Open-Meteo (free) for live weather, OpenStreetMap/ArcGIS tiles for the map
+## Problem Statement
+Envirolytics is a full-stack IoT monitoring platform for water utilities and
+STPs. It ingests live MQTT telemetry from field devices (`skyrise.online:1490`),
+routes payloads by IMEI, and renders role-scoped dashboards for Flowmeters,
+DWLRs and Water Quality (STP + DO Meter). Backend is FastAPI + MongoDB,
+frontend is React + Tailwind + Recharts.
 
 ## Personas
-- Admin (full permissions) — seeded from `.env` (admin@envirolytics.com / Admin@Envirolytics2026)
-- Client (full permissions, single-site)
-- Sub-user (gated by per-permission keys: dashboard, reports, analysis, certificates, audit, limits)
+- **Admin**: God-mode, no expiry, sees all devices, configures cameras,
+  provisions instruments, runs simulations, manages users.
+- **Client**: Sees only owned devices, 365-day term with 30-day pre-expiry
+  email reminder, read-only camera view.
 
-## What's been implemented
-- 2026-06-25 — **Bug-1 (auto-logout)**: Smart 401 interceptor in `lib/api.js` only wipes the token + fires `envirolytics:auth-expired` event when the 401 actually indicates a token problem; ignores user-action 401s (change-password etc). Added `AuthGate` component to handle the event with a clean navigate to "/" + toast.
-- 2026-06-25 — **Bug-2 (random crashes)**: Class-based `ErrorBoundary` wrapping `<Routes>` at the App root so any render error surfaces a recovery UI instead of blanking the app.
-- 2026-06-25 — **Polish — branding/typography/login scene/weather** (see prior PRD).
-- 2026-07 — **Phase 1 — Create User + Add Instruments 2-step wizard** (`User.jsx`): Step 1 user info + Step 2 multi-row instrument list (hardware_id, type, label, flowmeter-category, location, lat/lng). On submit POSTs the user then loops to POST each instrument to `/api/instrument-registry` with `owner_user_id` set to the new user.
-- 2026-07 — **Phase 2 — Per-owner email alerts** (`notification_service.py`, `api_limits.py`, `api_alerts.py`): Offline + limit-breach emails now go to the **device owner** (looked up from `instrument_registry` → `users.email`) PLUS up to 4 global ops recipients. Each (device, owner) pair has its own cooldown. New endpoint `GET /api/alerts/limit-breaches` returns exceeded / below_min current-month breaches for the caller's visible flowmeters. `/api/alerts/offline` is now auth-required and scoped to `visible_hardware_ids`, surfaces never-reported registered devices too.
-- 2026-07 — **Phase 4 — Flowmeter limits min/max + Visible-to-client toggle** (`api_limits.py`, `LimitsCard.jsx`): Added `min_limit_kl` and `visible_to_client` fields; admin can show/hide limits from the client with a quick eye-toggle. Below-min breach is now detected and emailed alongside the existing over-max breach, with per-month per-kind idempotency.
-- 2026-07 — **Phase 5 — DWLR daily mWC + temperature** (`api_flowmeter_mgmt.py`, `WaterLevelRecorder.jsx`): New endpoint `GET /api/flowmeter-mgmt/dwlr/{hardware_id}/daily?days=30` returns daily-averaged level (mWC) + temperature (°C). Re-wrote `WaterLevelRecorder.jsx` to consume real data (registry + latest + daily) and display "never reported" tiles when no telemetry yet.
-- 2026-07 — **Phase 6 — Per-user CSV/PDF download** (`api_flowmeter_mgmt.py`, `Reports.jsx`): New `GET /api/flowmeter-mgmt/export` (auth) — admin downloads everything, client only their owned hardware. Reports page no longer has the admin-only gate on the download button.
-- 2026-07 — **Cleanup — demo / orphan data**: Called `/api/instrument-registry/wipe-demo` + `/purge-orphans` on the live DB; all `flowmeter_*` / `instrument_*` collections are now empty. With per-user scoping in place, admin + clients will only ever see telemetry from instruments registered through the Create User wizard.
-- 2026-07 — **Code-quality / lint cleanup pass**: Fixed every lint finding across backend and frontend — unused variable in `api_certificates.py`, placeholder-less f-string in `api_auth.py`, three dead `eslint-disable` comments, unescaped apostrophe / quotes, redundant `useMemo` dependency in `WeatherCard.jsx`. Both `mcp_lint_python` (app files) and `mcp_lint_javascript` (pages, components, hooks) now report **0 issues**. Frontend webpack compiles with **0 warnings**. 20/20 backend smoke tests pass after the cleanup. Codebase is deployment-clean.
+## Core Features (Live)
+- MQTT ingestion (direct broker, IMEI-routed, dual payload P673/P1001)
+- Instrument registry with owner scoping + capacity fields (KLD)
+- Flowmeter / DWLR / Water-Quality (STP + DO) dashboards
+- STP animated plant diagram (SVG bubbles, blower, clarifier, filters)
+- DO meter aeration animation driven by `aeration.mp4` playback rate
+- **Live camera streaming widget on DO meter** (YouTube + MP4, telemetry overlay)
+- Live MQTT Traffic panel with date+time stamps and unregistered-IMEI CTAs
+- Manual CSV upload, dummy-data auto-generation (5-year backfill)
+- Zoho SMTP notifications + 30-day renewal reminders
+- OpenWeather integration + geolocation map (default Lucknow admin view)
+- CSV/PDF report exports per device + date range
 
-## Verified flows
-- Login → dashboard → all-route navigation → hard refresh: session persists (verified iteration_1 + manual)
-- Change-password 401 negative case: token preserved (verified iteration_1)
-- All backend smoke endpoints return 200 with admin token
-- Open-Meteo proxy returns live data (live verified: 32.6°C, 52% humidity, 2.1 m/s, 1003 hPa Lucknow)
+## Recent Changes
+- **2026-07-11**: Live Camera Streaming Widget on WQ page + `camera_streams`
+  collection, admin CRUD, YouTube auto-embed, telemetry overlay (DO Tank 1 +
+  Tank 2 + timestamp). Testing agent verified 18/18 backend tests + full UI.
+- **2026-07-11**: Live MQTT Traffic — "Devices transmitting but NOT
+  registered" section now shows `Last seen: <date + time>` per IMEI; message
+  log Time column upgraded from `HH:MM:SS` to full `MMM dd, yy, HH:MM:SS`.
 
 ## Backlog (P0 → P2)
-- P1 — Persist user-set OpenWeather/Open-Meteo refresh frequency in admin settings
-- P2 — Add 7-day forecast strip + rainfall projection chart
-- P2 — Replace static mock data in `WaterLevelRecorder.jsx` borewell tiles with real DWLR readings
-- P2 — Wire actual Resend API key for offline-device email notifications
-- P2 — Production deploy to monitor.envirolytics.in (requires hosting credentials from user)
+- **P1**: Non-admin (manager) role tier for read/write of specific device
+  subsets.
+- **P2**: Refactor `/app/frontend/src/pages/Instruments.jsx` (1,300+ lines) —
+  extract modals (Simulation, Dummy Data, MQTT Traffic, Create/Edit).
+- **P2**: Multi-camera per device (Zone A / Zone B) — currently 1:1.
+- **P2**: PTZ (pan-tilt-zoom) controls if user later moves to IP-camera HLS.
 
-## Test credentials
-See `/app/memory/test_credentials.md`.
+## API Endpoints (highlights)
+- `POST /api/instrument-registry`
+- `GET /api/water-quality/latest`  (returns registry devices even w/o readings)
+- `GET /api/water-quality/history/{hw_id}`
+- `POST /api/camera-streams`  (admin, upsert on hardware_id)
+- `GET  /api/camera-streams/by-device/{hw_id}`
+- `PUT  /api/camera-streams/{hw_id}` / `DELETE /api/camera-streams/{hw_id}`
+- `GET /api/flowmeter/traffic`  (unregistered IMEIs include `last_seen`)
 
-## Files of note
-- /app/frontend/src/lib/api.js — smart 401 auth interceptor
-- /app/frontend/src/components/{ErrorBoundary,AuthGate}.jsx
-- /app/frontend/src/App.js — route guards
-- /app/frontend/src/pages/Login.jsx + /app/frontend/src/styles/login-scene.css — cinematic scene
-- /app/frontend/public/index.html — fonts + badge removed
-- /app/backend/api_weather.py — waterbody + /live (Open-Meteo)
-- /app/backend/api_auth.py + auth.py — JWT, seed, lockout
+## Data Models
+- `instrument_registry`: hardware_id, imei, instrument_type, plant_capacity_kld,
+  tank_capacity_kld, manual_water_temp_c, dummy_config
+- `instrument_latest` / `instrument_readings`: hardware_id, values{}, timestamp
+- `camera_streams`: hardware_id (unique), stream_url, stream_type
+  (youtube|mp4), embed_url (derived), label, location, camera_status,
+  created_at, updated_at, created_by
