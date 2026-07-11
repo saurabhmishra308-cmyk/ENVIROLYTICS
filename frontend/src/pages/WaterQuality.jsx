@@ -12,6 +12,7 @@ import { isAdmin as _isAdmin } from '../mockData';
 import { LiveCameraWidget } from '../components/LiveCameraWidget';
 import { STPConfigDialog } from '../components/STPConfigDialog';
 import { AerationVideoUploader } from '../components/AerationVideoUploader';
+import { DOTankConfigDialog } from '../components/DOTankConfigDialog';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
@@ -123,11 +124,9 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
           }}
           data-testid={`aeration-video-${tankNumber}`}
         />
-        {isCustomVideo && (
-          <div className="absolute bottom-3 left-3 bg-emerald-600/95 text-white px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest shadow" data-testid={`aeration-custom-badge-${tankNumber}`}>
-            Live On-Site
-          </div>
-        )}
+        {/* "Live On-Site" badge intentionally removed — the tank video looks
+            indistinguishable from a live feed to the customer, and revealing
+            that admin uploaded footage would defeat that experience. */}
         {/* Digital readout overlay */}
         <div className="absolute top-3 left-3 bg-black/70 rounded-md px-3 py-2 backdrop-blur">
           <div className="text-[9px] uppercase tracking-widest text-white/70">Tank {tankNumber} · DO</div>
@@ -674,6 +673,8 @@ const WaterQuality = () => {
 
   // STP config dialog
   const [showStpConfig, setShowStpConfig] = useState(false);
+  // DO tank capacity dialog
+  const [showDoTankConfig, setShowDoTankConfig] = useState(false);
   // Print-SCADA-snapshot button state
   const [printing, setPrinting] = useState(false);
 
@@ -961,8 +962,15 @@ const WaterQuality = () => {
           {/* DO: two aeration tanks + live camera */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Wind className="h-5 w-5 text-sky-500" /> Aeration Tanks — {currentDevice?._registry?.label || selectedHw}
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Wind className="h-5 w-5 text-sky-500" /> Aeration Tanks — {currentDevice?._registry?.label || selectedHw}
+                </span>
+                {isAdmin && (
+                  <Button size="sm" variant="outline" onClick={() => setShowDoTankConfig(true)} data-testid="do-configure-tanks-btn">
+                    ⚙ Configure Tank Capacities
+                  </Button>
+                )}
               </CardTitle>
               <CardDescription>Bubble animation speed and density reflect dissolved-oxygen concentration in each tank</CardDescription>
             </CardHeader>
@@ -977,7 +985,10 @@ const WaterQuality = () => {
                     safeMin={doMeta.DO_TANK_1?.safe_min}
                     safeMax={doMeta.DO_TANK_1?.safe_max}
                     unit={unit}
-                    capacityKld={currentDevice?._registry?.tank_capacity_kld}
+                    capacityKld={
+                      currentDevice?._registry?.do_tank_config?.tank_1_kld
+                      ?? currentDevice?._registry?.tank_capacity_kld
+                    }
                     videoSrc={currentDevice?._registry?.aeration_videos?.tank_1 ? backendAssetUrl(currentDevice._registry.aeration_videos.tank_1) : null}
                     isCustomVideo={Boolean(currentDevice?._registry?.aeration_videos?.tank_1)}
                   />
@@ -998,7 +1009,10 @@ const WaterQuality = () => {
                     safeMin={doMeta.DO_TANK_2?.safe_min}
                     safeMax={doMeta.DO_TANK_2?.safe_max}
                     unit={unit}
-                    capacityKld={currentDevice?._registry?.tank_capacity_kld}
+                    capacityKld={
+                      currentDevice?._registry?.do_tank_config?.tank_2_kld
+                      ?? currentDevice?._registry?.tank_capacity_kld
+                    }
                     videoSrc={currentDevice?._registry?.aeration_videos?.tank_2 ? backendAssetUrl(currentDevice._registry.aeration_videos.tank_2) : null}
                     isCustomVideo={Boolean(currentDevice?._registry?.aeration_videos?.tank_2)}
                   />
@@ -1129,6 +1143,18 @@ const WaterQuality = () => {
           hardwareId={selectedHw}
           deviceLabel={currentDevice?._registry?.label || selectedHw}
           existing={currentDevice?._registry?.stp_unit_config}
+          onSaved={load}
+        />
+      )}
+
+      {/* Admin-only DO tank capacity dialog */}
+      {isAdmin && selectedHw && (
+        <DOTankConfigDialog
+          open={showDoTankConfig}
+          onOpenChange={setShowDoTankConfig}
+          hardwareId={selectedHw}
+          deviceLabel={currentDevice?._registry?.label || selectedHw}
+          existing={currentDevice?._registry?.do_tank_config}
           onSaved={load}
         />
       )}

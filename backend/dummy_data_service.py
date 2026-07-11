@@ -293,10 +293,15 @@ def _param_walk(prev: Optional[float], lo: float, hi: float,
 async def _generate_wq_stp(db: AsyncIOMotorDatabase, reg: Dict[str, Any], cfg: Dict[str, Any],
                             ts_utc: Optional[datetime] = None,
                             update_latest: bool = True) -> Dict[str, Any]:
-    """Generate one STP reading with COD, BOD, TSS, PH."""
+    """Generate one STP reading with COD, BOD, TSS, PH.
+
+    Ranges come, in order of precedence, from:
+      1. `stp_unit_config.param_ranges.<PARAM>.{min,max}` on the device
+      2. dummy_config's overall `min_value / max_value` (scaled for COD)
+      3. Hard-coded realistic bands for a typical STP effluent
+    """
     hw = reg["hardware_id"]
     now = ts_utc or datetime.now(timezone.utc)
-    # cfg.min/max are used as OVERALL scale; individual parameters use fixed bands.
     scale_lo = float(cfg.get("min_value", 0))
     scale_hi = float(cfg.get("max_value", 500))
     day_seed = _day_seed(hw, now)
@@ -313,13 +318,27 @@ async def _generate_wq_stp(db: AsyncIOMotorDatabase, reg: Dict[str, Any], cfg: D
         except (TypeError, ValueError):
             return None
 
-    # Realistic operating bands (mg/L except pH):
-    #   COD 30-300 (post-treatment ~100), BOD 5-80 (post-treatment ~20),
-    #   TSS 10-150 (post-treatment ~30), pH 6.5-8.5
-    cod = _param_walk(_prev("COD"), max(30, scale_lo * 0.06), min(scale_hi * 0.6, 300), now.hour, day_seed, 0.02)
-    bod = _param_walk(_prev("BOD"), 5, 80, now.hour, day_seed ^ 0x1111, 0.025)
-    tss = _param_walk(_prev("TSS"), 10, 150, now.hour, day_seed ^ 0x2222, 0.025)
-    ph = _param_walk(_prev("PH"), 6.5, 8.5, now.hour, day_seed ^ 0x3333, 0.005)
+    # Pull admin-configured per-parameter ranges from the registry's
+    # stp_unit_config.param_ranges block (if any).
+    param_ranges = ((reg.get("stp_unit_config") or {}).get("param_ranges")) or {}
+
+    def _band(param: str, default_lo: float, default_hi: float):
+        pr = param_ranges.get(param) or {}
+        lo = pr.get("min")
+        hi = pr.get("max")
+        if lo is None or hi is None or float(hi) <= float(lo):
+            return default_lo, default_hi
+        return float(lo), float(hi)
+
+    cod_lo, cod_hi = _band("COD", max(30, scale_lo * 0.06), min(scale_hi * 0.6, 300))
+    bod_lo, bod_hi = _band("BOD", 5, 80)
+    tss_lo, tss_hi = _band("TSS", 10, 150)
+    ph_lo,  ph_hi  = _band("PH",  6.5, 8.5)
+
+    cod = _param_walk(_prev("COD"), cod_lo, cod_hi, now.hour, day_seed, 0.02)
+    bod = _param_walk(_prev("BOD"), bod_lo, bod_hi, now.hour, day_seed ^ 0x1111, 0.025)
+    tss = _param_walk(_prev("TSS"), tss_lo, tss_hi, now.hour, day_seed ^ 0x2222, 0.025)
+    ph  = _param_walk(_prev("PH"),  ph_lo,  ph_hi,  now.hour, day_seed ^ 0x3333, 0.005)
 
     values = {
         "COD": cod, "BOD": bod, "TSS": tss, "PH": ph,
@@ -345,7 +364,10 @@ async def _generate_wq_stp(db: AsyncIOMotorDatabase, reg: Dict[str, Any], cfg: D
             {"$set": latest_doc},
             upsert=True,
         )
-    logger.info("[dummy] STP %s → COD=%.1f BOD=%.1f TSS=%.1f pH=%.2f", hw, cod, bod, tss, ph)
+    logger.info(
+        "[dummy] STP %s → COD=%.1f BOD=%.1f TSS=%.1f pH=%.2f  (ranges: COD %.1f-%.1f, BOD %.1f-%.1f, TSS %.1f-%.1f, pH %.2f-%.2f)",
+        hw, cod, bod, tss, ph, cod_lo, cod_hi, bod_lo, bod_hi, tss_lo, tss_hi, ph_lo, ph_hi,
+    )
     return {"values": values}
 
 

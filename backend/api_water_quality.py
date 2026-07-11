@@ -198,7 +198,7 @@ async def latest_readings(
             {"_id": 0, "hardware_id": 1, "label": 1, "location_name": 1,
              "instrument_type": 1, "owner_user_id": 1, "dummy_config": 1,
              "plant_capacity_kld": 1, "tank_capacity_kld": 1,
-             "stp_unit_config": 1, "aeration_videos": 1},
+             "stp_unit_config": 1, "aeration_videos": 1, "do_tank_config": 1},
         ):
             regs[reg["hardware_id"]] = reg
 
@@ -223,6 +223,12 @@ async def latest_readings(
                 reg["aeration_videos"] = {
                     k: v for k, v in reg["aeration_videos"].items()
                     if not (k.endswith("_uploaded_at") or k.endswith("_uploaded_by"))
+                }
+            if reg.get("do_tank_config"):
+                # Strip admin fingerprints from the DO tank config too.
+                reg["do_tank_config"] = {
+                    k: v for k, v in reg["do_tank_config"].items()
+                    if k not in ("updated_at", "updated_by")
                 }
             # Drop the internal energy_mode + breakdown labels that expose admin
             # bookkeeping. Only expose the total kWh figure and gardening KLD.
@@ -544,6 +550,31 @@ class EnergyCfg(BaseModel):
     manual_kwh_per_day: Optional[float] = Field(default=None, ge=0)
 
 
+class ParamRange(BaseModel):
+    """Realistic operating band for a single STP effluent parameter.
+
+    When the physical instrument is offline the dummy-data service picks a
+    random value from this band (with a small bounded random-walk so the
+    reading looks organic, not constant).
+    """
+    min: Optional[float] = Field(default=None, description="Lower bound (inclusive)")
+    max: Optional[float] = Field(default=None, description="Upper bound (inclusive)")
+
+
+class STPParamRanges(BaseModel):
+    COD: Optional[ParamRange] = None
+    BOD: Optional[ParamRange] = None
+    TSS: Optional[ParamRange] = None
+    PH: Optional[ParamRange] = None
+
+
+class DummyAutoPushCfg(BaseModel):
+    """Configures automatic daily dummy-data push for STP effluent params
+    when the physical instrument is not sending data."""
+    enabled: bool = False
+    interval_seconds: int = Field(default=86400, ge=60, le=86400, description="How often to push. Default: 86400 = once per day.")
+
+
 class STPUnitConfig(BaseModel):
     equalization_tank_kld: Optional[float] = Field(default=None, ge=0)
     aeration_tank_kld: Optional[float] = Field(default=None, ge=0)
@@ -554,6 +585,9 @@ class STPUnitConfig(BaseModel):
     filter_feed_pump: Optional[PumpCfg] = None
     gardening_flushing: Optional[GardeningCfg] = None
     energy: Optional[EnergyCfg] = None
+    # Admin-configurable range per parameter used by the dummy-data auto-push.
+    param_ranges: Optional[STPParamRanges] = None
+    dummy_auto_push: Optional[DummyAutoPushCfg] = None
 
 
 async def _flowmeter_daily_kld(hardware_id: str) -> Optional[float]:
@@ -705,9 +739,45 @@ async def update_stp_config(hardware_id: str, cfg: STPUnitConfig,
     doc["updated_at"] = datetime.now(timezone.utc).isoformat()
     doc["updated_by"] = admin.get("email")
 
+    update_ops: dict = {"stp_unit_config": doc}
+
+    # If the admin flipped "auto-push dummy data when instrument is offline"
+    # on, mirror that intent into `dummy_config` (which the background
+    # generator actually reads). We compute overall min/max as the widest of
+    # all configured parameter ranges — the per-param band still wins inside
+    # the generator, this is only used as a legacy safety net.
+    dap = doc.get("dummy_auto_push") or {}
+    if dap.get("enabled"):
+        pr = doc.get("param_ranges") or {}
+        mins, maxs = [], []
+        for band in pr.values() or []:
+            if isinstance(band, dict):
+                if band.get("min") is not None: mins.append(float(band["min"]))
+                if band.get("max") is not None: maxs.append(float(band["max"]))
+        overall_lo = min(mins) if mins else 0.0
+        overall_hi = max(maxs) if maxs else 500.0
+        if overall_hi <= overall_lo:
+            overall_hi = overall_lo + 1.0
+        interval = int(dap.get("interval_seconds") or 86400)
+        update_ops["dummy_config"] = {
+            "enabled": True,
+            "min_value": overall_lo,
+            "max_value": overall_hi,
+            "interval_seconds": interval,
+            "auto_from_stp_cfg": True,           # marker so we can detect this later
+            "updated_at": doc["updated_at"],
+            "updated_by": admin.get("email"),
+        }
+    else:
+        # Turn off auto-push if the flag is now false but was previously
+        # driven by STP-config (leave manually-enabled dummy_configs alone).
+        existing_cfg = reg.get("dummy_config") or {}
+        if existing_cfg.get("auto_from_stp_cfg"):
+            update_ops["dummy_config"] = {**existing_cfg, "enabled": False}
+
     await db.instrument_registry.update_one(
         {"hardware_id": hardware_id},
-        {"$set": {"stp_unit_config": doc}},
+        {"$set": update_ops},
     )
     await db.audit_log.insert_one({
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -808,3 +878,39 @@ async def delete_aeration_video(hardware_id: str, tank_number: int,
         }},
     )
     return {"success": True, "tank_number": tank_number}
+
+
+# ─────────── DO tank capacity (per-tank, admin-editable) ───────────
+
+class DOTankConfig(BaseModel):
+    tank_1_kld: Optional[float] = Field(default=None, ge=0, description="Aeration Tank 1 capacity in KLD")
+    tank_2_kld: Optional[float] = Field(default=None, ge=0, description="Aeration Tank 2 capacity in KLD")
+
+
+@router.put("/{hardware_id}/do-tank-config")
+async def update_do_tank_config(hardware_id: str, cfg: DOTankConfig,
+                                 admin: dict = Depends(require_admin)):
+    """Admin-only: save independent capacity values for the two aeration
+    tanks on a `do_meter` device. Each tank gets its own KLD figure so ops
+    can model asymmetric plants (e.g. Tank 1 = 250 KLD, Tank 2 = 180 KLD)."""
+    reg = await db.instrument_registry.find_one({"hardware_id": hardware_id})
+    if not reg:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+    if reg.get("instrument_type") != "do_meter":
+        raise HTTPException(status_code=400, detail="do-tank-config only applies to do_meter devices")
+    doc = cfg.model_dump(exclude_none=False)
+    doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+    doc["updated_by"] = admin.get("email")
+    await db.instrument_registry.update_one(
+        {"hardware_id": hardware_id},
+        {"$set": {"do_tank_config": doc}},
+    )
+    await db.audit_log.insert_one({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "entity_type": "do_tank_config",
+        "entity_id": hardware_id,
+        "action": "update",
+        "actor_id": admin.get("id"),
+        "actor_email": admin.get("email"),
+    })
+    return {"success": True, "do_tank_config": doc}

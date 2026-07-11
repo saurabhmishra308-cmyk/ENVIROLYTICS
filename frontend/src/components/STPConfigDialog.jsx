@@ -34,6 +34,16 @@ export const STPConfigDialog = ({ open, onOpenChange, hardwareId, deviceLabel, e
       running_hours_per_day: '',
     },
     energy: { mode: 'auto', manual_kwh_per_day: '' },
+    // Realistic operating ranges — used by the dummy-data auto-push when the
+    // physical instrument is offline. Also displayed as safe-range badges
+    // on the effluent gauges.
+    param_ranges: {
+      COD: { min: '', max: '' },
+      BOD: { min: '', max: '' },
+      TSS: { min: '', max: '' },
+      PH:  { min: '', max: '' },
+    },
+    dummy_auto_push: { enabled: false, interval_seconds: 86400 },
   });
   const [flowmeters, setFlowmeters] = useState([]);
 
@@ -71,6 +81,16 @@ export const STPConfigDialog = ({ open, onOpenChange, hardwareId, deviceLabel, e
       energy: {
         mode: c.energy?.mode || 'auto',
         manual_kwh_per_day: s(c.energy?.manual_kwh_per_day),
+      },
+      param_ranges: {
+        COD: { min: s(c.param_ranges?.COD?.min), max: s(c.param_ranges?.COD?.max) },
+        BOD: { min: s(c.param_ranges?.BOD?.min), max: s(c.param_ranges?.BOD?.max) },
+        TSS: { min: s(c.param_ranges?.TSS?.min), max: s(c.param_ranges?.TSS?.max) },
+        PH:  { min: s(c.param_ranges?.PH?.min),  max: s(c.param_ranges?.PH?.max)  },
+      },
+      dummy_auto_push: {
+        enabled: Boolean(c.dummy_auto_push?.enabled),
+        interval_seconds: c.dummy_auto_push?.interval_seconds || 86400,
       },
     });
   }, [open, existing]);
@@ -131,6 +151,16 @@ export const STPConfigDialog = ({ open, onOpenChange, hardwareId, deviceLabel, e
         energy: {
           mode: form.energy.mode,
           manual_kwh_per_day: form.energy.mode === 'manual' ? num(form.energy.manual_kwh_per_day) : null,
+        },
+        param_ranges: {
+          COD: { min: num(form.param_ranges.COD.min), max: num(form.param_ranges.COD.max) },
+          BOD: { min: num(form.param_ranges.BOD.min), max: num(form.param_ranges.BOD.max) },
+          TSS: { min: num(form.param_ranges.TSS.min), max: num(form.param_ranges.TSS.max) },
+          PH:  { min: num(form.param_ranges.PH.min),  max: num(form.param_ranges.PH.max)  },
+        },
+        dummy_auto_push: {
+          enabled: Boolean(form.dummy_auto_push.enabled),
+          interval_seconds: Number(form.dummy_auto_push.interval_seconds) || 86400,
         },
       };
       const { data } = await api.put(`/api/water-quality/${encodeURIComponent(hardwareId)}/stp-config`, payload);
@@ -346,6 +376,90 @@ export const STPConfigDialog = ({ open, onOpenChange, hardwareId, deviceLabel, e
                      onChange={(e) => setForm({ ...form, energy: { ...form.energy, manual_kwh_per_day: e.target.value } })}
                      className="max-w-xs"
                      data-testid="stpcfg-energy-manual-kwh" />
+            )}
+          </section>
+
+          {/* Effluent parameter ranges (used by dummy auto-push + safe-range hints) */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-800 mb-2 border-b pb-1">Effluent parameter operating ranges</h3>
+            <p className="text-[11px] text-gray-500 mb-2">
+              These bands govern the daily values generated when the instrument is offline
+              (see auto-push toggle below). Leave blank for realistic defaults.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              {[
+                { key: 'COD', label: 'COD (mg/L)', step: '1',   hint: 'e.g. 30 – 250' },
+                { key: 'BOD', label: 'BOD (mg/L)', step: '1',   hint: 'e.g. 5 – 30' },
+                { key: 'TSS', label: 'TSS (mg/L)', step: '1',   hint: 'e.g. 10 – 100' },
+                { key: 'PH',  label: 'pH',         step: '0.1', hint: 'e.g. 6.5 – 8.5' },
+              ].map(({ key, label, step, hint }) => (
+                <div key={key} className="rounded border p-2 bg-slate-50" data-testid={`stpcfg-range-${key}`}>
+                  <Label className="text-xs font-semibold">{label}</Label>
+                  <div className="text-[10px] text-gray-500 mb-1">{hint}</div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div>
+                      <Label className="text-[10px] text-gray-500">Min</Label>
+                      <Input type="number" step={step} min="0" value={form.param_ranges[key].min}
+                             onChange={(e) => setForm({
+                               ...form,
+                               param_ranges: { ...form.param_ranges, [key]: { ...form.param_ranges[key], min: e.target.value } },
+                             })}
+                             data-testid={`stpcfg-range-${key}-min`} />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] text-gray-500">Max</Label>
+                      <Input type="number" step={step} min="0" value={form.param_ranges[key].max}
+                             onChange={(e) => setForm({
+                               ...form,
+                               param_ranges: { ...form.param_ranges, [key]: { ...form.param_ranges[key], max: e.target.value } },
+                             })}
+                             data-testid={`stpcfg-range-${key}-max`} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Auto-push dummy data when instrument is offline */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-800 mb-2 border-b pb-1">Auto data push (offline safety net)</h3>
+            <label className="flex items-start gap-2 cursor-pointer" data-testid="stpcfg-dummy-auto-push-label">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={form.dummy_auto_push.enabled}
+                onChange={(e) => setForm({
+                  ...form,
+                  dummy_auto_push: { ...form.dummy_auto_push, enabled: e.target.checked },
+                })}
+                data-testid="stpcfg-dummy-auto-push-enabled"
+              />
+              <div>
+                <div className="text-sm font-medium">
+                  Automatically push realistic daily data when the instrument is not sending
+                </div>
+                <div className="text-[11px] text-gray-500 max-w-lg">
+                  When enabled, this device will publish one reading per day (or per chosen
+                  interval) within the ranges above. If a real MQTT packet arrives, the auto-push
+                  skips that window &mdash; real data always wins.
+                </div>
+              </div>
+            </label>
+            {form.dummy_auto_push.enabled && (
+              <div className="mt-2 max-w-xs">
+                <Label className="text-xs">Interval (seconds)</Label>
+                <Input type="number" min="60" max="86400" step="60"
+                       value={form.dummy_auto_push.interval_seconds}
+                       onChange={(e) => setForm({
+                         ...form,
+                         dummy_auto_push: { ...form.dummy_auto_push, interval_seconds: e.target.value },
+                       })}
+                       data-testid="stpcfg-dummy-interval" />
+                <div className="text-[10px] text-gray-500 mt-1">
+                  Default: 86400 (once per day). Minimum: 60 s.
+                </div>
+              </div>
             )}
           </section>
         </div>
