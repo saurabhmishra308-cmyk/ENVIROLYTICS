@@ -144,6 +144,13 @@ app.include_router(ingestion_router)
 from api_water_quality import router as water_quality_router  # noqa: E402
 app.include_router(water_quality_router)
 
+# Serve uploaded aeration videos as static files under /api/uploads/aeration
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+_UPLOADS_DIR = _Path(__file__).parent / "uploads"
+(_UPLOADS_DIR / "aeration").mkdir(parents=True, exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
+
 # Live camera streams (per-device video widget on Water Quality page)
 from api_camera import router as camera_router, set_db as _camera_set_db  # noqa: E402
 _camera_set_db(db)

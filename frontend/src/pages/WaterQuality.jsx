@@ -7,9 +7,11 @@ import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { Droplets, Gauge, FlaskConical, Wind, Download, FileText, Loader2, RefreshCw, Video } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import api, { formatApiError } from '../lib/api';
+import api, { formatApiError, backendAssetUrl } from '../lib/api';
 import { isAdmin as _isAdmin } from '../mockData';
 import { LiveCameraWidget } from '../components/LiveCameraWidget';
+import { STPConfigDialog } from '../components/STPConfigDialog';
+import { AerationVideoUploader } from '../components/AerationVideoUploader';
 
 // ------------------------- Gauge (SVG, animated needle) -------------------------
 const Gauge2D = ({ value, min = 0, max = 100, unit = '', label = '', safeMin, safeMax }) => {
@@ -72,7 +74,7 @@ const Gauge2D = ({ value, min = 0, max = 100, unit = '', label = '', safeMin, sa
 };
 
 // ------------------------- Aeration tank visualisation (video-driven) -------------------------
-const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, safeMax = 8, unit = 'mg/L', capacityKld }) => {
+const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, safeMax = 8, unit = 'mg/L', capacityKld, videoSrc, isCustomVideo }) => {
   const v = typeof doValue === 'number' ? doValue : null;
   const videoRef = React.useRef(null);
   // "Aeration active" = DO reading above the low-oxygen threshold. Below that,
@@ -93,7 +95,7 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
     } else {
       try { el.pause(); } catch (_) { /* noop */ }
     }
-  }, [aerationActive, v, max]);
+  }, [aerationActive, v, max, videoSrc]);
 
   return (
     <div className="relative w-full" data-testid={`aeration-tank-${tankNumber}`}>
@@ -103,7 +105,8 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
       >
         <video
           ref={videoRef}
-          src="/aeration.mp4"
+          key={videoSrc || '/aeration.mp4'}
+          src={videoSrc || '/aeration.mp4'}
           muted
           loop
           playsInline
@@ -118,6 +121,11 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
           }}
           data-testid={`aeration-video-${tankNumber}`}
         />
+        {isCustomVideo && (
+          <div className="absolute bottom-3 left-3 bg-emerald-600/95 text-white px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest shadow" data-testid={`aeration-custom-badge-${tankNumber}`}>
+            Live On-Site
+          </div>
+        )}
         {/* Digital readout overlay */}
         <div className="absolute top-3 left-3 bg-black/70 rounded-md px-3 py-2 backdrop-blur">
           <div className="text-[9px] uppercase tracking-widest text-white/70">Tank {tankNumber} · DO</div>
@@ -149,7 +157,7 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
 };
 
 // ------------------------- STP Plant Flow Diagram (industrial SCADA-style) -------------------------
-const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceLabel, lastReceivedAt }) => {
+const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceLabel, lastReceivedAt, stpUnitConfig = {}, stpDerived = {}, onEditConfig, canManage = false }) => {
   const cod = typeof values.COD === 'number' ? values.COD : null;
   const bod = typeof values.BOD === 'number' ? values.BOD : null;
   const tss = typeof values.TSS === 'number' ? values.TSS : null;
@@ -174,9 +182,14 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
     { key: 'COD', label: 'COD Value', value: cod, fmt: (v) => v.toFixed(0),          bg: '#a16207' }, // yellow-700 / amber
   ];
 
-  // "0 KLD" flow badges over each active pump (mirrors the reference).
-  // In future these could be wired to real per-pump flow telemetry.
-  const KLD_LIVE = 0;
+  // Configured unit values, falling back to "—" until admin fills them in.
+  const cfg = stpUnitConfig || {};
+  const blowers = cfg.air_blowers || [];
+  const ffp = cfg.filter_feed_pump || {};
+  const gf = cfg.gardening_flushing || {};
+  const gardeningKld = stpDerived?.gardening_flushing_kld_today;
+  const energyKwh = stpDerived?.energy_kwh_per_day;
+  const energyMode = stpDerived?.energy_mode || 'auto';
 
   return (
     <div className="relative w-full bg-white rounded-xl p-4 border border-slate-200" data-testid="stp-plant-diagram">
@@ -309,18 +322,29 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           <path d="M 42 335 L 90 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)" />
 
           {/* ═════════════════ STAGE 2: Equalization Tank ═════════════════ */}
-          <Tank x={95} y={280} w={110} h={110} name="Equalization Tank" fillLevel={0} capacityKld={KLD_LIVE} />
+          <Tank x={95} y={280} w={110} h={110} name="Equalization Tank" fillLevel={0} capacityKld={cfg.equalization_tank_kld} />
 
           {/* Sewage Transfer Pump 1 (top-side pump) */}
-          <PumpBadge x={165} y={215} label="Sewage Transfer&#10;Pump - 1" flowKld={KLD_LIVE} />
+          <PumpBadge x={165} y={215} label="Sewage Transfer&#10;Pump - 1" flowKld={cfg.equalization_tank_kld} />
           {/* Pipe from Equalization → up → across to blowers/aeration */}
           <path d="M 200 335 L 240 335" stroke="#0284c7" strokeWidth="4" />
           <path d="M 200 300 L 200 260 L 285 260" stroke="#0284c7" strokeWidth="4" />
 
-          {/* ═════════════════ STAGE 3: Air Blowers (3×) ═════════════════ */}
-          <AirBlower x={240} y={355} label="Air Blower - 1" />
-          <AirBlower x={310} y={355} label="Air Blower - 2" />
-          <AirBlower x={380} y={355} label="Air Blower - 3" />
+          {/* ═════════════════ STAGE 3: Air Blowers (up to 3× — driven by config) ═════════════════ */}
+          {[0, 1, 2].map((i) => {
+            const b = blowers[i] || {};
+            const xs = [240, 310, 380][i];
+            return (
+              <AirBlower
+                key={i}
+                x={xs}
+                y={355}
+                label={b.label || `Air Blower - ${i + 1}`}
+                capacity={b.capacity_m3ph}
+                powerKw={b.power_kw}
+              />
+            );
+          })}
 
           {/* Air pipes running above blowers into aeration diffuser */}
           <path d="M 260 355 L 260 300 L 480 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3" />
@@ -342,11 +366,17 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
               </g>
             ))}
             <text x="65" y="128" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600">Aeration Tank</text>
+            {cfg.aeration_tank_kld != null && (
+              <g>
+                <rect x="4" y="4" width="52" height="14" fill="#ffffff" stroke="#78350f" strokeWidth="0.75" />
+                <text x="30" y="14" textAnchor="middle" fontSize="9" fill="#78350f" fontWeight="700" fontFamily="monospace">{cfg.aeration_tank_kld} KLD</text>
+              </g>
+            )}
           </g>
 
           {/* Sludge Transfer pumps (mid, above pipe) */}
-          <PumpBadge x={615} y={230} label="Sludge Transfer&#10;Pump - 1" flowKld={KLD_LIVE} />
-          <PumpBadge x={685} y={230} label="Sludge Transfer&#10;Pump - 2" flowKld={KLD_LIVE} />
+          <PumpBadge x={615} y={230} label="Sludge Transfer&#10;Pump - 1" flowKld={cfg.settling_tank_kld} />
+          <PumpBadge x={685} y={230} label="Sludge Transfer&#10;Pump - 2" flowKld={cfg.settling_tank_kld} />
 
           {/* Aeration → Settling pipe */}
           <path d="M 590 335 L 640 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)" />
@@ -357,17 +387,23 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
             <path d="M 4 4 L 86 4 L 68 78 L 22 78 Z" fill="#dbeafe" opacity="0.7" />
             <line x1="10" y1="8" x2="80" y2="8" stroke="#1e293b" strokeWidth="1.5" />
             <text x="45" y="108" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600">Settling Tank</text>
+            {cfg.settling_tank_kld != null && (
+              <g>
+                <rect x="15" y="30" width="60" height="14" fill="#ffffff" stroke="#1d4ed8" strokeWidth="0.75" />
+                <text x="45" y="41" textAnchor="middle" fontSize="9" fill="#1e40af" fontWeight="700" fontFamily="monospace">{cfg.settling_tank_kld} KLD</text>
+              </g>
+            )}
           </g>
 
           {/* Settling → Filter Feed */}
           <path d="M 735 335 L 785 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)" />
 
           {/* ═════════════════ STAGE 6: Filter Feed Tank ═════════════════ */}
-          <Tank x={790} y={280} w={100} h={110} name="Filter Feed Tank" fillLevel={0} capacityKld={KLD_LIVE} />
+          <Tank x={790} y={280} w={100} h={110} name="Filter Feed Tank" fillLevel={0} capacityKld={cfg.filter_feed_tank_kld} />
 
           {/* Filter Feed Pumps (2×) — vertical blue pump cylinders */}
-          <FeedPump x={905} y={280} label="Filter Feed&#10;Pump - 1" flowKld={KLD_LIVE} />
-          <FeedPump x={950} y={280} label="Filter Feed&#10;Pump - 2" flowKld={KLD_LIVE} />
+          <FeedPump x={905} y={280} label="Filter Feed&#10;Pump - 1" flowKld={ffp.capacity_kld} />
+          <FeedPump x={950} y={280} label="Filter Feed&#10;Pump - 2" flowKld={ffp.capacity_kld} />
 
           {/* Filter feed → PSF pipe */}
           <path d="M 890 335 L 900 335" stroke="#0284c7" strokeWidth="4" />
@@ -378,33 +414,79 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           <FilterColumn x={1035} y={300} label="ACF" color="#3730a3" />
           <FilterColumn x={1070} y={300} label="Softener" color="#3730a3" />
 
-          {/* Energy Usage badge (top) */}
-          <g transform="translate(940, 175)">
-            <rect x="0" y="0" width="70" height="22" fill="#ffffff" stroke="#f59e0b" strokeWidth="1.5" />
-            <text x="35" y="14" textAnchor="middle" fontSize="9" fill="#78350f" fontWeight="600">Energy Usage</text>
-            <rect x="0" y="24" width="70" height="24" fill="#fef3c7" stroke="#f59e0b" strokeWidth="1.5" />
-            <text x="35" y="41" textAnchor="middle" fontSize="14" fill="#78350f" fontWeight="700" fontFamily="monospace">0</text>
+          {/* Energy Usage badge (top) — auto-computed OR manual override */}
+          <g transform="translate(940, 165)">
+            <rect x="0" y="0" width="90" height="22" fill="#ffffff" stroke="#f59e0b" strokeWidth="1.5" />
+            <text x="45" y="14" textAnchor="middle" fontSize="9" fill="#78350f" fontWeight="600">
+              Energy Usage {energyMode === 'manual' ? '(manual)' : '(auto)'}
+            </text>
+            <rect x="0" y="24" width="90" height="30" fill="#fef3c7" stroke="#f59e0b" strokeWidth="1.5" />
+            <text x="45" y="42" textAnchor="middle" fontSize="14" fill="#78350f" fontWeight="700" fontFamily="monospace">
+              {energyKwh != null ? energyKwh : '0'}
+            </text>
+            <text x="45" y="52" textAnchor="middle" fontSize="8" fill="#78350f" fontWeight="500">kWh/day</text>
           </g>
 
           {/* PSF outlet → Gardening tank */}
           <path d="M 1105 320 L 1145 320" stroke="#22c55e" strokeWidth="3" markerEnd="url(#arrGreen)" />
 
           {/* ═════════════════ STAGE 8: Gardening / Flushing Tank ═════════════════ */}
-          <Tank x={1150} y={280} w={100} h={110} name="Gardening / Flushing Tank" fillLevel={0} capacityKld={KLD_LIVE} accent="#16a34a" />
+          <Tank x={1150} y={280} w={100} h={110} name="Gardening / Flushing Tank" fillLevel={0} capacityKld={gardeningKld} accent="#16a34a" />
+          {/* Show source badge (FM = flowmeter, manual = admin-entered) */}
+          {gf.source && (
+            <g transform="translate(1150, 258)">
+              <rect x="0" y="0" width={gf.source === 'flowmeter' ? 90 : 55} height="14" fill="#dcfce7" stroke="#16a34a" strokeWidth="0.75" />
+              <text x={(gf.source === 'flowmeter' ? 90 : 55) / 2} y="10" textAnchor="middle" fontSize="8.5" fill="#166534" fontWeight="700">
+                {gf.source === 'flowmeter' ? '🔗 FM · Live' : '✎ Manual'}
+              </text>
+            </g>
+          )}
 
           {/* Gardening pumps */}
-          <FeedPump x={1265} y={280} label="Gardening&#10;Pump - 1" flowKld={KLD_LIVE} />
-          <FeedPump x={1305} y={280} label="Gardening&#10;Pump - 2" flowKld={KLD_LIVE} />
+          <FeedPump x={1265} y={280} label="Gardening&#10;Pump - 1" flowKld={gardeningKld} />
+          <FeedPump x={1305} y={280} label="Gardening&#10;Pump - 2" flowKld={gardeningKld} />
 
           {/* ═════════════════ STAGE 9: Treated Water Tank ═════════════════ */}
-          <Tank x={1355} y={280} w={80} h={110} name="Treated Water Tank" fillLevel={0} capacityKld={KLD_LIVE} accent="#0891b2" />
-          <FeedPump x={1345} y={410} label="Cooling Tower&#10;Pump - 1" flowKld={KLD_LIVE} compact />
-          <FeedPump x={1385} y={410} label="Cooling Tower&#10;Pump - 2" flowKld={KLD_LIVE} compact />
+          <Tank x={1355} y={280} w={80} h={110} name="Treated Water Tank" fillLevel={0} capacityKld={cfg.treated_water_tank_kld} accent="#0891b2" />
+          <FeedPump x={1345} y={410} label="Cooling Tower&#10;Pump - 1" flowKld={cfg.treated_water_tank_kld} compact />
+          <FeedPump x={1385} y={410} label="Cooling Tower&#10;Pump - 2" flowKld={cfg.treated_water_tank_kld} compact />
 
           {/* Bottom ground line */}
           <line x1="0" y1="470" x2="1440" y2="470" stroke="#cbd5e1" strokeWidth="1" />
         </svg>
       </div>
+
+      {/* Energy breakdown table — visible when auto mode has data */}
+      {energyMode === 'auto' && stpDerived?.energy_breakdown?.length > 0 && (
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="rounded border border-amber-200 bg-amber-50/50 p-3" data-testid="stp-energy-breakdown">
+            <div className="text-xs font-semibold text-amber-900 mb-1.5">Energy breakdown (kWh/day)</div>
+            <div className="text-[11px] text-amber-900 space-y-0.5 font-mono">
+              {stpDerived.energy_breakdown.map((row, i) => (
+                <div key={i} className="flex justify-between">
+                  <span>{row.label}</span>
+                  <span className="font-bold tabular-nums">{row.kwh.toFixed(2)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between pt-1 mt-1 border-t border-amber-300 text-amber-950 font-bold">
+                <span>Total</span>
+                <span className="tabular-nums">{energyKwh?.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+          {gardeningKld != null && (
+            <div className="rounded border border-emerald-200 bg-emerald-50/50 p-3">
+              <div className="text-xs font-semibold text-emerald-900 mb-1.5">Gardening / Flushing usage today</div>
+              <div className="text-2xl font-bold text-emerald-900 font-mono tabular-nums" data-testid="stp-gardening-kld">
+                {gardeningKld} <span className="text-sm font-medium">KLD</span>
+              </div>
+              <div className="text-[10px] text-emerald-800 mt-0.5">
+                Source: {gf.source === 'flowmeter' ? `Linked flowmeter · ${gf.linked_flowmeter_hw_id}` : 'Manual (admin-entered)'}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -412,6 +494,7 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
 // ------------------------- Sub-components used by the plant SVG -------------------------
 const Tank = ({ x, y, w, h, name, fillLevel = 0, capacityKld, accent = '#a16207' }) => {
   const fillH = Math.max(2, (h - 20) * (fillLevel / 100 || 0.05));
+  const displayKld = capacityKld != null ? capacityKld : '—';
   return (
     <g transform={`translate(${x}, ${y})`}>
       <rect x="0" y="0" width={w} height={h} fill="url(#tankBrown)" stroke={accent} strokeWidth="1.5" />
@@ -421,8 +504,8 @@ const Tank = ({ x, y, w, h, name, fillLevel = 0, capacityKld, accent = '#a16207'
       <text x={w / 2} y={h / 2} textAnchor="middle" fontSize="12" fill="#1e293b" fontWeight="700">{fillLevel}%</text>
       {/* Capacity badge on bottom-left */}
       <g transform={`translate(2, ${h - 20})`}>
-        <rect x="0" y="0" width="42" height="16" fill="#ffffff" stroke={accent} strokeWidth="1" />
-        <text x="21" y="12" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600" fontFamily="monospace">{capacityKld} KLD</text>
+        <rect x="0" y="0" width="48" height="16" fill="#ffffff" stroke={accent} strokeWidth="1" />
+        <text x="24" y="12" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600" fontFamily="monospace">{displayKld} KLD</text>
       </g>
       {/* Label under */}
       <rect x={-4} y={h + 6} width={w + 8} height="18" fill="#ffffff" stroke="#94a3b8" strokeWidth="0.5" />
@@ -440,7 +523,9 @@ const PumpBadge = ({ x, y, label, flowKld }) => (
     {/* KLD flow bubble above */}
     <g transform="translate(0, -30)">
       <rect x="-16" y="0" width="32" height="14" rx="2" fill="#ffffff" stroke="#0284c7" strokeWidth="1" />
-      <text x="0" y="10" textAnchor="middle" fontSize="9" fill="#0369a1" fontWeight="700" fontFamily="monospace">{flowKld} KLD</text>
+      <text x="0" y="10" textAnchor="middle" fontSize="9" fill="#0369a1" fontWeight="700" fontFamily="monospace">
+        {flowKld != null ? flowKld : '—'} KLD
+      </text>
     </g>
     <text x="0" y="30" textAnchor="middle" fontSize="8" fill="#64748b" fontFamily="monospace">00:00 HH:MM</text>
     {/* Pump icon */}
@@ -454,7 +539,7 @@ const PumpBadge = ({ x, y, label, flowKld }) => (
   </g>
 );
 
-const AirBlower = ({ x, y, label }) => (
+const AirBlower = ({ x, y, label, capacity, powerKw }) => (
   <g transform={`translate(${x}, ${y})`}>
     <rect x="0" y="0" width="50" height="35" fill="#3b82f6" stroke="#1e40af" strokeWidth="1.2" rx="3" />
     {/* Impeller */}
@@ -467,6 +552,14 @@ const AirBlower = ({ x, y, label }) => (
       <circle cx="0" cy="0" r="2.5" fill="#1e3a8a" />
     </g>
     <text x="25" y="52" textAnchor="middle" fontSize="8.5" fill="#1e293b" fontWeight="600">{label}</text>
+    {(capacity != null || powerKw != null) && (
+      <g>
+        <rect x="-4" y="-16" width="58" height="14" rx="2" fill="#ffffff" stroke="#1e40af" strokeWidth="0.75" />
+        <text x="25" y="-6" textAnchor="middle" fontSize="8" fill="#1e40af" fontWeight="700" fontFamily="monospace">
+          {capacity != null ? `${capacity} m³/h` : '—'}{powerKw != null ? ` · ${powerKw} kW` : ''}
+        </text>
+      </g>
+    )}
   </g>
 );
 
@@ -475,7 +568,9 @@ const FeedPump = ({ x, y, label, flowKld, compact = false }) => (
     {/* KLD flow bubble above */}
     <g transform="translate(20, -20)">
       <rect x="-16" y="0" width="32" height="14" rx="2" fill="#ffffff" stroke="#0284c7" strokeWidth="1" />
-      <text x="0" y="10" textAnchor="middle" fontSize="9" fill="#0369a1" fontWeight="700" fontFamily="monospace">{flowKld} KLD</text>
+      <text x="0" y="10" textAnchor="middle" fontSize="9" fill="#0369a1" fontWeight="700" fontFamily="monospace">
+        {flowKld != null ? flowKld : '—'} KLD
+      </text>
     </g>
     <rect x="0" y="0" width="40" height={compact ? 30 : 40} fill="#60a5fa" stroke="#1d4ed8" strokeWidth="1.2" rx="3" />
     <g transform={`translate(20, ${compact ? 15 : 20})`}>
@@ -570,6 +665,9 @@ const WaterQuality = () => {
   const [reportTo, setReportTo] = useState('');
   const [reportFormat, setReportFormat] = useState('csv');
   const [downloading, setDownloading] = useState(false);
+
+  // STP config dialog
+  const [showStpConfig, setShowStpConfig] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -769,8 +867,15 @@ const WaterQuality = () => {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Treatment Plant Flow</CardTitle>
-              <CardDescription>Live plant schematic — animated pipes, aeration blower and bubble diffuser reflect current operation</CardDescription>
+              <CardTitle className="flex items-center justify-between">
+                <span>Treatment Plant Flow</span>
+                {isAdmin && (
+                  <Button size="sm" variant="outline" onClick={() => setShowStpConfig(true)} data-testid="stp-configure-plant-btn">
+                    ⚙ Configure Plant
+                  </Button>
+                )}
+              </CardTitle>
+              <CardDescription>Live plant schematic — animated pipes, aeration blower and bubble diffuser reflect current operation. Admin can configure per-unit capacities, blower power &amp; energy compilation.</CardDescription>
             </CardHeader>
             <CardContent>
               <STPPlantDiagram
@@ -779,6 +884,10 @@ const WaterQuality = () => {
                 plantCapacityKld={currentDevice?._registry?.plant_capacity_kld}
                 deviceLabel={currentDevice?._registry?.label || selectedHw}
                 lastReceivedAt={currentDevice?.received_at}
+                stpUnitConfig={currentDevice?._registry?.stp_unit_config}
+                stpDerived={currentDevice?._registry?.stp_derived}
+                canManage={isAdmin}
+                onEditConfig={() => setShowStpConfig(true)}
               />
             </CardContent>
           </Card>
@@ -795,26 +904,48 @@ const WaterQuality = () => {
             </CardHeader>
             <CardContent>
               <div className="grid md:grid-cols-2 gap-8">
-                <AerationTank
-                  tankNumber={1}
-                  doValue={currentValues.DO_TANK_1}
-                  min={doMeta.DO_TANK_1?.min ?? 0}
-                  max={doMeta.DO_TANK_1?.max ?? 20}
-                  safeMin={doMeta.DO_TANK_1?.safe_min}
-                  safeMax={doMeta.DO_TANK_1?.safe_max}
-                  unit={unit}
-                  capacityKld={currentDevice?._registry?.tank_capacity_kld}
-                />
-                <AerationTank
-                  tankNumber={2}
-                  doValue={currentValues.DO_TANK_2}
-                  min={doMeta.DO_TANK_2?.min ?? 0}
-                  max={doMeta.DO_TANK_2?.max ?? 20}
-                  safeMin={doMeta.DO_TANK_2?.safe_min}
-                  safeMax={doMeta.DO_TANK_2?.safe_max}
-                  unit={unit}
-                  capacityKld={currentDevice?._registry?.tank_capacity_kld}
-                />
+                <div>
+                  <AerationTank
+                    tankNumber={1}
+                    doValue={currentValues.DO_TANK_1}
+                    min={doMeta.DO_TANK_1?.min ?? 0}
+                    max={doMeta.DO_TANK_1?.max ?? 20}
+                    safeMin={doMeta.DO_TANK_1?.safe_min}
+                    safeMax={doMeta.DO_TANK_1?.safe_max}
+                    unit={unit}
+                    capacityKld={currentDevice?._registry?.tank_capacity_kld}
+                    videoSrc={currentDevice?._registry?.aeration_videos?.tank_1 ? backendAssetUrl(currentDevice._registry.aeration_videos.tank_1) : null}
+                    isCustomVideo={Boolean(currentDevice?._registry?.aeration_videos?.tank_1)}
+                  />
+                  <AerationVideoUploader
+                    hardwareId={selectedHw}
+                    tankNumber={1}
+                    currentUrl={currentDevice?._registry?.aeration_videos?.tank_1}
+                    canManage={isAdmin}
+                    onChange={() => load()}
+                  />
+                </div>
+                <div>
+                  <AerationTank
+                    tankNumber={2}
+                    doValue={currentValues.DO_TANK_2}
+                    min={doMeta.DO_TANK_2?.min ?? 0}
+                    max={doMeta.DO_TANK_2?.max ?? 20}
+                    safeMin={doMeta.DO_TANK_2?.safe_min}
+                    safeMax={doMeta.DO_TANK_2?.safe_max}
+                    unit={unit}
+                    capacityKld={currentDevice?._registry?.tank_capacity_kld}
+                    videoSrc={currentDevice?._registry?.aeration_videos?.tank_2 ? backendAssetUrl(currentDevice._registry.aeration_videos.tank_2) : null}
+                    isCustomVideo={Boolean(currentDevice?._registry?.aeration_videos?.tank_2)}
+                  />
+                  <AerationVideoUploader
+                    hardwareId={selectedHw}
+                    tankNumber={2}
+                    currentUrl={currentDevice?._registry?.aeration_videos?.tank_2}
+                    canManage={isAdmin}
+                    onChange={() => load()}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -924,6 +1055,18 @@ const WaterQuality = () => {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Admin-only STP config dialog */}
+      {isAdmin && selectedHw && (
+        <STPConfigDialog
+          open={showStpConfig}
+          onOpenChange={setShowStpConfig}
+          hardwareId={selectedHw}
+          deviceLabel={currentDevice?._registry?.label || selectedHw}
+          existing={currentDevice?._registry?.stp_unit_config}
+          onSaved={load}
+        />
       )}
     </div>
   );

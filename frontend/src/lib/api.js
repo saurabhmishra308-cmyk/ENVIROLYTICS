@@ -83,3 +83,15 @@ export function formatApiError(detail) {
 }
 
 export default api;
+
+// Backend-served file (e.g. uploaded aeration videos) URL builder. Prepends
+// REACT_APP_BACKEND_URL so <video src="..."> resolves against the API host,
+// not the frontend origin.
+export function backendAssetUrl(pathOrUrl) {
+  if (!pathOrUrl) return "";
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  const base = API_BASE.replace(/\/$/, "");
+  const p = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+  return `${base}${p}`;
+}
+

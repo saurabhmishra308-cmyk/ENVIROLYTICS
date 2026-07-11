@@ -1,0 +1,46 @@
+{
+  "summary": "STP unit-config + aeration-video upload feature verified end-to-end. 16/16 backend pytest cases pass in ~3s. Frontend admin flow: SCADA diagram inline-renders capacities + Energy Usage 350.2 kWh/day + Gardening 45 KLD; Configure Plant dialog opens with all fields prefilled and persists edits. Aeration video upload/remove wires correctly via /api/uploads/aeration/ and toggles the Live On-Site badge. Non-admin client with view_water_quality permission cannot see stp-configure-plant-btn or aeration-upload-btn-{1,2} — passes ownership/role gate.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "STP SCADA plant diagram", "issues": ["Aeration Tank capacity label ('250 KLD') is rendered inside the dark-blue tank fill with dark text — legibility is poor. Same applies to any tank drawn with a dark fill. Consider white/high-contrast text or moving the KLD chip above the tank shape.", "A large black rectangular polygon appears to overlap the Equalization → Aeration Tank corridor in the SVG (visible in the desktop screenshot). Doesn't affect functionality but looks like a stray fill."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_water_quality_stp.py",
+    "/app/test_reports/pytest/wq_stp.xml"
+  ],
+  "action_items": [
+    "(Optional polish) Improve SCADA diagram label contrast — dark 'KLD' labels sit on dark tank fills in STPPlantDiagram.",
+    "(Optional polish) Investigate the stray black rectangle over the equalization/aeration corridor in the SCADA SVG."
+  ],
+  "critical_code_review_comments": [
+    "api_water_quality.py grew to ~770 lines — still readable but is approaching the 'consider splitting' threshold. _derive_stp_live_metrics is a pure async helper with clean fallbacks (auto vs manual, flowmeter vs manual gardening). Energy math verified: 3×(7.5×hrs) + 3.7×10 + 2.2×6 = 350.2 kWh — matches spec exactly.",
+    "Upload endpoint streams to disk in 1 MB chunks with a hard 60 MB cap and cleans up the temp file on breach or exception. Previous per-tank file is auto-purged from disk when a new one is uploaded — prevents disk leakage.",
+    "DELETE is correctly idempotent — verified deleting after tank_1 already unset returns 200 with success:true.",
+    "PUT /stp-config validates linked_flowmeter_hw_id belongs to an existing flowmeter — bad linkage returns 404 with clear message. `_flowmeter_daily_kld` uses max-min over TOTAL/VOLUME counter in the 24h window — correct 'delta' semantics.",
+    "GET /water-quality/latest correctly enriches every registered wq_stp / do_meter with _registry.stp_unit_config, _registry.aeration_videos and _registry.stp_derived — placeholder rows for devices with no live readings also carry the registry payload.",
+    "Frontend STPConfigDialog prefills every field from the last saved config (verified: 100/250/100/75/200 for the 5 tanks, FFP 300/3.7/10, gardening manual 45 KLD). Save round-trips through PUT and the SCADA diagram re-renders with updated capacities + energy total.",
+    "AerationVideoUploader flips the aeration <video> src to `${REACT_APP_BACKEND_URL}/api/uploads/aeration/<file>.mp4`, shows the aeration-custom-badge-{n} 'Live On-Site' overlay, and swaps the button label to Remove. Remove reverts to the built-in /aeration.mp4 demo clip.",
+    "Ownership + role gating is layered correctly: (a) client without device ownership cannot even see STP_TEST_001 / DO_TEST_001 in the device picker; (b) admin-only buttons additionally hidden by canManage={isAdmin}; (c) backend require_admin dependency returns 403 to any non-admin PUT/POST/DELETE attempt (verified in tests).",
+    "60 MB upload cap and mp4/webm/mov/m4v allow-list are enforced server-side — bad extension returns 400 with descriptive message."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_water_quality_stp.py"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 tests pass in 3.05s)",
+    "frontend": "100% (STP config CRUD, energy/gardening cards, aeration upload/remove, badge, admin-only gating all verified)"
+  },
+  "test_credentials": "Admin: admin@envirolytics.com / Admin@Envirolytics2026 (used from /app/memory/test_credentials.md). Ephemeral client TEST_wqui_ea83e2@envirolytics.com / ClientPass123 was created, granted view_water_quality, verified NOT to see admin buttons, then DELETED. Also a session-scoped TEST_stpguard_* client is created inside test_water_quality_stp.py and cleaned up in fixture teardown.",
+  "seed_data_creation": "No permanent seed data added. STP_TEST_001 config and DO_TEST_001 remain intact and unchanged (final aeration_tank_kld=250, energy=350.2, gardening=45). All aeration videos uploaded during tests were deleted in teardown so /app/backend/uploads/aeration/ is empty post-run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Full pytest at /app/backend/tests/test_water_quality_stp.py — safe to re-run at any time (idempotent, cleans up). It exercises PUT/GET stp-config (admin + 403 for non-admin + 404 for bad flowmeter linkage + manual energy mode), aeration-video upload/serve/delete/idempotent-delete, and confirms /water-quality/latest includes stp_derived + aeration_videos in _registry. Frontend tests confirmed the SCADA diagram renders Energy Usage 350.2 kWh/day inline, energy-breakdown card lists all 5 loads (120+120+60+37+13.20 = 350.20), gardening card shows 45 KLD, and the aeration video src switches to /api/uploads/aeration/... after upload with the Live On-Site badge. All admin buttons (stp-configure-plant-btn, aeration-upload-btn-{1,2}) are hidden for non-admin clients.",
+  "rca of the issue": "N/A — no bugs found. Two minor SCADA-diagram visual polish notes are documented under design_issues."
+}
