@@ -26,6 +26,12 @@ MAX_RECIPIENTS = 4
 OFFLINE_THRESHOLD_HOURS = 2
 SETTINGS_KEY = "offline_alerts"
 
+# In-memory rate limit for the "Test alert" button — per user_id, 60s cooldown.
+# Kept in-memory (not Mongo) because it's a UX guardrail against double-click
+# spam, not a security control. A backend restart clears it, which is fine.
+TEST_ALERT_COOLDOWN_SEC = 60
+_user_test_last_at: Dict[str, datetime] = {}
+
 
 # --------------------------------------------------------------------------- helpers
 def _parse_iso(value) -> Optional[datetime]:
@@ -215,6 +221,72 @@ async def send_test_email(db) -> dict:
     dummy = [{"kind": "flowmeter", "instrument_type": "flowmeter", "hardware_id": "TEST_DEVICE"}]
     html = _build_email_html(dummy)
     return await _send(recipients, "Envirolytics — Test Alert", html)
+
+
+def _build_simple_test_html() -> str:
+    """Minimal one-liner test email — used by the per-user "Test alert now" button."""
+    return """
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8fa;padding:24px 0;">
+      <tr><td align="center">
+        <table width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden;">
+          <tr><td style="background:#1a2332;padding:16px 22px;">
+            <div style="font-family:Arial,sans-serif;color:#4a9fd8;font-weight:700;letter-spacing:1px;font-size:14px;">ENVIROLYTICS MONITOR</div>
+          </td></tr>
+          <tr><td style="padding:22px;">
+            <p style="font-family:Arial,sans-serif;font-size:15px;color:#0f172a;margin:0;">
+              This is a test alert from Envirolytics Monitor. If you received this, your offline-alert delivery is working.
+            </p>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+    """
+
+
+async def send_test_email_to_user(db, user_id: str) -> dict:
+    """Send a simple test email to a specific user's login email + their
+    admin-configured notification_emails (max 2). Rate-limited to one send
+    per user per TEST_ALERT_COOLDOWN_SEC seconds.
+    """
+    if not user_id:
+        return {"sent": False, "reason": "user id required"}
+    now = datetime.now(timezone.utc)
+    last = _user_test_last_at.get(user_id)
+    if last is not None:
+        elapsed = (now - last).total_seconds()
+        if elapsed < TEST_ALERT_COOLDOWN_SEC:
+            return {
+                "sent": False,
+                "reason": "rate_limited",
+                "retry_after_seconds": int(TEST_ALERT_COOLDOWN_SEC - elapsed) + 1,
+            }
+    user = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "email": 1, "notification_emails": 1, "full_name": 1, "is_active": 1},
+    )
+    if not user:
+        return {"sent": False, "reason": "user not found"}
+    recipients: List[str] = []
+    if user.get("email"):
+        recipients.append(user["email"])
+    seen = {r.lower() for r in recipients}
+    for e in (user.get("notification_emails") or [])[:2]:
+        el = (e or "").strip().lower()
+        if el and el not in seen:
+            recipients.append(el)
+            seen.add(el)
+    if not recipients:
+        return {"sent": False, "reason": "no recipient emails for this user"}
+    html = _build_simple_test_html()
+    result = await _send(recipients, "Envirolytics — Test Alert", html)
+    if result.get("sent"):
+        _user_test_last_at[user_id] = now
+    # Never expose full recipient list back to non-admin callers — just the
+    # count so the client can render "sent to N recipients" without leaking
+    # the admin-configured extras. The route layer decides whether to strip.
+    result["recipient_count"] = len(recipients)
+    result["recipients"] = recipients
+    return result
 
 
 # --------------------------------------------------------------------------- background scanner

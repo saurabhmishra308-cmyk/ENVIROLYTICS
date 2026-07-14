@@ -37,6 +37,10 @@ DWLRs and Water Quality (STP + DO Meter).
 - Live MQTT Traffic panel with date+time stamps
 - Manual CSV upload, dummy-data auto-generation (5-year backfill)
 - Zoho SMTP notifications + 30-day renewal reminders
+- **"Test alert now" button** — admin can test any user's offline-alert
+  delivery from the user edit dialog; every user can also self-test from the
+  dashboard header. Sends a simple one-liner to the login email + admin-
+  configured `notification_emails`. Rate-limited to 1 send / user / 60s.
 - CSV/PDF report exports per device + date range
 
 ## Recent Changes (2026-07-11)
@@ -80,6 +84,8 @@ DWLRs and Water Quality (STP + DO Meter).
 - `PUT  /api/camera-streams/{hw_id}`                         (admin)
 - `DELETE /api/camera-streams/{hw_id}`                       (admin)
 - `GET  /api/flowmeter/traffic`
+- `POST /api/notifications/test-user/{user_id}`  (admin — per-user smoke test)
+- `POST /api/notifications/test-me`              (any auth user — self-test)
 
 ## Data Models
 - `instrument_registry`: hardware_id, imei, instrument_type,

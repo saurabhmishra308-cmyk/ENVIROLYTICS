@@ -6,8 +6,9 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { useTheme } from '../contexts/ThemeContext';
-import { LogOut, Sun, Moon, Droplets, TrendingUp, Activity, MapPin, FlaskConical, AlertCircle, Factory, Wind } from 'lucide-react';
+import { LogOut, Sun, Moon, Droplets, TrendingUp, Activity, MapPin, FlaskConical, AlertCircle, Factory, Wind, Send } from 'lucide-react';
 import axios from 'axios';
+import { toast } from 'sonner';
 
 import WeatherCard from '../components/WeatherCard';
 import InstrumentSection from '../components/InstrumentSection';
@@ -80,6 +81,25 @@ const EnhancedDashboard = () => {
   const [byType, setByType] = useState({ dwlr: [], ph: [], tds: [], conductivity: [] });
   const [mqttStatus, setMqttStatus] = useState({ connected: false });
   const [locations, setLocations] = useState([]);
+  const [sendingSelfTest, setSendingSelfTest] = useState(false);
+
+  const handleSelfTestAlert = useCallback(async () => {
+    setSendingSelfTest(true);
+    try {
+      const { data } = await api.post('/api/notifications/test-me');
+      if (data?.sent) {
+        toast.success(`Test alert sent to ${data.recipient_count || 1} recipient${(data.recipient_count || 1) === 1 ? '' : 's'}.`);
+      } else if (data?.reason === 'rate_limited') {
+        toast.warning(`Please wait ${data.retry_after_seconds || 60}s before sending another test.`);
+      } else {
+        toast.error(`Not sent — ${data?.reason || 'unknown error'}`);
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to send test alert');
+    } finally {
+      setSendingSelfTest(false);
+    }
+  }, []);
   // STP + DO live snapshot for the compact tile rows
   const [stpDevices, setStpDevices] = useState([]);
   const [doDevices, setDoDevices] = useState([]);
@@ -237,6 +257,18 @@ const EnhancedDashboard = () => {
               <span className="text-xs text-white font-medium">MQTT {mqttStatus.connected ? 'LIVE' : 'OFFLINE'}</span>
             </div>
             {isAdmin() && <span className="text-xs px-2 py-1 bg-purple-600 text-white rounded">ADMIN</span>}
+            <Button
+              onClick={handleSelfTestAlert}
+              disabled={sendingSelfTest}
+              variant="outline"
+              size="sm"
+              className="border-white text-white hover:text-white hidden sm:inline-flex"
+              title="Send a test offline-alert email to your login email + your admin-configured recipients"
+              data-testid="dashboard-self-test-alert-btn"
+            >
+              <Send className="mr-1 h-3.5 w-3.5" />
+              {sendingSelfTest ? 'Sending…' : 'Test alert'}
+            </Button>
             <Button onClick={toggleTheme} variant="outline" size="sm" className="border-white text-white hover:text-white" data-testid="dashboard-theme-toggle">
               {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>

@@ -65,6 +65,28 @@ const UserPage = () => {
   const [selfPwOpen, setSelfPwOpen] = useState(false);
   const [selfPw, setSelfPw] = useState({ current_password: '', new_password: '' });
 
+  // "Send test alert" — in-flight user id (disables the button while sending)
+  const [testingUserId, setTestingUserId] = useState(null);
+
+  const handleSendTestAlert = useCallback(async (userId) => {
+    if (!userId) return;
+    setTestingUserId(userId);
+    try {
+      const { data } = await api.post(`/api/notifications/test-user/${userId}`);
+      if (data?.sent) {
+        toast.success(`Test alert sent to ${data.recipient_count || 1} recipient${(data.recipient_count || 1) === 1 ? '' : 's'}.`);
+      } else if (data?.reason === 'rate_limited') {
+        toast.warning(`Please wait ${data.retry_after_seconds || 60}s before sending another test.`);
+      } else {
+        toast.error(`Not sent — ${data?.reason || 'unknown error'}`);
+      }
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+    } finally {
+      setTestingUserId(null);
+    }
+  }, []);
+
   const fetchUsers = useCallback(async () => {
     if (!admin) { setLoading(false); return; }
     try {
@@ -684,7 +706,20 @@ const UserPage = () => {
               <div><Label>Longitude</Label><Input value={editForm.longitude} onChange={(e) => setEditForm({ ...editForm, longitude: e.target.value })} placeholder="80.9462" data-testid="edit-user-longitude" /></div>
             </div>
             <div className="rounded border bg-amber-50/50 p-2.5 border-amber-200">
-              <div className="text-xs font-semibold text-amber-900 mb-1.5">Offline-alert recipients (admin-only)</div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="text-xs font-semibold text-amber-900">Offline-alert recipients (admin-only)</div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-[11px] border-amber-400 text-amber-900 hover:bg-amber-100"
+                  onClick={() => handleSendTestAlert(editTarget?.id)}
+                  disabled={!editTarget?.id || testingUserId === editTarget?.id}
+                  data-testid="edit-user-send-test-alert"
+                >
+                  {testingUserId === editTarget?.id ? 'Sending…' : 'Test alert now'}
+                </Button>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs">Alert email #1</Label>
@@ -699,7 +734,7 @@ const UserPage = () => {
                          placeholder="ops2@client.com" data-testid="edit-user-notify-2" />
                 </div>
               </div>
-              <p className="text-[10px] text-amber-800 mt-1">Both are optional. Leave blank to remove existing recipients.</p>
+              <p className="text-[10px] text-amber-800 mt-1">Both are optional. Leave blank to remove existing recipients. <span className="italic">Test sends a one-liner to the login email + saved recipients (max 1/min).</span></p>
             </div>
           </div>
           <DialogFooter>
