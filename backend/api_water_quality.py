@@ -472,7 +472,8 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
     story.append(t)
     doc.build(story)
     pdf_buf.seek(0)
-    fname = f"wq_report_{req.hardware_id}_{from_dt.strftime('%Y%m%d')}_{to_dt.strftime('%Y%m%d')}.pdf"
+    pdf_tank_suffix = f"_tank{tank_choice}" if (itype == "do_meter" and tank_choice in ("1", "2")) else ""
+    fname = f"wq_report_{req.hardware_id}{pdf_tank_suffix}_{from_dt.strftime('%Y%m%d')}_{to_dt.strftime('%Y%m%d')}.pdf"
     return StreamingResponse(
         iter([pdf_buf.getvalue()]),
         media_type="application/pdf",
