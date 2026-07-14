@@ -122,6 +122,9 @@ class ReportRequest(BaseModel):
     to_date: str
     format: str = Field("csv", description="'csv' | 'pdf'")
     unit: str = Field("mg/L", description="Convert numeric values to this unit label")
+    # For DO meter reports only. `both` (default) returns Tank 1 + Tank 2;
+    # `1` or `2` narrows the export to a single tank. Ignored for STP.
+    tank: Optional[str] = Field(None, description="'1' | '2' | 'both' — DO meter only")
 
 
 class SetPermissionRequest(BaseModel):
@@ -359,6 +362,11 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
     itype = reg.get("instrument_type") or "wq_stp"
     param_keys = list(STP_PARAMS.keys()) if itype == "wq_stp" else list(DO_PARAMS.keys())
 
+    # Narrow the DO param list when the caller asked for a specific tank.
+    tank_choice = (req.tank or "both").lower() if itype == "do_meter" else "both"
+    if itype == "do_meter" and tank_choice in ("1", "2"):
+        param_keys = [f"DO_TANK_{tank_choice}"]
+
     cursor = db.instrument_readings.find(
         {"hardware_id": req.hardware_id,
          "received_at": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}},
@@ -399,7 +407,8 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
             w.writerow(data_row)
             n += 1
         buf.seek(0)
-        fname = f"wq_report_{req.hardware_id}_{from_dt.strftime('%Y%m%d')}_{to_dt.strftime('%Y%m%d')}.csv"
+        tank_suffix = f"_tank{tank_choice}" if (itype == "do_meter" and tank_choice in ("1", "2")) else ""
+        fname = f"wq_report_{req.hardware_id}{tank_suffix}_{from_dt.strftime('%Y%m%d')}_{to_dt.strftime('%Y%m%d')}.csv"
         return StreamingResponse(
             iter([buf.getvalue().encode("utf-8")]),
             media_type="text/csv",

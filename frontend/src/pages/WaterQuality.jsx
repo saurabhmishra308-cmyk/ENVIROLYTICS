@@ -670,6 +670,7 @@ const WaterQuality = () => {
   const [reportFrom, setReportFrom] = useState('');
   const [reportTo, setReportTo] = useState('');
   const [reportFormat, setReportFormat] = useState('csv');
+  const [reportTank, setReportTank] = useState('both'); // 'both' | '1' | '2' — DO only
   const [downloading, setDownloading] = useState(false);
 
   // STP config dialog
@@ -818,18 +819,22 @@ const WaterQuality = () => {
     if (!reportFrom || !reportTo) { toast.error('Select from + to dates'); return; }
     setDownloading(true);
     try {
-      const res = await api.post('/api/water-quality/report', {
+      const isDo = tab === 'do';
+      const payload = {
         hardware_id: selectedHw,
         from_date: new Date(reportFrom).toISOString(),
         to_date: new Date(reportTo).toISOString(),
         format: reportFormat,
         unit,
-      }, { responseType: 'blob' });
+      };
+      if (isDo) payload.tank = reportTank;
+      const res = await api.post('/api/water-quality/report', payload, { responseType: 'blob' });
       const blob = new Blob([res.data], { type: reportFormat === 'csv' ? 'text/csv' : 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `wq_report_${selectedHw}_${reportFrom}_${reportTo}.${reportFormat}`;
+      const tankSuffix = isDo && reportTank !== 'both' ? `_tank${reportTank}` : '';
+      a.download = `wq_report_${selectedHw}${tankSuffix}_${reportFrom}_${reportTo}.${reportFormat}`;
       document.body.appendChild(a); a.click(); a.remove();
       toast.success('Report downloaded');
     } catch (e) {
@@ -1179,8 +1184,21 @@ const WaterQuality = () => {
                   <option value="pdf">PDF</option>
                 </select>
               </div>
-              <div className="flex items-end">
-                <Button onClick={downloadReport} disabled={downloading} className="w-full" data-testid="wq-report-download">
+              {/* DO tank picker — only for the DO Meter tab */}
+              {tab === 'do' && (
+                <div>
+                  <Label className="text-xs">Tank</Label>
+                  <select className="w-full border rounded px-2 py-2 text-sm"
+                          value={reportTank} onChange={(e) => setReportTank(e.target.value)}
+                          data-testid="wq-report-tank">
+                    <option value="both">Both tanks</option>
+                    <option value="1">Tank 1 only</option>
+                    <option value="2">Tank 2 only</option>
+                  </select>
+                </div>
+              )}
+              <div className={tab === 'do' ? 'md:col-span-4 flex justify-end mt-2' : 'flex items-end'}>
+                <Button onClick={downloadReport} disabled={downloading} className={tab === 'do' ? 'w-40' : 'w-full'} data-testid="wq-report-download">
                   {downloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                   Download
                 </Button>

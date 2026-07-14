@@ -38,10 +38,22 @@ def _default_permissions() -> Dict[str, bool]:
     return {k: False for k in PERMISSION_KEYS}
 
 
-def _normalise_permissions(p: Optional[Dict[str, bool]]) -> Dict[str, bool]:
+def _normalise_permissions(p) -> Dict[str, bool]:
+    """Return a Dict[str, bool] view of the caller's permissions.
+
+    Historically some user documents stored `permissions` as a list of
+    granted keys (e.g. ``["view_water_quality"]``) while newer docs use a
+    ``{key: bool}`` mapping. This helper accepts both shapes so the
+    /api/users/subusers endpoint doesn't 500 when legacy rows are read.
+    """
     if not p:
         return _default_permissions()
-    return {k: bool(p.get(k, False)) for k in PERMISSION_KEYS}
+    if isinstance(p, list):
+        granted = {str(k) for k in p}
+        return {k: (k in granted) for k in PERMISSION_KEYS}
+    if isinstance(p, dict):
+        return {k: bool(p.get(k, False)) for k in PERMISSION_KEYS}
+    return _default_permissions()
 
 
 def _serialise_user(u: dict) -> dict:

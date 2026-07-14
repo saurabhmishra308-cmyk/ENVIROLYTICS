@@ -48,13 +48,13 @@ const UserPage = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [createStep, setCreateStep] = useState(1); // 1 = user info, 2 = instruments
   const [creating, setCreating] = useState(false);
-  const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', role: 'client', company_name: '', phone: '', location_name: '', latitude: '', longitude: '' });
+  const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', role: 'client', company_name: '', phone: '', location_name: '', latitude: '', longitude: '', notification_email_1: '', notification_email_2: '' });
   const [newInstruments, setNewInstruments] = useState([]); // list of instrument row objects
 
   // Edit user state
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
-  const [editForm, setEditForm] = useState({ full_name: '', company_name: '', phone: '', location_name: '', latitude: '', longitude: '', role: 'client' });
+  const [editForm, setEditForm] = useState({ full_name: '', company_name: '', phone: '', location_name: '', latitude: '', longitude: '', role: 'client', notification_email_1: '', notification_email_2: '' });
 
   // Change password modal
   const [pwOpen, setPwOpen] = useState(false);
@@ -82,7 +82,7 @@ const UserPage = () => {
   const resetCreateWizard = () => {
     setCreateOpen(false);
     setCreateStep(1);
-    setNewUser({ email: '', password: '', full_name: '', role: 'client', company_name: '', phone: '', location_name: '', latitude: '', longitude: '' });
+    setNewUser({ email: '', password: '', full_name: '', role: 'client', company_name: '', phone: '', location_name: '', latitude: '', longitude: '', notification_email_1: '', notification_email_2: '' });
     setNewInstruments([]);
   };
 
@@ -144,6 +144,15 @@ const UserPage = () => {
       else payload.latitude = parseFloat(payload.latitude);
       if (payload.longitude === '' || payload.longitude == null) delete payload.longitude;
       else payload.longitude = parseFloat(payload.longitude);
+      // Pack the two admin-configurable alert-emails into a list. Empty
+      // strings are dropped; up to 2 are sent.
+      const notifEmails = [payload.notification_email_1, payload.notification_email_2]
+        .map((e) => (e || '').trim())
+        .filter(Boolean)
+        .slice(0, 2);
+      delete payload.notification_email_1;
+      delete payload.notification_email_2;
+      if (notifEmails.length) payload.notification_emails = notifEmails;
       const { data: userRes } = await api.post('/api/admin/users/create', payload);
       createdUser = userRes?.user;
       if (!createdUser?.id) {
@@ -203,6 +212,7 @@ const UserPage = () => {
 
   const openEdit = (u) => {
     setEditTarget(u);
+    const notifs = Array.isArray(u.notification_emails) ? u.notification_emails : [];
     setEditForm({
       full_name: u.full_name || '',
       company_name: u.company_name || '',
@@ -211,6 +221,8 @@ const UserPage = () => {
       latitude: u.latitude != null ? String(u.latitude) : '',
       longitude: u.longitude != null ? String(u.longitude) : '',
       role: u.role || 'client',
+      notification_email_1: notifs[0] || '',
+      notification_email_2: notifs[1] || '',
     });
     setEditOpen(true);
   };
@@ -223,8 +235,18 @@ const UserPage = () => {
       else payload.latitude = parseFloat(payload.latitude);
       if (payload.longitude === '') payload.longitude = null;
       else payload.longitude = parseFloat(payload.longitude);
+      // Build the notification_emails list — we always send it (even empty)
+      // so the admin can explicitly clear the two alert emails.
+      const notifEmails = [payload.notification_email_1, payload.notification_email_2]
+        .map((e) => (e || '').trim())
+        .filter(Boolean)
+        .slice(0, 2);
+      delete payload.notification_email_1;
+      delete payload.notification_email_2;
+      payload.notification_emails = notifEmails;
       // Drop empties so we don't overwrite with null on string fields
       Object.keys(payload).forEach((k) => {
+        if (k === 'notification_emails') return; // preserve empty list
         if (k !== 'latitude' && k !== 'longitude' && (payload[k] === '' || payload[k] == null)) {
           delete payload[k];
         }
@@ -483,6 +505,27 @@ const UserPage = () => {
                 <div><Label>Latitude</Label><Input value={newUser.latitude} onChange={(e) => setNewUser({ ...newUser, latitude: e.target.value })} placeholder="26.8467" data-testid="new-user-latitude" /></div>
                 <div><Label>Longitude</Label><Input value={newUser.longitude} onChange={(e) => setNewUser({ ...newUser, longitude: e.target.value })} placeholder="80.9462" data-testid="new-user-longitude" /></div>
               </div>
+              {/* Admin-managed alert email addresses — the client cannot edit
+                  these themselves. Up to 2 additional recipients receive the
+                  offline-device email in addition to the client's login email. */}
+              <div className="rounded border bg-amber-50/50 p-2.5 border-amber-200">
+                <div className="text-xs font-semibold text-amber-900 mb-1.5">Offline-alert recipients (admin-only)</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Alert email #1</Label>
+                    <Input type="email" value={newUser.notification_email_1}
+                           onChange={(e) => setNewUser({ ...newUser, notification_email_1: e.target.value })}
+                           placeholder="ops1@client.com" data-testid="new-user-notify-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Alert email #2</Label>
+                    <Input type="email" value={newUser.notification_email_2}
+                           onChange={(e) => setNewUser({ ...newUser, notification_email_2: e.target.value })}
+                           placeholder="ops2@client.com" data-testid="new-user-notify-2" />
+                  </div>
+                </div>
+                <p className="text-[10px] text-amber-800 mt-1">Both are optional. Alerts fire when any of this client&apos;s devices have not transmitted for 2+ hours.</p>
+              </div>
             </div>
           ) : (
             <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
@@ -639,6 +682,24 @@ const UserPage = () => {
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Latitude</Label><Input value={editForm.latitude} onChange={(e) => setEditForm({ ...editForm, latitude: e.target.value })} placeholder="26.8467" data-testid="edit-user-latitude" /></div>
               <div><Label>Longitude</Label><Input value={editForm.longitude} onChange={(e) => setEditForm({ ...editForm, longitude: e.target.value })} placeholder="80.9462" data-testid="edit-user-longitude" /></div>
+            </div>
+            <div className="rounded border bg-amber-50/50 p-2.5 border-amber-200">
+              <div className="text-xs font-semibold text-amber-900 mb-1.5">Offline-alert recipients (admin-only)</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Alert email #1</Label>
+                  <Input type="email" value={editForm.notification_email_1}
+                         onChange={(e) => setEditForm({ ...editForm, notification_email_1: e.target.value })}
+                         placeholder="ops1@client.com" data-testid="edit-user-notify-1" />
+                </div>
+                <div>
+                  <Label className="text-xs">Alert email #2</Label>
+                  <Input type="email" value={editForm.notification_email_2}
+                         onChange={(e) => setEditForm({ ...editForm, notification_email_2: e.target.value })}
+                         placeholder="ops2@client.com" data-testid="edit-user-notify-2" />
+                </div>
+              </div>
+              <p className="text-[10px] text-amber-800 mt-1">Both are optional. Leave blank to remove existing recipients.</p>
             </div>
           </div>
           <DialogFooter>

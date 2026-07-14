@@ -1,8 +1,8 @@
 """Admin API endpoints: user management, site activation, data export, certificates."""
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from pydantic import BaseModel, EmailStr, field_validator
+from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 import io
 import uuid
@@ -31,6 +31,20 @@ class AdminCreateUserRequest(BaseModel):
     location_name: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    # Up to 2 additional email addresses that will also receive offline
+    # alerts for this client's devices. Client-only — sub-user creation is
+    # a separate flow that does not accept these fields.
+    notification_emails: Optional[List[str]] = None
+
+    @field_validator("notification_emails")
+    @classmethod
+    def _cap_two(cls, v):
+        if not v:
+            return v
+        cleaned = [e.strip().lower() for e in v if e and e.strip()]
+        if len(cleaned) > 2:
+            raise ValueError("A user can have at most 2 notification emails")
+        return cleaned or None
 
 
 class AdminUpdateUserRequest(BaseModel):
@@ -41,6 +55,17 @@ class AdminUpdateUserRequest(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     role: Optional[str] = None
+    notification_emails: Optional[List[str]] = None
+
+    @field_validator("notification_emails")
+    @classmethod
+    def _cap_two(cls, v):
+        if v is None:
+            return v
+        cleaned = [e.strip().lower() for e in v if e and e.strip()]
+        if len(cleaned) > 2:
+            raise ValueError("A user can have at most 2 notification emails")
+        return cleaned
 
 
 class ActivateSiteRequest(BaseModel):
@@ -86,6 +111,7 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
         "created_by": admin["id"],
         "service_term_years": term_years,
         "service_expiry_date": service_expiry,
+        "notification_emails": req.notification_emails or [],
     }
     await db.users.insert_one(user_doc)
     user_doc.pop("password_hash", None)
@@ -122,8 +148,11 @@ async def toggle_user_status(user_id: str, is_active: bool, admin: dict = Depend
 
 @router.put("/users/{user_id}")
 async def update_user(user_id: str, req: AdminUpdateUserRequest, admin: dict = Depends(require_admin)):
-    """Admin — update user profile (location, contact info, role)."""
-    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    """Admin — update user profile (location, contact info, role, notification_emails)."""
+    # `exclude_unset` lets an admin explicitly clear notification_emails by
+    # sending an empty list — while `role: None` won't accidentally wipe the
+    # role because it stays "unset" if the client omits the key.
+    updates = req.model_dump(exclude_unset=True)
     if "role" in updates and updates["role"] not in ("admin", "client"):
         raise HTTPException(status_code=400, detail="Invalid role")
     if not updates:

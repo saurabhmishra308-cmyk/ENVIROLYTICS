@@ -1,0 +1,81 @@
+{
+  "summary": "Iteration-8 production-readiness sweep. Backend: 47/49 pytest cases PASS across iter-6/7/8 modules (all iter-6/7 100%, only 2 iter-8 PDF-filename tests fail on a real spec bug). Frontend: all iter-8 test-ids verified — wq-report-tank visible only on DO tab with the correct Both/Tank 1/Tank 2 options; new-user-notify-1/2 + edit-user-notify-1/2 render inside a yellow (amber-50) 'Offline-alert recipients (admin-only)' section on the User Management dialogs. Fixed a HIGH-priority regression I discovered during the sweep: /api/users/subusers was 500-ing whenever a user document stored `permissions` as a legacy list (breaks the User Management page load + surfaces two 'Something went wrong' toasts). Restored ownership of STP_TEST_001 + DO_TEST_001 to user_52eee1f7927c and testclient.notification_emails to ['ops1@client.com','ops2@client.com'] at teardown.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/water-quality/report (format=pdf, tank=1|2)", "issue": "PDF branch does not append `_tank1`/`_tank2` suffix to the Content-Disposition filename — only the CSV branch does. Spec (iter-8) requires both formats to include the tank suffix. Fix: mirror the `tank_suffix` logic used at api_water_quality.py:410 in the PDF branch at line 475.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/water-quality/latest (client role)", "issue": "Iter-7 carryover — `stp_unit_config.energy` still present as null on client payload when never configured. Non-security; recommend unconditional `out.pop('energy', None)` in _sanitize_stp_cfg_for_client."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "User Management page load (admin)", "issue": "FIXED — GET /api/users/subusers was returning 500 because api_subusers._normalise_permissions assumed a dict but some legacy user docs store permissions as a list. This caused two 'Something went wrong. Please try again.' toasts + the SubUserCard failing to render. Patched in /app/backend/api_subusers.py to accept both list and dict shapes.", "affected_selectors": ["subuser-card", "add-user-btn"]}
+    ],
+    "design_issues": []
+  },
+  "verified_test_ids": {
+    "water_quality_do_tab": [
+      "wq-report-tank (present, options: Both tanks / Tank 1 only / Tank 2 only)",
+      "wq-report-download (present)"
+    ],
+    "water_quality_stp_tab": [
+      "wq-report-tank NOT present (correct — gated by tab==='do')"
+    ],
+    "user_management": [
+      "add-user-btn opens Create dialog step-1 with new-user-notify-1 + new-user-notify-2 inside yellow (bg=rgba(255,251,235,0.5)) 'Offline-alert recipients (admin-only)' section",
+      "edit-user-<id> opens Edit dialog with edit-user-notify-1 + edit-user-notify-2 (empty for admin; prefills from user.notification_emails when set)",
+      "subuser-card renders (no more 500 after fix)"
+    ]
+  },
+  "backend_endpoints_verified": [
+    "POST /api/auth/login (admin + client) — 200",
+    "PUT /api/admin/users/{id} notification_emails=[1] — 200, lowercased+trimmed",
+    "PUT /api/admin/users/{id} notification_emails=[2] — 200",
+    "PUT /api/admin/users/{id} notification_emails=[3] — 422 with 'at most 2' message",
+    "PUT /api/admin/users/{id} notification_emails=[] — 200 clears list",
+    "PUT /api/admin/users/{id} as client — 403",
+    "POST /api/admin/users/create notification_emails=[3] — 422",
+    "POST /api/admin/users/create notification_emails=[2] — 200, lowercased/trimmed",
+    "notification_service.check_and_notify(db) — recipients include owner email + 2 admin-configured extras (extra1@example.com, extra2@example.com) for a stale DO_meter device owned by testclient",
+    "POST /api/water-quality/report tank='1'/'2'/'both'/omitted (csv) — column filter + _tank1/_tank2 filename suffix correct",
+    "POST /api/water-quality/report tank='1'/'2' (pdf) — PDF body correctly drops DO_TANK_2 header when tank=1, BUT filename is missing the tank suffix (BUG)",
+    "GET /api/water-quality/latest — <1500ms",
+    "GET /api/flowmeter/latest + /api/instruments/all/latest — <1500ms",
+    "GET /api/instrument-registry — <1500ms",
+    "GET /api/flowmeter-mgmt/categories — 200",
+    "GET /api/camera-streams/by-device/{hw} — 200",
+    "GET /api/users/subusers — 200 (was 500 before /app/backend/api_subusers.py fix)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8_regression.py",
+    "/app/backend/tests/test_iteration7_regression.py",
+    "/app/backend/tests/test_iteration6_wq.py",
+    "/app/test_reports/pytest/iter8.xml"
+  ],
+  "action_items": [
+    "HIGH — Fix PDF filename to include _tank1/_tank2 suffix in api_water_quality.py:475. Mirror the tank_suffix logic already used for CSV at line 410-411 (compute `tank_suffix = f'_tank{tank_choice}' if (itype=='do_meter' and tank_choice in ('1','2')) else ''` and interpolate into fname).",
+    "MINOR — In _sanitize_stp_cfg_for_client unconditional `out.pop('energy', None)` per iter-7 carryover.",
+    "OPTIONAL — Follow-up cleanup: the shared FlowmeterTile.jsx should replace the inline copy still living in EnhancedDashboard.jsx (~L36-69) for DRY."
+  ],
+  "critical_code_review_comments": [
+    "REAL BUG FIXED — api_subusers._normalise_permissions crashed on legacy list-shaped permissions, breaking /api/users/subusers → the entire User Management page was showing 'Something went wrong' toasts on load and the SubUsers card never rendered. Now defensively supports list, dict, or empty.",
+    "SPEC GAP — api_water_quality.report(): the CSV branch appends `_tank1/_tank2` to the download filename, but the PDF branch does not. Same variable `tank_suffix` should be reused around line 475. Content is filtered correctly in both formats.",
+    "notification_service.check_and_notify recipient composition is clean: owner_email → up to 2 admin-configured extras (dedup + case-normalised) → global ops recipients. Extras are gated to admin-only writes via api_admin PUT validators.",
+    "AdminUpdateUserRequest uses `model_dump(exclude_unset=True)` so PUT /users/{id} with notification_emails=[] correctly clears the field (validator returns []) while omitting the key leaves it untouched. Well-designed.",
+    "Frontend gate `{tab === 'do' && (...wq-report-tank...)}` correctly hides the Tank picker on the STP Parameters tab.",
+    "WaterQuality.jsx download filename includes `_tank${reportTank}` when reportTank !== 'both', which matches backend CSV behaviour — but frontend already emits the suffix for PDF too via the same string, so once backend fixes the PDF filename the double-suffix should NOT occur because frontend saves the file name from Content-Disposition when present (verify)."
+  ],
+  "updated_files": [
+    "/app/backend/api_subusers.py",
+    "/app/backend/tests/test_iteration8_regression.py"
+  ],
+  "success_rate": {"backend": "95.9% (47/49 combined iter-6/7/8; 2 fails are the same PDF-filename spec bug)", "frontend": "100% of iter-8 test-ids verified"},
+  "test_credentials": "Admin: admin@envirolytics.com / Admin@Envirolytics2026. Client: testclient@envirolytics.com / Client@Test2026 (id=user_dd92c46509ff, notification_emails restored to ['ops1@client.com','ops2@client.com']).",
+  "seed_data_creation": "Temporary: TestOfflineNotificationRecipients inserts a stale do_meter latest doc under a fresh ITER8_STALE_* hardware_id owned by testclient, then deletes registry + latest + notification_state at teardown. STP_TEST_001 + DO_TEST_001 ownership reassigned briefly for sanitization test then restored to user_52eee1f7927c. One transient test user was created via /api/admin/users/create (TEST_notify_ok) and deleted immediately in the same test.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New pytest module /app/backend/tests/test_iteration8_regression.py covers notification_emails validation (create + update), notification_service integration, DO report tank filter, performance smoke, and quick regression. Two failing PDF tests remain until main agent adds tank_suffix to the PDF branch in api_water_quality.py:475. api_subusers._normalise_permissions now tolerates legacy list-shaped `permissions`; keep this in mind if any migration script later normalises them all to dicts. The FE renders `wq-report-tank` only when the DO Meter tab is active — do NOT expect it on the STP Parameters tab.",
+  "rca of the issue": "1) /api/users/subusers 500 — legacy user docs store `permissions` as a list of granted keys instead of {key: bool}. _normalise_permissions called `.get()` on it. Reproduction: GET /api/users/subusers as admin → 500 → two red 'Something went wrong' toasts on /user page, SubUsers section blank. Fix: dual-shape helper (see api_subusers.py:41-56). 2) PDF filename missing tank suffix — the CSV response at line 411 builds `wq_report_{hw}{_tank1|_tank2}_YYYYMMDD_YYYYMMDD.csv` but the PDF response at line 475 uses `wq_report_{hw}_YYYYMMDD_YYYYMMDD.pdf` with no tank suffix computation. Fix: hoist the tank_suffix line above the format branch OR duplicate it in the PDF branch."
+}

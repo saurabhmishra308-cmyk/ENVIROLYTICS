@@ -218,17 +218,28 @@ async def send_test_email(db) -> dict:
 
 
 # --------------------------------------------------------------------------- background scanner
-async def _owner_email_for(db, hardware_id: str) -> Tuple[Optional[str], Optional[str]]:
-    """Return (owner_user_id, owner_email) for a device based on instrument_registry."""
+async def _owner_email_for(db, hardware_id: str) -> Tuple[Optional[str], Optional[str], List[str]]:
+    """Return (owner_user_id, owner_email, extra_emails) for a device.
+
+    `extra_emails` is the list of admin-configured `notification_emails` on the
+    user document (max 2). Only admins can set these on the user profile, so
+    they're safe to include in outbound alerts without leaking anything the
+    admin didn't intend.
+    """
     reg = await db.instrument_registry.find_one({"hardware_id": hardware_id})
     if not reg or not reg.get("owner_user_id"):
-        return None, None
-    user = await db.users.find_one({"id": reg["owner_user_id"]}, {"_id": 0, "email": 1, "is_active": 1})
-    if not user or not user.get("email"):
-        return reg.get("owner_user_id"), None
+        return None, None, []
+    user = await db.users.find_one(
+        {"id": reg["owner_user_id"]},
+        {"_id": 0, "email": 1, "is_active": 1, "notification_emails": 1},
+    )
+    if not user:
+        return reg.get("owner_user_id"), None, []
     if user.get("is_active") is False:
-        return reg.get("owner_user_id"), None
-    return reg.get("owner_user_id"), user.get("email")
+        # Suspended clients don't receive alerts at all.
+        return reg.get("owner_user_id"), None, []
+    extras = [e for e in (user.get("notification_emails") or []) if e]
+    return reg.get("owner_user_id"), user.get("email"), extras[:2]
 
 
 async def _find_offline(db) -> List[dict]:
@@ -237,20 +248,22 @@ async def _find_offline(db) -> List[dict]:
     async for d in db.flowmeter_latest.find({}, {"_id": 0}):
         ls = _parse_iso(d.get("received_at")) or _parse_iso(d.get("timestamp"))
         if ls and ls < cutoff:
-            owner_id, owner_email = await _owner_email_for(db, d.get("hardware_id"))
+            owner_id, owner_email, extras = await _owner_email_for(db, d.get("hardware_id"))
             out.append({
                 "kind": "flowmeter", "instrument_type": "flowmeter",
                 "hardware_id": d.get("hardware_id"), "last_seen": ls,
                 "owner_user_id": owner_id, "owner_email": owner_email,
+                "extra_emails": extras,
             })
     async for d in db.instrument_latest.find({}, {"_id": 0}):
         ls = _parse_iso(d.get("received_at")) or _parse_iso(d.get("timestamp"))
         if ls and ls < cutoff:
-            owner_id, owner_email = await _owner_email_for(db, d.get("hardware_id"))
+            owner_id, owner_email, extras = await _owner_email_for(db, d.get("hardware_id"))
             out.append({
                 "kind": "instrument", "instrument_type": d.get("instrument_type"),
                 "hardware_id": d.get("hardware_id"), "last_seen": ls,
                 "owner_user_id": owner_id, "owner_email": owner_email,
+                "extra_emails": extras,
             })
     return out
 
@@ -313,6 +326,21 @@ async def check_and_notify(db) -> dict:
         recipients: List[str] = []
         if owner_email:
             recipients.append(owner_email)
+        # Admin-configured extra notification emails on the owning client.
+        # These are set only by admin (per the /api/admin/users/* endpoints)
+        # and never by the client themselves. Cap at 2 defensively — the
+        # Pydantic validator already enforces this on write.
+        seen_extras: set = set()
+        for d in devices:
+            for e in (d.get("extra_emails") or []):
+                el = (e or "").strip().lower()
+                if el and el not in seen_extras and el not in {r.lower() for r in recipients}:
+                    seen_extras.add(el)
+                    recipients.append(el)
+                    if len(seen_extras) >= 2:
+                        break
+            if len(seen_extras) >= 2:
+                break
         # always copy ops recipients
         for r in global_recipients:
             if r and r not in recipients:
