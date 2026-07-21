@@ -147,3 +147,16 @@ async def qespl_run_now(_admin: dict = Depends(require_admin)):
     import qespl_poller  # lazy import to avoid circulars during module init
     result = await qespl_poller.poll_once()
     return {"success": True, **result}
+
+
+@router.get("/qespl/traffic")
+async def qespl_traffic(_admin: dict = Depends(require_admin)):
+    """Return the last 50 QESPL HTTP poll results + connection info for the
+    Live HTTP Traffic panel on the dashboard. Admin-only."""
+    import qespl_poller  # lazy import
+    snapshot = qespl_poller.get_traffic_snapshot()
+    # Enrich with count of qespl-tagged devices
+    if db is not None:
+        count = await db.instrument_registry.count_documents({"device_source": "qespl_api"})
+        snapshot["registered_devices"] = count
+    return snapshot

@@ -26,6 +26,7 @@ MQTT-based flowmeter and DWLR devices are 100% untouched.
 import asyncio
 import logging
 import os
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -46,6 +47,40 @@ QESPL_AUTH_VALUE = os.getenv("QESPL_AUTH_VALUE", "").strip() or None
 db = None
 mqtt_service = None
 
+# In-memory traffic log (last 50 poll results) — for the Live HTTP Traffic panel
+recent_polls: "deque[Dict[str, Any]]" = deque(maxlen=50)
+_stats: Dict[str, int] = {"total_polled": 0, "failed": 0, "last_pass_at": 0}
+
+
+def get_traffic_snapshot() -> Dict[str, Any]:
+    return {
+        "endpoint": QESPL_API_URL,
+        "interval_sec": QESPL_MIN_INTERVAL_SEC,
+        "auth_enabled": bool(QESPL_AUTH_HEADER and QESPL_AUTH_VALUE),
+        "total_polled": _stats.get("total_polled", 0),
+        "failed": _stats.get("failed", 0),
+        "last_pass_at": _stats.get("last_pass_at", 0),
+        "recent_polls": list(recent_polls)[:50],
+    }
+
+
+def _log_poll(qespl_device_id: str, hardware_id: str, itype: str,
+              status: str, http_code: Optional[int], bytes_len: int, note: str = ""):
+    try:
+        recent_polls.appendleft({
+            "time": datetime.now(timezone.utc).isoformat(),
+            "endpoint": QESPL_API_URL,
+            "qespl_device_id": qespl_device_id,
+            "hardware_id": hardware_id,
+            "device": itype,
+            "result": status,
+            "http_code": http_code,
+            "bytes": bytes_len,
+            "note": note,
+        })
+    except Exception:
+        pass
+
 
 def set_deps(database, mqtt_svc):
     global db, mqtt_service
@@ -60,7 +95,8 @@ def _headers() -> Dict[str, str]:
     return h
 
 
-async def _fetch_one(session: aiohttp.ClientSession, qespl_device_id: str) -> Optional[Dict[str, Any]]:
+async def _fetch_one(session: aiohttp.ClientSession, qespl_device_id: str,
+                    hardware_id: str = "", itype: str = "") -> Optional[Dict[str, Any]]:
     """Fetch the latest reading for a single QESPL DTU. Returns a normalised
     flat dict `{PARAM_NAME: numeric_value, PARAM_NAME_unit: "unit_string",
     TIME: iso8601, _raw: […original array…]}` on success, or None on failure.
@@ -83,38 +119,49 @@ async def _fetch_one(session: aiohttp.ClientSession, qespl_device_id: str) -> Op
             headers=_headers(),
             timeout=aiohttp.ClientTimeout(total=QESPL_HTTP_TIMEOUT_SEC),
         ) as resp:
+            body_bytes = await resp.read()
             if resp.status >= 400:
-                text = await resp.text()
-                logger.warning(f"[qespl] {qespl_device_id} → HTTP {resp.status}: {text[:200]}")
+                logger.warning(f"[qespl] {qespl_device_id} → HTTP {resp.status}: {body_bytes[:200]}")
+                _log_poll(qespl_device_id, hardware_id, itype, "http-error", resp.status, len(body_bytes),
+                          note=body_bytes[:120].decode("utf-8", errors="replace"))
                 return None
             try:
-                data = await resp.json(content_type=None)
+                import json as _json
+                data = _json.loads(body_bytes.decode("utf-8"))
             except Exception as e:
-                text = await resp.text()
-                logger.warning(f"[qespl] {qespl_device_id} → invalid JSON: {e} · body {text[:200]}")
+                logger.warning(f"[qespl] {qespl_device_id} → invalid JSON: {e} · body {body_bytes[:200]}")
+                _log_poll(qespl_device_id, hardware_id, itype, "invalid-json", resp.status, len(body_bytes),
+                          note=str(e)[:120])
                 return None
+            http_code = resp.status
     except asyncio.TimeoutError:
         logger.warning(f"[qespl] {qespl_device_id} → timeout after {QESPL_HTTP_TIMEOUT_SEC}s")
+        _log_poll(qespl_device_id, hardware_id, itype, "timeout", None, 0)
         return None
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[qespl] {qespl_device_id} → error: {e}")
+        _log_poll(qespl_device_id, hardware_id, itype, "network-error", None, 0, note=str(e)[:120])
         return None
 
     # QESPL returns an ARRAY (usually 1 element = latest reading).
     if isinstance(data, list):
         if not data:
             logger.info(f"[qespl] {qespl_device_id} → empty array (no data yet)")
+            _log_poll(qespl_device_id, hardware_id, itype, "empty", http_code, len(body_bytes))
             return None
         record = data[0]
     elif isinstance(data, dict):
         record = data
     else:
         logger.warning(f"[qespl] {qespl_device_id} → unexpected shape: {str(data)[:200]}")
+        _log_poll(qespl_device_id, hardware_id, itype, "bad-shape", http_code, len(body_bytes))
         return None
 
     if not isinstance(record, dict):
+        _log_poll(qespl_device_id, hardware_id, itype, "bad-shape", http_code, len(body_bytes))
         return None
 
+    _log_poll(qespl_device_id, hardware_id, itype, "ok", http_code, len(body_bytes))
     return _normalise_qespl_record(record)
 
 
@@ -239,7 +286,7 @@ async def poll_once(session: Optional[aiohttp.ClientSession] = None) -> Dict[str
                 failed += 1
                 continue
 
-            payload = await _fetch_one(session, qespl_id)
+            payload = await _fetch_one(session, qespl_id, hardware_id, itype)
             if payload is None:
                 failed += 1
                 continue
@@ -263,6 +310,9 @@ async def poll_once(session: Optional[aiohttp.ClientSession] = None) -> Dict[str
         if close_session:
             await session.close()
 
+    _stats["total_polled"] += len(devices)
+    _stats["failed"] += failed
+    _stats["last_pass_at"] = int(datetime.now(timezone.utc).timestamp())
     return {"polled": len(devices), "ok": ok, "failed": failed}
 
 

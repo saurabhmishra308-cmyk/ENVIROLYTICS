@@ -15,6 +15,7 @@ import LockedSectionOverlay from '../components/LockedSectionOverlay';
 import LocationMap from '../components/LocationMap';
 import OfflineAlertsBanner from '../components/OfflineAlertsBanner';
 import NotificationRecipientsCard from '../components/NotificationRecipientsCard';
+import LiveTrafficCard from '../components/LiveTrafficCard';
 
 const POLL_MS = 5000;
 const logError = (e, c) => { if (process.env.NODE_ENV === 'development') console.error(`[${c}]`, e); };
@@ -161,6 +162,8 @@ const EnhancedDashboard = () => {
   const groundwater = aggList.filter((a) => (a.category || 'groundwater_abstraction') === 'groundwater_abstraction');
   const stpInlet = aggList.filter((a) => a.category === 'stp_inlet');
   const stpOutlet = aggList.filter((a) => a.category === 'stp_outlet');
+  const hasStp = stpInlet.length + stpOutlet.length > 0;
+  const admin = isAdmin();
 
   // Build water-quality tiles (pH, Conductivity, TDS)
   const qualityTiles = [];
@@ -243,7 +246,7 @@ const EnhancedDashboard = () => {
               <p className={`text-[10px] tracking-[0.28em] font-semibold ${
                 isDarkMode ? 'text-cyan-300' : 'text-cyan-700'
               }`}>
-                CENTRAL GROUND WATER AUTHORITY · STATE POLLUTION CONTROL BOARD · STATE GROUND WATER AUTHORITY COMPLIANT
+                CENTRAL / STATE POLLUTION CONTROL BOARD · CENTRAL GROUND WATER AUTHORITY · STATE GROUND WATER AUTHORITY
               </p>
               <h2 className={`text-2xl md:text-3xl lg:text-4xl font-bold leading-tight ${text}`}>
                 Envirolytics Monitoring Console
@@ -287,6 +290,8 @@ const EnhancedDashboard = () => {
 
         {isAdmin() && <NotificationRecipientsCard isDarkMode={isDarkMode} />}
 
+        {isAdmin() && <LiveTrafficCard isDarkMode={isDarkMode} />}
+
         {/* Client Location Map */}
         <Card className={isDarkMode ? 'bg-gray-800 border-gray-700' : ''} data-testid="dashboard-map-card">
           <CardHeader>
@@ -317,11 +322,17 @@ const EnhancedDashboard = () => {
           </CardHeader>
           <CardContent>
             {groundwater.length === 0 ? (
-              <LockedSectionOverlay
-                instrumentType="flowmeter"
-                readableType="Groundwater Flowmeter"
-                isDarkMode={isDarkMode}
-              />
+              admin ? (
+                <p className={`text-sm italic ${muted}`} data-testid="groundwater-empty-admin">
+                  No groundwater flowmeters registered yet. Add one from the Instruments page.
+                </p>
+              ) : (
+                <LockedSectionOverlay
+                  instrumentType="flowmeter"
+                  readableType="Groundwater Flowmeter"
+                  isDarkMode={isDarkMode}
+                />
+              )
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {groundwater.map((a) => (
@@ -356,11 +367,17 @@ const EnhancedDashboard = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <LockedSectionOverlay
-                instrumentType="dwlr"
-                readableType="DWLR (Water Level Recorder)"
-                isDarkMode={isDarkMode}
-              />
+              {admin ? (
+                <p className={`text-sm italic ${muted}`} data-testid="dwlr-empty-admin">
+                  No DWLR devices registered yet. Add one from the Instruments page.
+                </p>
+              ) : (
+                <LockedSectionOverlay
+                  instrumentType="dwlr"
+                  readableType="DWLR (Water Level Recorder)"
+                  isDarkMode={isDarkMode}
+                />
+              )}
             </CardContent>
           </Card>
         )}
@@ -377,36 +394,41 @@ const EnhancedDashboard = () => {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            {!hasWaterQuality && (
-              <LockedSectionOverlay
-                instrumentType="water_quality"
-                readableType="Water Quality Suite (pH / DO / BOD / COD / TSS / Cl)"
-                isDarkMode={isDarkMode}
-              />
-            )}
             {/* Quality sensor tiles */}
             <div>
               <h3 className={`text-sm font-semibold mb-2 ${text}`}>Quality parameters</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {qualityTiles.map((t) => (
-                  <div
-                    key={`${t.label}-${t.hardware_id || 'pending'}`}
-                    data-testid={`tile-${t.label.toLowerCase()}-${t.hardware_id || 'pending'}`}
-                    className={`p-3 rounded-lg border-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'}`}
-                    style={{ borderColor: t.status === 'active' ? '#10b981' : '#cbd5e1' }}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-sm font-semibold ${text}`}>{t.label}</span>
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: t.status === 'active' ? '#10b981' : '#94a3b8' }} />
+              {!hasWaterQuality && !admin ? (
+                <LockedSectionOverlay
+                  instrumentType="water_quality"
+                  readableType="Water Quality Suite (pH / DO / BOD / COD / TSS / Cl)"
+                  isDarkMode={isDarkMode}
+                />
+              ) : !hasWaterQuality && admin ? (
+                <p className={`text-sm italic ${muted}`} data-testid="water-quality-empty-admin">
+                  No water-quality sensors registered yet. Add one from the Instruments page.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {qualityTiles.map((t) => (
+                    <div
+                      key={`${t.label}-${t.hardware_id || 'pending'}`}
+                      data-testid={`tile-${t.label.toLowerCase()}-${t.hardware_id || 'pending'}`}
+                      className={`p-3 rounded-lg border-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'}`}
+                      style={{ borderColor: t.status === 'active' ? '#10b981' : '#cbd5e1' }}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-sm font-semibold ${text}`}>{t.label}</span>
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: t.status === 'active' ? '#10b981' : '#94a3b8' }} />
+                      </div>
+                      <p className="text-2xl font-bold" style={{ color: '#8e44ad' }}>
+                        {t.value != null ? t.value : '—'}
+                        {t.unit && <span className="text-base ml-1 text-gray-500">{t.unit}</span>}
+                      </p>
+                      <p className={`text-xs ${muted}`}>{t.hardware_id ? t.hardware_id : 'No device'}{t.meta ? ` · ${t.meta}` : ''}</p>
                     </div>
-                    <p className="text-2xl font-bold" style={{ color: '#8e44ad' }}>
-                      {t.value != null ? t.value : '—'}
-                      {t.unit && <span className="text-base ml-1 text-gray-500">{t.unit}</span>}
-                    </p>
-                    <p className={`text-xs ${muted}`}>{t.hardware_id ? t.hardware_id : 'No device'}{t.meta ? ` · ${t.meta}` : ''}</p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* STP Flowmeters */}
@@ -414,24 +436,32 @@ const EnhancedDashboard = () => {
               <h3 className={`text-sm font-semibold mb-2 flex items-center gap-2 ${text}`}>
                 <Factory className="h-4 w-4" /> STP Flowmeters — inlet &amp; outlet (m³/hr, totaliser in KL)
               </h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                  <p className={`text-xs uppercase tracking-wide mb-2 ${muted}`}>STP Inlet</p>
-                  {stpInlet.length === 0 ? (
-                    <p className={`text-xs italic ${muted}`}>No STP inlet flowmeter registered.</p>
-                  ) : stpInlet.map((a) => (
-                    <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#16a085" onClick={() => navigate('/flowmeter')} />
-                  ))}
+              {!hasStp && !admin ? (
+                <LockedSectionOverlay
+                  instrumentType="stp_flowmeter"
+                  readableType="STP Flowmeters (Inlet / Outlet)"
+                  isDarkMode={isDarkMode}
+                />
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div>
+                    <p className={`text-xs uppercase tracking-wide mb-2 ${muted}`}>STP Inlet</p>
+                    {stpInlet.length === 0 ? (
+                      <p className={`text-xs italic ${muted}`}>No STP inlet flowmeter registered.</p>
+                    ) : stpInlet.map((a) => (
+                      <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#16a085" onClick={() => navigate('/flowmeter')} />
+                    ))}
+                  </div>
+                  <div>
+                    <p className={`text-xs uppercase tracking-wide mb-2 ${muted}`}>STP Outlet</p>
+                    {stpOutlet.length === 0 ? (
+                      <p className={`text-xs italic ${muted}`}>No STP outlet flowmeter registered.</p>
+                    ) : stpOutlet.map((a) => (
+                      <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#d35400" onClick={() => navigate('/flowmeter')} />
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <p className={`text-xs uppercase tracking-wide mb-2 ${muted}`}>STP Outlet</p>
-                  {stpOutlet.length === 0 ? (
-                    <p className={`text-xs italic ${muted}`}>No STP outlet flowmeter registered.</p>
-                  ) : stpOutlet.map((a) => (
-                    <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#d35400" onClick={() => navigate('/flowmeter')} />
-                  ))}
-                </div>
-              </div>
+              )}
             </div>
           </CardContent>
         </Card>

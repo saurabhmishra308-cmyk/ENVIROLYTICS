@@ -94,5 +94,8 @@ async def get_mqtt_status():
     return {
         "connected": mqtt_service.connected,
         "subscribed_topics": list(mqtt_service.subscribed_topics),
-        "broker": f"{mqtt_service.broker_host}:{mqtt_service.broker_port}"
+        "broker": f"{mqtt_service.broker_host}:{mqtt_service.broker_port}",
+        "total_received": getattr(mqtt_service, "total_received", 0),
+        "dropped_unknown": getattr(mqtt_service, "dropped_unknown", 0),
+        "recent_messages": list(getattr(mqtt_service, "recent_messages", []) or [])[:50],
     }

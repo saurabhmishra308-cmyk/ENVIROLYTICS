@@ -27,6 +27,12 @@ class MQTTFlowmeterService:
         self.subscribed_topics = set()
         self.loop = None  # asyncio loop reference for thread-safe scheduling
 
+        # In-memory traffic log (last 50 messages) — for the Live MQTT Traffic panel
+        from collections import deque
+        self.recent_messages = deque(maxlen=50)
+        self.total_received = 0
+        self.dropped_unknown = 0
+
         # MQTT Configuration - load from environment
         self.broker_host = os.getenv("MQTT_BROKER_HOST", "localhost")
         self.broker_port = int(os.getenv("MQTT_BROKER_PORT", "1883"))
@@ -62,13 +68,22 @@ class MQTTFlowmeterService:
         try:
             topic = msg.topic
             payload = msg.payload.decode("utf-8")
+            bytes_len = len(msg.payload) if msg.payload else 0
             print(f"[mqtt] Received on {topic}: {payload[:200]}")
 
+            self.total_received += 1
+
             parts = topic.split("/")
+            imei_or_id = parts[0] if parts else ""
+            result = "ok"
+            instrument_type_for_log = None
+
             # Generic instrument topic: {type}/{hardware_id}/data
             if len(parts) >= 3 and parts[0].lower() in {"dwlr", "ph", "tds", "conductivity"}:
                 instrument_type = parts[0].lower()
                 hardware_id = parts[1]
+                imei_or_id = hardware_id
+                instrument_type_for_log = instrument_type
                 try:
                     data = json.loads(payload)
                     if self.loop and self.loop.is_running():
@@ -77,11 +92,15 @@ class MQTTFlowmeterService:
                         )
                 except json.JSONDecodeError:
                     print(f"[mqtt] Invalid JSON for instrument {instrument_type}/{hardware_id}")
+                    result = "invalid-json"
+                self._log_traffic(topic, imei_or_id, instrument_type_for_log, result, bytes_len)
                 return
 
             # Legacy flowmeter / gateway: {device_id}/0
             if "/" in topic:
                 device_id = parts[0]
+                imei_or_id = device_id
+                instrument_type_for_log = "flowmeter"
                 try:
                     data = json.loads(payload)
                     if self.loop and self.loop.is_running():
@@ -89,12 +108,33 @@ class MQTTFlowmeterService:
                             self.process_flowmeter_data(device_id, data), self.loop
                         )
                 except json.JSONDecodeError:
+                    result = "gateway-status"
+                    instrument_type_for_log = "gateway"
                     if self.loop and self.loop.is_running():
                         asyncio.run_coroutine_threadsafe(
                             self.process_gateway_status(device_id, payload), self.loop
                         )
+                self._log_traffic(topic, imei_or_id, instrument_type_for_log, result, bytes_len)
+                return
+
+            # Unknown topic shape
+            self.dropped_unknown += 1
+            self._log_traffic(topic, imei_or_id, None, "dropped-unknown-topic", bytes_len)
         except Exception as e:
             print(f"[mqtt] Error processing message: {e}")
+
+    def _log_traffic(self, topic: str, imei: str, device_type, result: str, bytes_len: int):
+        try:
+            self.recent_messages.appendleft({
+                "time": datetime.now(timezone.utc).isoformat(),
+                "topic": topic,
+                "imei": imei,
+                "device": device_type,
+                "result": result,
+                "bytes": bytes_len,
+            })
+        except Exception:
+            pass
 
     async def process_instrument_data(self, instrument_type: str, hardware_id: str, data: Dict):
         """Generic instrument reading handler."""
