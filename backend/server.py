@@ -50,6 +50,7 @@ from api_instrument_registry import router as instrument_registry_router
 import api_instrument_registry
 from api_ingestion import router as ingestion_router
 import api_ingestion
+import qespl_poller
 import auth as auth_module
 
 
@@ -77,6 +78,7 @@ api_renewals.set_db(db)
 api_instrument_registry.set_db(db)
 api_instrument_registry.set_mqtt(mqtt_service)
 api_ingestion.set_db(db, mqtt_service)
+qespl_poller.set_deps(db, mqtt_service)
 auth_module.set_db(db)
 
 # Create the main app
@@ -191,6 +193,8 @@ async def startup_event():
     app.state.limits_task = asyncio.create_task(api_limits.background_loop())
     # Background loop for service-renewal reminders
     app.state.renewals_task = asyncio.create_task(api_renewals.background_loop())
+    # Background loop for QESPL device-data polling (Dissolved Oxygen + Water Quality)
+    app.state.qespl_task = asyncio.create_task(qespl_poller.background_loop())
     logger.info("Startup complete")
 
 

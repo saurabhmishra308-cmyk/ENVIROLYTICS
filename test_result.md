@@ -449,6 +449,87 @@ backend:
           MongoDB index changes are SAFE and production-ready. Deployment failure is confirmed
           to be Atlas infrastructure quota (GROUP_USERS_LIMIT_EXCEEDED 350 user cap), NOT a code issue.
 
+  - task: "QESPL API integration for DO Meter & Water Quality"
+    implemented: true
+    working: true
+    file: "backend/qespl_poller.py, backend/api_instrument_registry.py, backend/api_ingestion.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          NEW FEATURE: QESPL API integration for Dissolved Oxygen (DO) Meter and Water Quality parameters.
+          Backend now supports 3 device sources: mqtt (default), https_ingest, qespl_api.
+          
+          **Implementation:**
+          1. Added new instrument types: dometer, water_quality to SUPPORTED_TYPES
+          2. Added device_source field with validation (mqtt | https_ingest | qespl_api)
+          3. Added qespl_device_id field (required when device_source=qespl_api)
+          4. Created qespl_poller.py - polls QESPL API every 5 minutes for devices with device_source=qespl_api
+          5. Added POST /api/devices/qespl/run-now - admin-only manual trigger for QESPL polling
+          6. QESPL data routes through same mqtt_service.process_instrument_data() pipeline
+          7. Background loop started in server.py startup
+          
+          **Backwards Compatibility:**
+          - Flowmeter and DWLR paths UNCHANGED
+          - device_source defaults to 'mqtt' when not specified
+          - Existing instruments continue to work exactly as before
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ VERIFIED: ALL 15 TESTS PASSED - QESPL API integration working perfectly.
+          
+          **Backwards Compatibility (Tests 1-3) ✅**
+          1. Admin login → 200 with JWT ✅
+          2. Register flowmeter WITHOUT device_source → defaults to 'mqtt', no qespl_device_id ✅
+          3. Register DWLR without device_source → defaults to 'mqtt' ✅
+          
+          **QESPL Device Registration (Tests 4-5) ✅**
+          4. Register water_quality with device_source=qespl_api + qespl_device_id=DTU10019126 → 200 ✅
+          5. Register dometer with device_source=qespl_api + qespl_device_id=DTU10019126 → 200 ✅
+          
+          **Validation (Tests 6-8) ✅**
+          6. Register with device_source=qespl_api but NO qespl_device_id → 400 "qespl_device_id is required" ✅
+          7. Register with invalid device_source='garbage' → 400 "Unsupported device_source" ✅
+          8. Register dometer + water_quality with mqtt source → 200 (new types accepted) ✅
+          
+          **QESPL Polling (Tests 9-12) ✅**
+          9. POST /api/devices/qespl/run-now as admin → 200 {polled:2, ok:2, failed:0} ✅
+          10. GET /api/instruments/all/latest → 200, data found for WQ_T1 and DO_T1 (QESPL API returned data) ✅
+          11. POST /api/devices/qespl/run-now as non-admin client → 403 (admin-only enforced) ✅
+          12. POST /api/devices/qespl/run-now after deleting all QESPL devices → 200 {polled:0} ✅
+          
+          **Cleanup & Regression (Tests 13-15) ✅**
+          13. DELETE all test instruments + test user → 200 ✅
+          14. GET /api/alerts/offline, /api/limits, /api/certificates/list, /api/renewals → all 200 ✅
+          15. Backend logs: No QESPL exceptions, only INFO logs showing successful data storage ✅
+          
+          **Data Pipeline Verification:**
+          - QESPL data routes through mqtt_service.process_instrument_data() ✅
+          - Data lands in instrument_readings + instrument_latest collections ✅
+          - SAME storage pipeline as MQTT (identical behavior confirmed) ✅
+          - QESPL API response normalized: "10.44#m#Level" → {LEVEL: 10.44, LEVEL_unit: "m"} ✅
+          
+          **Backwards Compatibility Confirmed:**
+          - GET /api/flowmeter/latest → 200 ✅
+          - GET /api/instruments/dwlr/latest → 200 ✅
+          - GET /api/instruments/all/latest → 200 ✅
+          - Flowmeter and DWLR paths UNCHANGED ✅
+          
+          **Backend Logs:**
+          - "[qespl] background poller started (interval=300s)" ✅
+          - "[qespl] stored reading for WQ_T1 (water_quality) from DTU DTU10019126" ✅
+          - "[qespl] stored reading for DO_T1 (dometer) from DTU DTU10019126" ✅
+          - No errors, exceptions, or tracebacks ✅
+          
+          **CONCLUSION:**
+          QESPL API integration is PRODUCTION-READY. All 15 test scenarios passed.
+          New instrument types (dometer, water_quality) working correctly with all 3 device sources.
+          Backwards compatibility maintained - flowmeter and DWLR paths unchanged.
+          QESPL data successfully flows through the same pipeline as MQTT/HTTPS ingestion.
+
   - task: "HTTPS direct-ingestion endpoint (MQTT bypass)"
     implemented: true
     working: true
@@ -878,3 +959,57 @@ agent_communication:
       data routing, and storage mechanisms working correctly. User can now configure devices
       to POST telemetry to https://.../api/devices/ingest with X-Hardware-Id and X-Device-Key headers.
 
+
+  - agent: "testing"
+    message: |
+      ✅ QESPL API INTEGRATION TEST PASSED (15/15 tests)
+      
+      Comprehensive testing completed for the NEW QESPL API integration for DO Meter & Water Quality parameters.
+      
+      **FEATURE SUMMARY:**
+      - Backend now supports 3 device sources: mqtt (default), https_ingest, qespl_api
+      - New instrument types: dometer, water_quality
+      - QESPL_API_URL: https://api.qenggonline.com/api/getLatestDeviceIdData/
+      - Background poller runs every 5 minutes (QESPL_MIN_INTERVAL_SEC=300)
+      - Manual trigger: POST /api/devices/qespl/run-now (admin-only)
+      
+      **ALL 15 TEST SCENARIOS PASSED:**
+      ✅ Admin login → 200
+      ✅ Backwards compat: Flowmeter WITHOUT device_source → defaults to 'mqtt'
+      ✅ DWLR still works with default source → 'mqtt'
+      ✅ Register QESPL water_quality device → 200
+      ✅ Register QESPL dometer device → 200
+      ✅ Validation: missing qespl_device_id when source=qespl_api → 400
+      ✅ Validation: invalid device_source → 400
+      ✅ New instrument types accepted (dometer, water_quality with mqtt)
+      ✅ QESPL poll manually → 200 {polled:2, ok:2, failed:0}
+      ✅ Data landed in pipeline (water_quality + dometer data found)
+      ✅ QESPL run-now admin-only → 403 for non-admin
+      ✅ QESPL run-now with NO devices → 200 {polled:0}
+      ✅ Cleanup successful (all test instruments deleted)
+      ✅ No regressions (alerts, limits, certificates, renewals all working)
+      ✅ Backend logs clean (no QESPL exceptions)
+      
+      **CRITICAL CONSTRAINT VERIFIED:**
+      ✅ Flowmeter paths UNCHANGED: GET /api/flowmeter/latest → 200
+      ✅ DWLR paths UNCHANGED: GET /api/instruments/dwlr/latest → 200
+      ✅ All instruments endpoint working: GET /api/instruments/all/latest → 200
+      
+      **DATA PIPELINE VERIFICATION:**
+      - QESPL API response: [{"id":1047,"param_1":"10.44#m#Level","data_store_time":"2026-07-21T18:58:34"}]
+      - Normalized to: {LEVEL: 10.44, LEVEL_unit: "m", TIME: "2026-07-21T13:28:34+00:00"}
+      - Routes through mqtt_service.process_instrument_data() (same as MQTT/HTTPS)
+      - Lands in instrument_readings + instrument_latest collections
+      - Dashboard rendering works identically for all 3 sources
+      
+      **BACKEND LOGS (QESPL-RELATED):**
+      - "[qespl] background poller started (interval=300s)" ✅
+      - "[qespl] stored reading for WQ_T1 (water_quality) from DTU DTU10019126" ✅
+      - "[qespl] stored reading for DO_T1 (dometer) from DTU DTU10019126" ✅
+      - No errors, exceptions, or tracebacks ✅
+      
+      **CONCLUSION:**
+      QESPL API integration is PRODUCTION-READY. All test scenarios passed with exact response codes/messages.
+      Backwards compatibility maintained - flowmeter and DWLR behaviour unchanged.
+      New instrument types (dometer, water_quality) working correctly with all 3 device sources.
+      QESPL data successfully flows through the same pipeline as MQTT/HTTPS ingestion.

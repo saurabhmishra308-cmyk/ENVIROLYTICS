@@ -27,7 +27,8 @@ router = APIRouter(prefix="/api/instrument-registry", tags=["instrument-registry
 db = None
 mqtt_service = None
 
-SUPPORTED_TYPES = {"flowmeter", "dwlr", "ph", "tds", "conductivity"}
+SUPPORTED_TYPES = {"flowmeter", "dwlr", "ph", "tds", "conductivity", "dometer", "water_quality"}
+SUPPORTED_SOURCES = {"mqtt", "https_ingest", "qespl_api"}
 FLOWMETER_CATEGORIES = {"groundwater_abstraction", "stp_inlet", "stp_outlet"}
 
 # Canonical demo device IDs (also defined in field_simulator.py)
@@ -128,13 +129,15 @@ async def _enrich_with_owner(items: List[dict]) -> List[dict]:
 # ---------------------------------------------------------------- models
 class CreateInstrumentRequest(BaseModel):
     hardware_id: str = Field(..., min_length=1, max_length=64)
-    instrument_type: str = Field(..., description="flowmeter | dwlr | ph | tds | conductivity")
+    instrument_type: str = Field(..., description="flowmeter | dwlr | ph | tds | conductivity | dometer | water_quality")
     owner_user_id: str = Field(..., description="user.id of the assigned client")
     label: Optional[str] = None
     location_name: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     category: Optional[str] = None  # flowmeter only
+    device_source: Optional[str] = Field(None, description="mqtt (default) | https_ingest | qespl_api")
+    qespl_device_id: Optional[str] = Field(None, description="QESPL DTU device serial, required when device_source=qespl_api")
 
 
 class UpdateInstrumentRequest(BaseModel):
@@ -145,6 +148,8 @@ class UpdateInstrumentRequest(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     category: Optional[str] = None
+    device_source: Optional[str] = None
+    qespl_device_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------- routes
@@ -186,6 +191,13 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
     itype = _normalise_type(req.instrument_type)
     category = _normalise_category(itype, req.category)
 
+    # Data source (default = mqtt to preserve legacy behaviour)
+    device_source = (req.device_source or "mqtt").strip().lower()
+    if device_source not in SUPPORTED_SOURCES:
+        raise HTTPException(status_code=400, detail=f"Unsupported device_source '{device_source}'. Valid: {sorted(SUPPORTED_SOURCES)}")
+    if device_source == "qespl_api" and not (req.qespl_device_id and req.qespl_device_id.strip()):
+        raise HTTPException(status_code=400, detail="qespl_device_id is required when device_source is 'qespl_api'")
+
     doc = {
         "hardware_id": hardware_id,
         "instrument_type": itype,
@@ -195,6 +207,8 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
         "latitude": req.latitude,
         "longitude": req.longitude,
         "category": category,
+        "device_source": device_source,
+        "qespl_device_id": (req.qespl_device_id or "").strip() or None,
         "device_key": secrets.token_urlsafe(24),  # for HTTPS ingestion auth
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": admin.get("id"),
@@ -214,8 +228,9 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
             upsert=True,
         )
 
-    # Subscribe MQTT so real-device data starts flowing
-    await _subscribe_topic(itype, hardware_id)
+    # Subscribe MQTT only when this device actually uses MQTT
+    if device_source == "mqtt":
+        await _subscribe_topic(itype, hardware_id)
 
     return {"success": True, "instrument": doc}
 

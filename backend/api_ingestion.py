@@ -23,7 +23,9 @@ device that can do `curl https://…` can publish telemetry here.
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+
+from auth import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -133,3 +135,15 @@ async def ingest_ping(
         "instrument_type": reg["instrument_type"],
         "label": reg.get("label"),
     }
+
+
+# ---------------------------------------------------------------- QESPL admin ops
+@router.post("/qespl/run-now")
+async def qespl_run_now(_admin: dict = Depends(require_admin)):
+    """Force an immediate QESPL API polling pass across every instrument whose
+    device_source is `qespl_api`. Useful for testing right after adding a new
+    QESPL device without waiting up to 5 minutes for the background loop.
+    """
+    import qespl_poller  # lazy import to avoid circulars during module init
+    result = await qespl_poller.poll_once()
+    return {"success": True, **result}

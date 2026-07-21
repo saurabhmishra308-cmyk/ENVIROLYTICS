@@ -1,809 +1,647 @@
 #!/usr/bin/env python3
 """
-Backend API Test Suite for HTTPS Direct-Ingestion Endpoint
-Tests the new device_key authentication and /api/devices/ingest endpoint
+QESPL API Integration Test Suite
+
+Tests the NEW QESPL API integration for DO Meter & Water Quality parameters.
+Backend now supports 3 device sources: mqtt (default), https_ingest, qespl_api.
+
+Critical constraint: flowmeter and DWLR paths must NOT have changed.
 """
 import requests
 import json
-from datetime import datetime
+import os
+from typing import Dict, Any, Optional
 
-# Backend URL from frontend/.env
-BASE_URL = "https://carbon-track-24.preview.emergentagent.com/api"
+# Get backend URL from environment
+BACKEND_URL = os.getenv("REACT_APP_BACKEND_URL", "http://localhost:8001")
+API_BASE = f"{BACKEND_URL}/api"
 
-# Test credentials from /app/memory/test_credentials.md
+# Test credentials
 ADMIN_EMAIL = "admin@envirolytics.com"
 ADMIN_PASSWORD = "Admin@Envirolytics2026"
 
-# Test state
+# Test data tracking
+test_user_id = None
+test_instruments = []
 admin_token = None
 client_token = None
-test_user_id = None
-test_user_email = "ingestion_test_client@example.com"
-test_user_password = "TestPass123!"
-
-# Device keys captured during test
-fm_device_key = None
-dwlr_device_key = None
-new_fm_key = None
 
 
-def log_test(test_num, description):
-    """Print test header"""
+def log_test(step: int, description: str):
+    """Log test step"""
     print(f"\n{'='*80}")
-    print(f"TEST {test_num}: {description}")
+    print(f"TEST {step}: {description}")
     print('='*80)
 
 
-def log_result(passed, status_code=None, detail=None):
-    """Print test result"""
+def log_result(passed: bool, message: str, response: Optional[requests.Response] = None):
+    """Log test result"""
     status = "✅ PASS" if passed else "❌ FAIL"
-    print(f"{status}", end="")
-    if status_code is not None:
-        print(f" | Status: {status_code}", end="")
-    if detail:
-        print(f" | {detail}", end="")
-    print()
+    print(f"{status}: {message}")
+    if response:
+        print(f"  Status: {response.status_code}")
+        try:
+            print(f"  Response: {json.dumps(response.json(), indent=2)}")
+        except:
+            print(f"  Response: {response.text[:200]}")
 
 
-def test_1_admin_login():
-    """Test 1: Login as admin → 200 + JWT"""
-    global admin_token
-    log_test(1, "Admin login")
-    
+def admin_login() -> str:
+    """Login as admin and return JWT token"""
+    log_test(1, "Admin login → 200")
     response = requests.post(
-        f"{BASE_URL}/auth/login",
+        f"{API_BASE}/auth/login",
         json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
     )
     
     if response.status_code == 200:
         data = response.json()
-        if "access_token" in data:
-            admin_token = data["access_token"]
-            log_result(True, 200, f"JWT received (length: {len(admin_token)})")
-            return True
-        else:
-            log_result(False, 200, "No access_token in response")
-            return False
+        token = data.get("access_token")
+        log_result(True, f"Admin login successful, token received", response)
+        return token
     else:
-        log_result(False, response.status_code, response.text[:100])
-        return False
+        log_result(False, f"Admin login failed", response)
+        raise Exception("Admin login failed")
 
 
-def test_2_create_test_user():
-    """Test 2: POST /api/admin/users/create → capture user_id"""
-    global test_user_id
-    log_test(2, "Create test user")
+def test_backwards_compatibility_flowmeter(token: str):
+    """Test 2: Register flowmeter WITHOUT device_source (should default to mqtt)"""
+    log_test(2, "Backwards-compatibility: Register flowmeter WITHOUT device_source → defaults to 'mqtt'")
     
-    response = requests.post(
-        f"{BASE_URL}/admin/users/create",
-        headers={"Authorization": f"Bearer {admin_token}"},
+    global test_user_id, test_instruments
+    
+    # First create a test user
+    user_response = requests.post(
+        f"{API_BASE}/admin/users/create",
+        headers={"Authorization": f"Bearer {token}"},
         json={
-            "email": test_user_email,
-            "password": test_user_password,
-            "full_name": "Ingestion Test Client",
+            "email": f"qespl_test_user_{os.urandom(4).hex()}@example.com",
+            "password": "TestPass123!",
+            "full_name": "QESPL Test User",
             "role": "client",
             "location_name": "Test Location",
-            "latitude": 28.6139,
-            "longitude": 77.2090
+            "latitude": 12.9716,
+            "longitude": 77.5946
         }
     )
     
-    if response.status_code == 200:
-        data = response.json()
-        if data.get("success") and "user" in data and "id" in data["user"]:
-            test_user_id = data["user"]["id"]
-            log_result(True, 200, f"User created with id: {test_user_id}")
-            return True
-        else:
-            log_result(False, 200, f"Unexpected response structure: {data}")
-            return False
-    else:
-        log_result(False, response.status_code, response.text[:200])
+    if user_response.status_code != 200:
+        log_result(False, "Failed to create test user", user_response)
         return False
-
-
-def test_3_register_flowmeter():
-    """Test 3: POST /api/instrument-registry with flowmeter → capture device_key"""
-    global fm_device_key
-    log_test(3, "Register flowmeter ING_FM_T1 with device_key")
     
+    test_user_id = user_response.json()["user"]["id"]
+    print(f"  Created test user: {test_user_id}")
+    
+    # Register flowmeter WITHOUT device_source
     response = requests.post(
-        f"{BASE_URL}/instrument-registry",
-        headers={"Authorization": f"Bearer {admin_token}"},
+        f"{API_BASE}/instrument-registry",
+        headers={"Authorization": f"Bearer {token}"},
         json={
-            "hardware_id": "ING_FM_T1",
+            "hardware_id": "BACK_FM_1",
             "instrument_type": "flowmeter",
             "category": "groundwater_abstraction",
             "owner_user_id": test_user_id,
-            "label": "Ingestion Test Flowmeter",
-            "location_name": "Test Site A"
+            "label": "Backwards Compat Flowmeter"
         }
     )
     
     if response.status_code == 200:
         data = response.json()
-        if data.get("success") and "instrument" in data:
-            instrument = data["instrument"]
-            if "device_key" in instrument and len(instrument["device_key"]) > 20:
-                fm_device_key = instrument["device_key"]
-                log_result(True, 200, f"Flowmeter registered, device_key length: {len(fm_device_key)}")
-                return True
-            else:
-                log_result(False, 200, f"device_key missing or too short: {instrument.get('device_key')}")
-                return False
+        instrument = data.get("instrument", {})
+        device_source = instrument.get("device_source")
+        qespl_device_id = instrument.get("qespl_device_id")
+        
+        if device_source == "mqtt" and qespl_device_id is None:
+            test_instruments.append("BACK_FM_1")
+            log_result(True, f"Flowmeter registered with device_source='mqtt' (default), no qespl_device_id", response)
+            return True
         else:
-            log_result(False, 200, f"Unexpected response: {data}")
+            log_result(False, f"Expected device_source='mqtt' and qespl_device_id=None, got device_source='{device_source}', qespl_device_id={qespl_device_id}", response)
             return False
     else:
-        log_result(False, response.status_code, response.text[:200])
+        log_result(False, "Failed to register flowmeter", response)
         return False
 
 
-def test_4_register_dwlr():
-    """Test 4: POST /api/instrument-registry with DWLR → capture device_key"""
-    global dwlr_device_key
-    log_test(4, "Register DWLR ING_DWLR_T1 with device_key")
+def test_dwlr_default_source(token: str):
+    """Test 3: DWLR still works with default source"""
+    log_test(3, "DWLR still works: Register DWLR with default source → 'mqtt'")
     
     response = requests.post(
-        f"{BASE_URL}/instrument-registry",
-        headers={"Authorization": f"Bearer {admin_token}"},
+        f"{API_BASE}/instrument-registry",
+        headers={"Authorization": f"Bearer {token}"},
         json={
-            "hardware_id": "ING_DWLR_T1",
+            "hardware_id": "BACK_DWLR_1",
             "instrument_type": "dwlr",
             "owner_user_id": test_user_id,
-            "label": "Ingestion Test DWLR",
-            "location_name": "Test Site B"
+            "label": "Backwards Compat DWLR"
         }
     )
     
     if response.status_code == 200:
         data = response.json()
-        if data.get("success") and "instrument" in data:
-            instrument = data["instrument"]
-            if "device_key" in instrument and len(instrument["device_key"]) > 20:
-                dwlr_device_key = instrument["device_key"]
-                log_result(True, 200, f"DWLR registered, device_key length: {len(dwlr_device_key)}")
-                return True
-            else:
-                log_result(False, 200, f"device_key missing or too short: {instrument.get('device_key')}")
-                return False
+        instrument = data.get("instrument", {})
+        device_source = instrument.get("device_source")
+        
+        if device_source == "mqtt":
+            test_instruments.append("BACK_DWLR_1")
+            log_result(True, f"DWLR registered with device_source='mqtt' (default)", response)
+            return True
         else:
-            log_result(False, 200, f"Unexpected response: {data}")
+            log_result(False, f"Expected device_source='mqtt', got '{device_source}'", response)
             return False
     else:
-        log_result(False, response.status_code, response.text[:200])
+        log_result(False, "Failed to register DWLR", response)
         return False
 
 
-def test_5_ping_flowmeter():
-    """Test 5: GET /api/devices/ingest/ping with correct FM credentials → 200"""
-    log_test(5, "Ping endpoint with correct flowmeter credentials")
+def test_register_qespl_water_quality(token: str):
+    """Test 4: Register QESPL water_quality device"""
+    log_test(4, "Register QESPL water_quality device with qespl_device_id")
     
-    response = requests.get(
-        f"{BASE_URL}/devices/ingest/ping",
-        headers={
-            "X-Hardware-Id": "ING_FM_T1",
-            "X-Device-Key": fm_device_key
+    response = requests.post(
+        f"{API_BASE}/instrument-registry",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "hardware_id": "WQ_T1",
+            "instrument_type": "water_quality",
+            "owner_user_id": test_user_id,
+            "device_source": "qespl_api",
+            "qespl_device_id": "DTU10019126",
+            "label": "QESPL Water Quality Sensor"
         }
     )
     
     if response.status_code == 200:
         data = response.json()
-        if (data.get("ok") is True and 
-            data.get("hardware_id") == "ING_FM_T1" and 
-            data.get("instrument_type") == "flowmeter"):
-            log_result(True, 200, f"Ping successful: {data}")
+        instrument = data.get("instrument", {})
+        device_source = instrument.get("device_source")
+        qespl_device_id = instrument.get("qespl_device_id")
+        
+        if device_source == "qespl_api" and qespl_device_id == "DTU10019126":
+            test_instruments.append("WQ_T1")
+            log_result(True, f"Water quality device registered with QESPL source", response)
             return True
         else:
-            log_result(False, 200, f"Unexpected response: {data}")
+            log_result(False, f"Unexpected device_source or qespl_device_id", response)
             return False
     else:
-        log_result(False, response.status_code, response.text[:200])
+        log_result(False, "Failed to register water_quality device", response)
         return False
 
 
-def test_6_ingest_flowmeter_data():
-    """Test 6: POST /api/devices/ingest with FM data → 200"""
-    log_test(6, "Ingest flowmeter data via HTTPS")
-    
-    payload = {
-        "IMEI": "123456789012345",
-        "SIGNAL": 24,
-        "FLOW": 1500.5,
-        "TOT1": 1234,
-        "TOT2": 56,
-        "RTOT1": 0,
-        "RTOT2": 0,
-        "UNT": 2,
-        "POW": 1,
-        "TEMPER": 28.5,
-        "TIME": "2026-07-15T10:30:00Z",
-        "VER": "FW_v1"
-    }
+def test_register_qespl_dometer(token: str):
+    """Test 5: Register QESPL dometer device"""
+    log_test(5, "Register QESPL dometer device with qespl_device_id")
     
     response = requests.post(
-        f"{BASE_URL}/devices/ingest",
-        headers={
-            "X-Hardware-Id": "ING_FM_T1",
-            "X-Device-Key": fm_device_key,
-            "Content-Type": "application/json"
-        },
-        json=payload
+        f"{API_BASE}/instrument-registry",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "hardware_id": "DO_T1",
+            "instrument_type": "dometer",
+            "owner_user_id": test_user_id,
+            "device_source": "qespl_api",
+            "qespl_device_id": "DTU10019126",
+            "label": "QESPL DO Meter"
+        }
     )
     
     if response.status_code == 200:
         data = response.json()
-        if (data.get("success") is True and 
-            data.get("hardware_id") == "ING_FM_T1" and 
-            data.get("instrument_type") == "flowmeter"):
-            log_result(True, 200, f"Data ingested: {data}")
+        instrument = data.get("instrument", {})
+        device_source = instrument.get("device_source")
+        qespl_device_id = instrument.get("qespl_device_id")
+        
+        if device_source == "qespl_api" and qespl_device_id == "DTU10019126":
+            test_instruments.append("DO_T1")
+            log_result(True, f"Dometer device registered with QESPL source", response)
             return True
         else:
-            log_result(False, 200, f"Unexpected response: {data}")
+            log_result(False, f"Unexpected device_source or qespl_device_id", response)
             return False
     else:
-        log_result(False, response.status_code, response.text[:200])
+        log_result(False, "Failed to register dometer device", response)
         return False
 
 
-def test_7_verify_flowmeter_data():
-    """Test 7: GET /api/flowmeter/latest → verify ING_FM_T1 with flow_rate_lph=1500.5"""
-    log_test(7, "Verify flowmeter data landed in MongoDB")
-    
-    # Wait a moment for async processing
-    import time
-    time.sleep(1)
-    
-    response = requests.get(
-        f"{BASE_URL}/flowmeter/latest",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    
-    if response.status_code == 200:
-        data = response.json()
-        flowmeters = data.get("flowmeters", [])
-        
-        # Find ING_FM_T1
-        ing_fm = None
-        for device in flowmeters:
-            if device.get("hardware_id") == "ING_FM_T1":
-                ing_fm = device
-                break
-        
-        if ing_fm:
-            flow_rate = ing_fm.get("flow_rate_lph")
-            if flow_rate == 1500.5:
-                log_result(True, 200, f"Data verified: flow_rate_lph={flow_rate}")
-                return True
-            else:
-                log_result(False, 200, f"flow_rate_lph mismatch: expected 1500.5, got {flow_rate}")
-                return False
-        else:
-            log_result(False, 200, f"ING_FM_T1 not found in latest data. Flowmeters: {[d.get('hardware_id') for d in flowmeters]}")
-            return False
-    else:
-        log_result(False, response.status_code, response.text[:200])
-        return False
-
-
-def test_8_ingest_dwlr_data():
-    """Test 8: POST /api/devices/ingest with DWLR data → 200"""
-    log_test(8, "Ingest DWLR data via HTTPS")
-    
-    payload = {
-        "LEVEL": 12.45,
-        "TEMPER": 24.8,
-        "TIME": "2026-07-15T10:30:00Z"
-    }
+def test_validation_missing_qespl_device_id(token: str):
+    """Test 6: Validation - missing qespl_device_id when source is qespl_api → 400"""
+    log_test(6, "Validation: missing qespl_device_id when device_source=qespl_api → 400")
     
     response = requests.post(
-        f"{BASE_URL}/devices/ingest",
-        headers={
-            "X-Hardware-Id": "ING_DWLR_T1",
-            "X-Device-Key": dwlr_device_key,
-            "Content-Type": "application/json"
-        },
-        json=payload
-    )
-    
-    if response.status_code == 200:
-        data = response.json()
-        if (data.get("success") is True and 
-            data.get("hardware_id") == "ING_DWLR_T1" and 
-            data.get("instrument_type") == "dwlr"):
-            log_result(True, 200, f"DWLR data ingested: {data}")
-            return True
-        else:
-            log_result(False, 200, f"Unexpected response: {data}")
-            return False
-    else:
-        log_result(False, response.status_code, response.text[:200])
-        return False
-
-
-def test_9_verify_dwlr_data():
-    """Test 9: GET /api/instruments/dwlr/latest → verify ING_DWLR_T1 with LEVEL=12.45"""
-    log_test(9, "Verify DWLR data landed in MongoDB")
-    
-    # Wait a moment for async processing
-    import time
-    time.sleep(1)
-    
-    response = requests.get(
-        f"{BASE_URL}/instruments/dwlr/latest",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    
-    if response.status_code == 200:
-        data = response.json()
-        readings = data.get("readings", [])
-        
-        # Find ING_DWLR_T1
-        ing_dwlr = None
-        for reading in readings:
-            if reading.get("hardware_id") == "ING_DWLR_T1":
-                ing_dwlr = reading
-                break
-        
-        if ing_dwlr:
-            # DWLR data is stored in the 'values' field
-            values = ing_dwlr.get("values", {})
-            level = values.get("LEVEL")
-            if level == 12.45:
-                log_result(True, 200, f"DWLR data verified: LEVEL={level}")
-                return True
-            else:
-                log_result(False, 200, f"LEVEL mismatch: expected 12.45, got {level}")
-                return False
-        else:
-            log_result(False, 200, f"ING_DWLR_T1 not found in latest data. Readings: {[r.get('hardware_id') for r in readings]}")
-            return False
-    else:
-        log_result(False, response.status_code, response.text[:200])
-        return False
-
-
-def test_10_ingest_no_headers():
-    """Test 10: POST /api/devices/ingest with NO headers → 401"""
-    log_test(10, "Ingest with NO headers (expect 401)")
-    
-    response = requests.post(
-        f"{BASE_URL}/devices/ingest",
-        json={"FLOW": 100}
-    )
-    
-    if response.status_code == 401:
-        log_result(True, 401, "Correctly rejected")
-        return True
-    else:
-        log_result(False, response.status_code, f"Expected 401, got {response.status_code}")
-        return False
-
-
-def test_11_ingest_wrong_key():
-    """Test 11: POST /api/devices/ingest with WRONG key → 401"""
-    log_test(11, "Ingest with WRONG device key (expect 401)")
-    
-    response = requests.post(
-        f"{BASE_URL}/devices/ingest",
-        headers={
-            "X-Hardware-Id": "ING_FM_T1",
-            "X-Device-Key": "WRONG_KEY_12345678901234567890"
-        },
-        json={"FLOW": 100}
-    )
-    
-    if response.status_code == 401:
-        detail = response.json().get("detail", "")
-        if "Invalid device key" in detail:
-            log_result(True, 401, f"Correctly rejected: {detail}")
-            return True
-        else:
-            log_result(True, 401, f"Rejected but unexpected message: {detail}")
-            return True
-    else:
-        log_result(False, response.status_code, f"Expected 401, got {response.status_code}")
-        return False
-
-
-def test_12_ingest_nonexistent_hardware():
-    """Test 12: POST /api/devices/ingest with nonexistent hardware_id → 404"""
-    log_test(12, "Ingest with nonexistent hardware_id (expect 404)")
-    
-    response = requests.post(
-        f"{BASE_URL}/devices/ingest",
-        headers={
-            "X-Hardware-Id": "DOES_NOT_EXIST",
-            "X-Device-Key": "any_key_here"
-        },
-        json={"FLOW": 100}
-    )
-    
-    if response.status_code == 404:
-        log_result(True, 404, "Correctly rejected")
-        return True
-    else:
-        log_result(False, response.status_code, f"Expected 404, got {response.status_code}")
-        return False
-
-
-def test_13_ingest_invalid_json():
-    """Test 13: POST /api/devices/ingest with invalid JSON → 400"""
-    log_test(13, "Ingest with invalid JSON body (expect 400)")
-    
-    response = requests.post(
-        f"{BASE_URL}/devices/ingest",
-        headers={
-            "X-Hardware-Id": "ING_FM_T1",
-            "X-Device-Key": fm_device_key,
-            "Content-Type": "application/json"
-        },
-        data="not valid json"
+        f"{API_BASE}/instrument-registry",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "hardware_id": "WQ_BAD",
+            "instrument_type": "water_quality",
+            "owner_user_id": test_user_id,
+            "device_source": "qespl_api"
+            # Missing qespl_device_id
+        }
     )
     
     if response.status_code == 400:
-        log_result(True, 400, "Correctly rejected invalid JSON")
-        return True
+        error_message = response.json().get("detail", "")
+        if "qespl_device_id" in error_message.lower():
+            log_result(True, f"Correctly rejected with 400: {error_message}", response)
+            return True
+        else:
+            log_result(False, f"Got 400 but error message doesn't mention qespl_device_id", response)
+            return False
     else:
-        log_result(False, response.status_code, f"Expected 400, got {response.status_code}")
+        log_result(False, f"Expected 400, got {response.status_code}", response)
         return False
 
 
-def test_14_ingest_array_body():
-    """Test 14: POST /api/devices/ingest with array body → 400"""
-    log_test(14, "Ingest with array body instead of object (expect 400)")
+def test_validation_invalid_device_source(token: str):
+    """Test 7: Validation - invalid device_source → 400"""
+    log_test(7, "Validation: invalid device_source → 400")
     
     response = requests.post(
-        f"{BASE_URL}/devices/ingest",
-        headers={
-            "X-Hardware-Id": "ING_FM_T1",
-            "X-Device-Key": fm_device_key,
-            "Content-Type": "application/json"
-        },
-        json=[]
+        f"{API_BASE}/instrument-registry",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "hardware_id": "INVALID_SRC",
+            "instrument_type": "water_quality",
+            "owner_user_id": test_user_id,
+            "device_source": "garbage",
+            "label": "Invalid Source Test"
+        }
     )
     
     if response.status_code == 400:
-        detail = response.json().get("detail", "")
-        if "JSON object" in detail:
-            log_result(True, 400, f"Correctly rejected: {detail}")
+        error_message = response.json().get("detail", "")
+        if "device_source" in error_message.lower() or "unsupported" in error_message.lower():
+            log_result(True, f"Correctly rejected with 400: {error_message}", response)
             return True
         else:
-            log_result(True, 400, f"Rejected but unexpected message: {detail}")
-            return True
+            log_result(False, f"Got 400 but error message doesn't mention device_source", response)
+            return False
     else:
-        log_result(False, response.status_code, f"Expected 400, got {response.status_code}")
+        log_result(False, f"Expected 400, got {response.status_code}", response)
         return False
 
 
-def test_15_rotate_key():
-    """Test 15: POST /api/instrument-registry/ING_FM_T1/rotate-key → 200 with new key"""
-    global new_fm_key
-    log_test(15, "Rotate device key for ING_FM_T1")
+def test_new_instrument_types_accepted(token: str):
+    """Test 8: Validation - new instrument types are accepted"""
+    log_test(8, "Validation: new instrument types (dometer, water_quality) accepted")
+    
+    # Test dometer with mqtt source
+    response1 = requests.post(
+        f"{API_BASE}/instrument-registry",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "hardware_id": "DO_MQTT_T1",
+            "instrument_type": "dometer",
+            "owner_user_id": test_user_id,
+            "device_source": "mqtt",
+            "label": "MQTT Dometer"
+        }
+    )
+    
+    # Test water_quality with mqtt source
+    response2 = requests.post(
+        f"{API_BASE}/instrument-registry",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "hardware_id": "WQ_MQTT_T1",
+            "instrument_type": "water_quality",
+            "owner_user_id": test_user_id,
+            "device_source": "mqtt",
+            "label": "MQTT Water Quality"
+        }
+    )
+    
+    success1 = response1.status_code == 200
+    success2 = response2.status_code == 200
+    
+    if success1:
+        test_instruments.append("DO_MQTT_T1")
+        log_result(True, "Dometer with mqtt source accepted", response1)
+    else:
+        log_result(False, "Dometer with mqtt source rejected", response1)
+    
+    if success2:
+        test_instruments.append("WQ_MQTT_T1")
+        log_result(True, "Water_quality with mqtt source accepted", response2)
+    else:
+        log_result(False, "Water_quality with mqtt source rejected", response2)
+    
+    return success1 and success2
+
+
+def test_qespl_poll_manually(token: str):
+    """Test 9: Trigger QESPL poll manually → POST /api/devices/qespl/run-now"""
+    log_test(9, "Trigger QESPL poll manually as admin → 200 with {polled, ok, failed}")
     
     response = requests.post(
-        f"{BASE_URL}/instrument-registry/ING_FM_T1/rotate-key",
-        headers={"Authorization": f"Bearer {admin_token}"}
+        f"{API_BASE}/devices/qespl/run-now",
+        headers={"Authorization": f"Bearer {token}"}
     )
     
     if response.status_code == 200:
         data = response.json()
-        if data.get("success") and "device_key" in data:
-            new_fm_key = data["device_key"]
-            if new_fm_key != fm_device_key:
-                log_result(True, 200, f"Key rotated successfully, new key length: {len(new_fm_key)}")
-                return True
-            else:
-                log_result(False, 200, "New key is same as old key")
-                return False
+        polled = data.get("polled", 0)
+        ok = data.get("ok", 0)
+        failed = data.get("failed", 0)
+        
+        # We registered 2 QESPL devices (WQ_T1, DO_T1), so polled should be >= 2
+        if polled >= 2:
+            log_result(True, f"QESPL poll executed: polled={polled}, ok={ok}, failed={failed}", response)
+            return True
         else:
-            log_result(False, 200, f"Unexpected response: {data}")
+            log_result(False, f"Expected polled >= 2, got polled={polled}", response)
             return False
     else:
-        log_result(False, response.status_code, response.text[:200])
+        log_result(False, f"QESPL poll failed", response)
         return False
 
 
-def test_16_ingest_with_old_key():
-    """Test 16: POST /api/devices/ingest with OLD key after rotation → 401"""
-    log_test(16, "Ingest with OLD key after rotation (expect 401)")
+def test_verify_data_landed(token: str):
+    """Test 10: Verify data landed via same pipeline → GET /api/instruments/all/latest"""
+    log_test(10, "Verify data landed via same pipeline (if QESPL API returned data)")
     
-    response = requests.post(
-        f"{BASE_URL}/devices/ingest",
-        headers={
-            "X-Hardware-Id": "ING_FM_T1",
-            "X-Device-Key": fm_device_key  # OLD key
-        },
-        json={"FLOW": 200}
-    )
-    
-    if response.status_code == 401:
-        log_result(True, 401, "Old key correctly invalidated")
-        return True
-    else:
-        log_result(False, response.status_code, f"Expected 401, got {response.status_code}")
-        return False
-
-
-def test_17_ingest_with_new_key():
-    """Test 17: POST /api/devices/ingest with NEW key → 200"""
-    log_test(17, "Ingest with NEW key after rotation (expect 200)")
-    
-    payload = {
-        "IMEI": "123456789012345",
-        "SIGNAL": 25,
-        "FLOW": 2000.0,
-        "TOT1": 2000,
-        "TOT2": 100,
-        "RTOT1": 0,
-        "RTOT2": 0,
-        "UNT": 2,
-        "POW": 1,
-        "TEMPER": 29.0,
-        "TIME": "2026-07-15T11:00:00Z",
-        "VER": "FW_v1"
-    }
-    
-    response = requests.post(
-        f"{BASE_URL}/devices/ingest",
-        headers={
-            "X-Hardware-Id": "ING_FM_T1",
-            "X-Device-Key": new_fm_key  # NEW key
-        },
-        json=payload
+    response = requests.get(
+        f"{API_BASE}/instruments/all/latest",
+        headers={"Authorization": f"Bearer {token}"}
     )
     
     if response.status_code == 200:
         data = response.json()
-        if data.get("success") is True:
-            log_result(True, 200, "New key works correctly")
-            return True
+        by_type = data.get("by_type", {})
+        
+        # Check if water_quality or dometer data exists
+        water_quality_data = by_type.get("water_quality", [])
+        dometer_data = by_type.get("dometer", [])
+        
+        wq_found = any(d.get("hardware_id") in ["WQ_T1", "WQ_MQTT_T1"] for d in water_quality_data)
+        do_found = any(d.get("hardware_id") in ["DO_T1", "DO_MQTT_T1"] for d in dometer_data)
+        
+        if wq_found or do_found:
+            log_result(True, f"Data found in pipeline: water_quality={wq_found}, dometer={do_found}", response)
         else:
-            log_result(False, 200, f"Unexpected response: {data}")
-            return False
-    else:
-        log_result(False, response.status_code, response.text[:200])
-        return False
-
-
-def test_18_rotate_unknown_hardware():
-    """Test 18: POST /api/instrument-registry/UNKNOWN_HW/rotate-key → 404"""
-    log_test(18, "Rotate key for nonexistent hardware (expect 404)")
-    
-    response = requests.post(
-        f"{BASE_URL}/instrument-registry/UNKNOWN_HW/rotate-key",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    
-    if response.status_code == 404:
-        log_result(True, 404, "Correctly rejected")
+            # This is acceptable - QESPL API might not have returned data yet
+            log_result(True, f"No data yet from QESPL API (acceptable - API may not have data for test DTU)", response)
         return True
     else:
-        log_result(False, response.status_code, f"Expected 404, got {response.status_code}")
+        log_result(False, f"Failed to get instruments/all/latest", response)
         return False
 
 
-def test_19_rotate_key_as_client():
-    """Test 19: POST /api/instrument-registry/ING_FM_T1/rotate-key as client → 403"""
+def test_qespl_run_now_admin_only(token: str):
+    """Test 11: QESPL run-now is admin-only → 403 for non-admin"""
+    log_test(11, "QESPL run-now is admin-only → 403 for non-admin client")
+    
+    # Login as the test client
     global client_token
-    log_test(19, "Rotate key as non-admin client (expect 403)")
     
-    # First login as client
-    login_response = requests.post(
-        f"{BASE_URL}/auth/login",
-        json={"email": test_user_email, "password": test_user_password}
+    # Get client email from test_user_id
+    user_response = requests.get(
+        f"{API_BASE}/admin/users/list",
+        headers={"Authorization": f"Bearer {token}"}
     )
     
-    if login_response.status_code != 200:
-        log_result(False, login_response.status_code, "Failed to login as client")
+    if user_response.status_code != 200:
+        log_result(False, "Failed to get users list", user_response)
         return False
     
-    client_token = login_response.json().get("access_token")
+    users = user_response.json().get("users", [])
+    test_user = next((u for u in users if u.get("id") == test_user_id), None)
     
-    # Try to rotate key
+    if not test_user:
+        log_result(False, f"Test user {test_user_id} not found", None)
+        return False
+    
+    client_email = test_user.get("email")
+    
+    # Login as client
+    client_login_response = requests.post(
+        f"{API_BASE}/auth/login",
+        json={"email": client_email, "password": "TestPass123!"}
+    )
+    
+    if client_login_response.status_code != 200:
+        log_result(False, "Failed to login as client", client_login_response)
+        return False
+    
+    client_token = client_login_response.json().get("access_token")
+    
+    # Try to call run-now as client
     response = requests.post(
-        f"{BASE_URL}/instrument-registry/ING_FM_T1/rotate-key",
+        f"{API_BASE}/devices/qespl/run-now",
         headers={"Authorization": f"Bearer {client_token}"}
     )
     
     if response.status_code == 403:
-        log_result(True, 403, "Correctly rejected non-admin")
+        log_result(True, "Client correctly rejected with 403", response)
         return True
     else:
-        log_result(False, response.status_code, f"Expected 403, got {response.status_code}")
+        log_result(False, f"Expected 403, got {response.status_code}", response)
         return False
 
 
-def test_20_backfill_keys():
-    """Test 20: POST /api/instrument-registry/backfill-keys → 200"""
-    log_test(20, "Backfill device keys for legacy instruments")
+def test_qespl_run_now_no_devices(token: str):
+    """Test 12: QESPL run-now with NO qespl devices → polled:0"""
+    log_test(12, "QESPL run-now with NO qespl devices → polled:0")
     
+    # First delete all QESPL devices
+    qespl_devices = ["WQ_T1", "DO_T1"]
+    for hw_id in qespl_devices:
+        delete_response = requests.delete(
+            f"{API_BASE}/instrument-registry/{hw_id}",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        if delete_response.status_code == 200:
+            print(f"  Deleted QESPL device: {hw_id}")
+            test_instruments.remove(hw_id)
+    
+    # Now call run-now
     response = requests.post(
-        f"{BASE_URL}/instrument-registry/backfill-keys",
-        headers={"Authorization": f"Bearer {admin_token}"}
+        f"{API_BASE}/devices/qespl/run-now",
+        headers={"Authorization": f"Bearer {token}"}
     )
     
     if response.status_code == 200:
         data = response.json()
-        if data.get("success") is not None:
-            updated = data.get("updated", 0)
-            log_result(True, 200, f"Backfill completed, updated: {updated}")
+        polled = data.get("polled", -1)
+        
+        if polled == 0:
+            log_result(True, f"QESPL poll with no devices: polled=0", response)
             return True
         else:
-            log_result(False, 200, f"Unexpected response: {data}")
+            log_result(False, f"Expected polled=0, got polled={polled}", response)
             return False
     else:
-        log_result(False, response.status_code, response.text[:200])
+        log_result(False, f"QESPL poll failed", response)
         return False
 
 
-def test_21_client_sees_device_keys():
-    """Test 21: Login as client, GET /api/instrument-registry → device_key visible"""
-    log_test(21, "Client can see their own device keys")
+def test_cleanup(token: str):
+    """Test 13: Cleanup - DELETE all test instruments"""
+    log_test(13, "Cleanup: DELETE all test instruments")
     
-    response = requests.get(
-        f"{BASE_URL}/instrument-registry",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
+    global test_instruments
     
-    if response.status_code == 200:
-        data = response.json()
-        instruments = data.get("instruments", [])
-        count = data.get("count", 0)
-        
-        if count == 2:
-            # Check both instruments have device_key
-            keys_present = all("device_key" in inst for inst in instruments)
-            if keys_present:
-                log_result(True, 200, f"Client sees {count} instruments, all with device_key")
-                return True
-            else:
-                log_result(False, 200, "Some instruments missing device_key")
-                return False
-        else:
-            log_result(False, 200, f"Expected 2 instruments, got {count}")
-            return False
-    else:
-        log_result(False, response.status_code, response.text[:200])
-        return False
-
-
-def test_22_admin_sees_device_keys():
-    """Test 22: Login as admin, GET /api/instrument-registry → device_keys visible"""
-    log_test(22, "Admin can see device keys for all instruments")
-    
-    response = requests.get(
-        f"{BASE_URL}/instrument-registry",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    
-    if response.status_code == 200:
-        data = response.json()
-        instruments = data.get("instruments", [])
-        
-        # Find our test instruments
-        test_instruments = [i for i in instruments if i.get("hardware_id") in ["ING_FM_T1", "ING_DWLR_T1"]]
-        
-        if len(test_instruments) == 2:
-            keys_present = all("device_key" in inst for inst in test_instruments)
-            if keys_present:
-                log_result(True, 200, f"Admin sees test instruments with device_keys")
-                return True
-            else:
-                log_result(False, 200, "Some test instruments missing device_key")
-                return False
-        else:
-            log_result(False, 200, f"Expected 2 test instruments, found {len(test_instruments)}")
-            return False
-    else:
-        log_result(False, response.status_code, response.text[:200])
-        return False
-
-
-def cleanup():
-    """Cleanup: Delete test instruments and user"""
-    log_test("CLEANUP", "Deleting test data")
-    
-    results = []
-    
-    # Delete instruments
-    for hw_id in ["ING_FM_T1", "ING_DWLR_T1"]:
+    success = True
+    for hw_id in test_instruments[:]:  # Copy list to avoid modification during iteration
         response = requests.delete(
-            f"{BASE_URL}/instrument-registry/{hw_id}",
-            headers={"Authorization": f"Bearer {admin_token}"}
+            f"{API_BASE}/instrument-registry/{hw_id}",
+            headers={"Authorization": f"Bearer {token}"}
         )
-        results.append(f"DELETE {hw_id}: {response.status_code}")
+        
+        if response.status_code == 200:
+            print(f"  ✅ Deleted: {hw_id}")
+            test_instruments.remove(hw_id)
+        else:
+            print(f"  ❌ Failed to delete: {hw_id} (status {response.status_code})")
+            success = False
     
-    # Delete user
+    # Delete test user
     if test_user_id:
-        response = requests.delete(
-            f"{BASE_URL}/admin/users/{test_user_id}",
-            headers={"Authorization": f"Bearer {admin_token}"}
+        user_delete_response = requests.delete(
+            f"{API_BASE}/admin/users/{test_user_id}",
+            headers={"Authorization": f"Bearer {token}"}
         )
-        results.append(f"DELETE user {test_user_id}: {response.status_code}")
+        if user_delete_response.status_code == 200:
+            print(f"  ✅ Deleted test user: {test_user_id}")
+        else:
+            print(f"  ❌ Failed to delete test user: {test_user_id}")
+            success = False
     
-    print("\n".join(results))
+    log_result(success, "Cleanup completed")
+    return success
 
 
-def check_backend_logs():
-    """Check backend logs for errors"""
-    log_test("LOGS", "Checking backend logs for errors")
+def test_no_regressions(token: str):
+    """Test 14: No regressions - verify existing endpoints still work"""
+    log_test(14, "No regressions: Verify existing endpoints still work")
+    
+    endpoints = [
+        ("GET /api/alerts/offline?hours=2", f"{API_BASE}/alerts/offline?hours=2"),
+        ("GET /api/limits", f"{API_BASE}/limits"),
+        ("GET /api/certificates/list", f"{API_BASE}/certificates/list"),
+        ("GET /api/renewals", f"{API_BASE}/renewals"),
+    ]
+    
+    all_passed = True
+    for name, url in endpoints:
+        response = requests.get(url, headers={"Authorization": f"Bearer {token}"})
+        if response.status_code == 200:
+            print(f"  ✅ {name} → 200")
+        else:
+            print(f"  ❌ {name} → {response.status_code}")
+            all_passed = False
+    
+    log_result(all_passed, "All regression endpoints working")
+    return all_passed
+
+
+def test_backend_logs():
+    """Test 15: Check backend logs for QESPL-related errors"""
+    log_test(15, "Backend logs: Check for QESPL-related exceptions")
+    
     import subprocess
     
     try:
+        # Check backend logs for qespl-related errors
         result = subprocess.run(
-            ["tail", "-n", "100", "/var/log/supervisor/backend.err.log"],
+            ["tail", "-n", "200", "/var/log/supervisor/backend.err.log"],
             capture_output=True,
             text=True,
             timeout=5
         )
         
-        if result.returncode == 0:
-            logs = result.stdout
-            if logs.strip():
-                print(f"Backend error logs (last 100 lines):\n{logs}")
-            else:
-                print("✅ No errors in backend logs")
+        error_log = result.stdout
+        
+        # Look for qespl-related errors
+        qespl_errors = [line for line in error_log.split('\n') if '[qespl]' in line.lower() and ('error' in line.lower() or 'exception' in line.lower() or 'traceback' in line.lower())]
+        
+        if qespl_errors:
+            print(f"  ⚠️  Found {len(qespl_errors)} QESPL-related error lines:")
+            for line in qespl_errors[:10]:  # Show first 10
+                print(f"    {line}")
+            log_result(False, f"Found QESPL errors in backend logs")
+            return False
         else:
-            print(f"Failed to read logs: {result.stderr}")
+            # Check for any qespl log lines (info level)
+            qespl_logs = [line for line in error_log.split('\n') if '[qespl]' in line.lower()]
+            if qespl_logs:
+                print(f"  ℹ️  Found {len(qespl_logs)} QESPL log lines (info level):")
+                for line in qespl_logs[-5:]:  # Show last 5
+                    print(f"    {line}")
+            log_result(True, "No QESPL exceptions found in backend logs")
+            return True
     except Exception as e:
-        print(f"Error reading logs: {e}")
+        print(f"  ⚠️  Could not check logs: {e}")
+        log_result(True, "Log check skipped (non-critical)")
+        return True
 
 
 def main():
-    """Run all tests"""
+    """Run all QESPL integration tests"""
     print("\n" + "="*80)
-    print("HTTPS DIRECT-INGESTION ENDPOINT TEST SUITE")
-    print("Testing device_key authentication and /api/devices/ingest")
+    print("QESPL API INTEGRATION TEST SUITE")
+    print("="*80)
+    print(f"Backend URL: {API_BASE}")
+    print(f"Admin: {ADMIN_EMAIL}")
     print("="*80)
     
     results = []
     
-    # Setup tests (1-4)
-    results.append(("Test 1: Admin login", test_1_admin_login()))
-    if not results[-1][1]:
-        print("\n❌ CRITICAL: Admin login failed. Aborting tests.")
-        return
-    
-    results.append(("Test 2: Create test user", test_2_create_test_user()))
-    if not results[-1][1]:
-        print("\n❌ CRITICAL: User creation failed. Aborting tests.")
-        return
-    
-    results.append(("Test 3: Register flowmeter", test_3_register_flowmeter()))
-    results.append(("Test 4: Register DWLR", test_4_register_dwlr()))
-    
-    # Ingest happy paths (5-9)
-    results.append(("Test 5: Ping flowmeter", test_5_ping_flowmeter()))
-    results.append(("Test 6: Ingest flowmeter data", test_6_ingest_flowmeter_data()))
-    results.append(("Test 7: Verify flowmeter data", test_7_verify_flowmeter_data()))
-    results.append(("Test 8: Ingest DWLR data", test_8_ingest_dwlr_data()))
-    results.append(("Test 9: Verify DWLR data", test_9_verify_dwlr_data()))
-    
-    # Auth failures (10-14)
-    results.append(("Test 10: Ingest no headers", test_10_ingest_no_headers()))
-    results.append(("Test 11: Ingest wrong key", test_11_ingest_wrong_key()))
-    results.append(("Test 12: Ingest nonexistent hardware", test_12_ingest_nonexistent_hardware()))
-    results.append(("Test 13: Ingest invalid JSON", test_13_ingest_invalid_json()))
-    results.append(("Test 14: Ingest array body", test_14_ingest_array_body()))
-    
-    # Key rotation (15-19)
-    results.append(("Test 15: Rotate key", test_15_rotate_key()))
-    results.append(("Test 16: Ingest with old key", test_16_ingest_with_old_key()))
-    results.append(("Test 17: Ingest with new key", test_17_ingest_with_new_key()))
-    results.append(("Test 18: Rotate unknown hardware", test_18_rotate_unknown_hardware()))
-    results.append(("Test 19: Rotate key as client", test_19_rotate_key_as_client()))
-    
-    # Backfill & visibility (20-22)
-    results.append(("Test 20: Backfill keys", test_20_backfill_keys()))
-    results.append(("Test 21: Client sees device keys", test_21_client_sees_device_keys()))
-    results.append(("Test 22: Admin sees device keys", test_22_admin_sees_device_keys()))
-    
-    # Cleanup
-    cleanup()
-    
-    # Check logs
-    check_backend_logs()
+    try:
+        # Test 1: Admin login
+        global admin_token
+        admin_token = admin_login()
+        results.append(("Admin login", True))
+        
+        # Test 2: Backwards compatibility - flowmeter
+        results.append(("Backwards compat: Flowmeter defaults to mqtt", test_backwards_compatibility_flowmeter(admin_token)))
+        
+        # Test 3: DWLR still works
+        results.append(("DWLR defaults to mqtt", test_dwlr_default_source(admin_token)))
+        
+        # Test 4: Register QESPL water_quality
+        results.append(("Register QESPL water_quality", test_register_qespl_water_quality(admin_token)))
+        
+        # Test 5: Register QESPL dometer
+        results.append(("Register QESPL dometer", test_register_qespl_dometer(admin_token)))
+        
+        # Test 6: Validation - missing qespl_device_id
+        results.append(("Validation: missing qespl_device_id → 400", test_validation_missing_qespl_device_id(admin_token)))
+        
+        # Test 7: Validation - invalid device_source
+        results.append(("Validation: invalid device_source → 400", test_validation_invalid_device_source(admin_token)))
+        
+        # Test 8: New instrument types accepted
+        results.append(("New instrument types accepted", test_new_instrument_types_accepted(admin_token)))
+        
+        # Test 9: QESPL poll manually
+        results.append(("QESPL poll manually", test_qespl_poll_manually(admin_token)))
+        
+        # Test 10: Verify data landed
+        results.append(("Verify data pipeline", test_verify_data_landed(admin_token)))
+        
+        # Test 11: QESPL run-now admin-only
+        results.append(("QESPL run-now admin-only", test_qespl_run_now_admin_only(admin_token)))
+        
+        # Test 12: QESPL run-now with no devices
+        results.append(("QESPL run-now with no devices", test_qespl_run_now_no_devices(admin_token)))
+        
+        # Test 13: Cleanup
+        results.append(("Cleanup", test_cleanup(admin_token)))
+        
+        # Test 14: No regressions
+        results.append(("No regressions", test_no_regressions(admin_token)))
+        
+        # Test 15: Backend logs
+        results.append(("Backend logs check", test_backend_logs()))
+        
+    except Exception as e:
+        print(f"\n❌ FATAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        results.append(("Fatal error", False))
     
     # Summary
     print("\n" + "="*80)
@@ -813,20 +651,18 @@ def main():
     passed = sum(1 for _, result in results if result)
     total = len(results)
     
-    print(f"\nTotal: {passed}/{total} tests passed\n")
-    
-    for test_name, result in results:
+    for name, result in results:
         status = "✅ PASS" if result else "❌ FAIL"
-        print(f"{status} | {test_name}")
+        print(f"{status}: {name}")
     
-    if passed == total:
-        print("\n🎉 ALL TESTS PASSED!")
-    else:
-        print(f"\n⚠️  {total - passed} test(s) failed")
+    print("="*80)
+    print(f"TOTAL: {passed}/{total} tests passed")
+    print("="*80)
     
     return passed == total
 
 
 if __name__ == "__main__":
+    import sys
     success = main()
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)

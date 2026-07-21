@@ -18,12 +18,14 @@ const INSTRUMENT_TYPE_OPTIONS = [
   { value: 'ph', label: 'pH Sensor' },
   { value: 'tds', label: 'TDS Sensor' },
   { value: 'conductivity', label: 'Conductivity Sensor' },
+  { value: 'dometer', label: 'DO Meter (Dissolved Oxygen)' },
+  { value: 'water_quality', label: 'Water Quality (BOD/COD/TSS/pH/Cl)' },
 ];
 
-const FLOWMETER_CATEGORY_OPTIONS = [
-  { value: 'groundwater_abstraction', label: 'Groundwater Abstraction' },
-  { value: 'stp_inlet', label: 'STP Inlet' },
-  { value: 'stp_outlet', label: 'STP Outlet' },
+const DEVICE_SOURCE_OPTIONS = [
+  { value: 'mqtt', label: 'MQTT (default — device pushes to HiveMQ)' },
+  { value: 'https_ingest', label: 'HTTPS POST (device pushes to /api/devices/ingest)' },
+  { value: 'qespl_api', label: 'QESPL API (backend pulls from qenggonline.com)' },
 ];
 
 const EMPTY_INSTRUMENT_ROW = {
@@ -34,7 +36,15 @@ const EMPTY_INSTRUMENT_ROW = {
   location_name: '',
   latitude: '',
   longitude: '',
+  device_source: 'mqtt',
+  qespl_device_id: '',
 };
+
+const FLOWMETER_CATEGORY_OPTIONS = [
+  { value: 'groundwater_abstraction', label: 'Groundwater Abstraction' },
+  { value: 'stp_inlet', label: 'STP Inlet' },
+  { value: 'stp_outlet', label: 'STP Outlet' },
+];
 
 const UserPage = () => {
   const [users, setUsers] = useState([]);
@@ -119,6 +129,10 @@ const UserPage = () => {
       const hw = it.hardware_id?.trim();
       if (!hw) { toast.error(`Instrument #${i + 1}: Hardware ID is required`); return false; }
       if (seen.has(hw)) { toast.error(`Instrument #${i + 1}: Duplicate Hardware ID "${hw}"`); return false; }
+      if (it.device_source === 'qespl_api' && !it.qespl_device_id?.trim()) {
+        toast.error(`Instrument #${i + 1}: QESPL device ID is required when source is QESPL API`);
+        return false;
+      }
       seen.add(hw);
     }
     return true;
@@ -154,6 +168,10 @@ const UserPage = () => {
           longitude: row.longitude === '' || row.longitude == null ? null : parseFloat(row.longitude),
         };
         if (row.instrument_type === 'flowmeter') ipayload.category = row.category || 'groundwater_abstraction';
+        ipayload.device_source = row.device_source || 'mqtt';
+        if (ipayload.device_source === 'qespl_api') {
+          ipayload.qespl_device_id = row.qespl_device_id?.trim();
+        }
         try {
           await api.post('/api/instrument-registry', ipayload);
           results.ok += 1;
@@ -515,6 +533,37 @@ const UserPage = () => {
                       <div className="grid grid-cols-2 gap-3">
                         <div><Label className="text-xs">Latitude</Label><Input value={row.latitude} onChange={(e) => updateInstrumentRow(idx, { latitude: e.target.value })} placeholder="26.8467" /></div>
                         <div><Label className="text-xs">Longitude</Label><Input value={row.longitude} onChange={(e) => updateInstrumentRow(idx, { longitude: e.target.value })} placeholder="80.9462" /></div>
+                      </div>
+                      {/* Data source: how does telemetry reach the backend? */}
+                      <div className="grid grid-cols-1 gap-3 pt-2 border-t border-blue-100">
+                        <div>
+                          <Label className="text-xs">Data Source</Label>
+                          <select
+                            className="w-full border rounded px-3 py-2 h-10"
+                            value={row.device_source || 'mqtt'}
+                            onChange={(e) => updateInstrumentRow(idx, { device_source: e.target.value })}
+                            data-testid={`instrument-source-${idx}`}
+                          >
+                            {DEVICE_SOURCE_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>{o.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        {row.device_source === 'qespl_api' && (
+                          <div>
+                            <Label className="text-xs">QESPL Device ID *</Label>
+                            <Input
+                              value={row.qespl_device_id || ''}
+                              onChange={(e) => updateInstrumentRow(idx, { qespl_device_id: e.target.value })}
+                              placeholder="e.g. DTU10019126"
+                              data-testid={`instrument-qespl-id-${idx}`}
+                            />
+                            <p className="text-[10px] text-gray-500 mt-1">
+                              The DTU serial number QESPL assigned. Backend will poll{' '}
+                              <code>api.qenggonline.com</code> every 5 min for this device.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
