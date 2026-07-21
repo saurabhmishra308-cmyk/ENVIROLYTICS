@@ -13,6 +13,7 @@ import {
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
 import { toast } from 'sonner';
+import LiveTrafficCard from '../components/LiveTrafficCard';
 
 const TYPE_OPTIONS = [
   { value: 'flowmeter', label: 'Flowmeter' },
@@ -322,6 +323,9 @@ const Instruments = () => {
         <Card><CardContent className="pt-6"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Other Instruments</p><p className="text-3xl font-bold">{totals.instruments}</p></div></div></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Assigned Clients</p><p className="text-3xl font-bold">{totals.clients}</p></div></div></CardContent></Card>
       </div>
+
+      {/* Admin-only live device traffic (MQTT broker + QESPL HTTP polling) */}
+      {admin && <LiveTrafficCard isDarkMode={false} />}
 
       <Card>
         <CardHeader><CardTitle>All Registered Instruments</CardTitle></CardHeader>

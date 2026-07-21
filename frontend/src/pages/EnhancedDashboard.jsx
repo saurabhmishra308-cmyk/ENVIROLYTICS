@@ -15,7 +15,6 @@ import LockedSectionOverlay from '../components/LockedSectionOverlay';
 import LocationMap from '../components/LocationMap';
 import OfflineAlertsBanner from '../components/OfflineAlertsBanner';
 import NotificationRecipientsCard from '../components/NotificationRecipientsCard';
-import LiveTrafficCard from '../components/LiveTrafficCard';
 
 const POLL_MS = 5000;
 const logError = (e, c) => { if (process.env.NODE_ENV === 'development') console.error(`[${c}]`, e); };
@@ -289,8 +288,6 @@ const EnhancedDashboard = () => {
         <OfflineAlertsBanner isDarkMode={isDarkMode} />
 
         {isAdmin() && <NotificationRecipientsCard isDarkMode={isDarkMode} />}
-
-        {isAdmin() && <LiveTrafficCard isDarkMode={isDarkMode} />}
 
         {/* Client Location Map */}
         <Card className={isDarkMode ? 'bg-gray-800 border-gray-700' : ''} data-testid="dashboard-map-card">
