@@ -20,6 +20,8 @@ const TYPE_OPTIONS = [
   { value: 'ph', label: 'pH Sensor' },
   { value: 'tds', label: 'TDS Sensor' },
   { value: 'conductivity', label: 'Conductivity Sensor' },
+  { value: 'dometer', label: 'DO Meter (Dissolved Oxygen)' },
+  { value: 'water_quality', label: 'Water Quality (pH/BOD/COD/TSS/Cl)' },
 ];
 
 const CATEGORY_OPTIONS = [
@@ -27,6 +29,76 @@ const CATEGORY_OPTIONS = [
   { value: 'stp_inlet', label: 'STP Inlet' },
   { value: 'stp_outlet', label: 'STP Outlet' },
 ];
+
+/**
+ * Compact live-value chips shown inside each Instruments-table row.
+ * Reads from `instrument._latest` (attached in the `refresh` fetch above).
+ * Falls back to a small "No data yet" hint when the device has never reported.
+ */
+const LIVE_KEYS_BY_TYPE = {
+  flowmeter:     [['flow_rate_lph', 'Flow', 'L/hr'], ['totalizer', 'Totaliser', 'L'], ['signal_strength', 'Signal', '']],
+  dwlr:          [['LEVEL', 'Level', 'mWC'], ['TEMPER', 'Temp', '°C']],
+  ph:            [['PH', 'pH', ''], ['TEMPER', 'Temp', '°C']],
+  tds:           [['TDS', 'TDS', 'ppm'], ['TEMPER', 'Temp', '°C']],
+  conductivity:  [['COND', 'Conductivity', 'µS/cm'], ['TEMPER', 'Temp', '°C']],
+  dometer:       [['DO', 'DO', 'mg/L'], ['TEMPER', 'Temp', '°C']],
+  water_quality: [
+    ['PH', 'pH', ''],
+    ['DO', 'DO', 'mg/L'],
+    ['BOD', 'BOD', 'mg/L'],
+    ['COD', 'COD', 'mg/L'],
+    ['TSS', 'TSS', 'mg/L'],
+    ['CHLORINE', 'Cl', 'mg/L'],
+  ],
+};
+
+const LiveValues = ({ instrument }) => {
+  const latest = instrument?._latest;
+  if (!latest) {
+    return (
+      <div className="text-[11px] text-gray-400 italic">
+        {instrument.device_source === 'qespl_api' ? 'Awaiting QESPL poll…' : 'No data yet'}
+      </div>
+    );
+  }
+  const keys = LIVE_KEYS_BY_TYPE[instrument.instrument_type] || LIVE_KEYS_BY_TYPE.water_quality;
+  // Flowmeter payloads sit at top-level, generic instruments in `values`
+  const src = (instrument.instrument_type === 'flowmeter') ? latest : (latest.values || latest);
+  const chips = [];
+  for (const [k, label, unit] of keys) {
+    const v = src?.[k];
+    if (v === null || v === undefined || v === '') continue;
+    const disp = typeof v === 'number' ? v.toFixed(k === 'PH' ? 2 : 1) : String(v);
+    // Prefer unit from QESPL if present (e.g. LEVEL_unit)
+    const unitFromApi = src?.[`${k}_unit`];
+    const shownUnit = unitFromApi || unit;
+    chips.push(
+      <span
+        key={k}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 border border-blue-100 text-[11px] text-blue-900 font-mono whitespace-nowrap"
+        title={`${label}${shownUnit ? ` (${shownUnit})` : ''}`}
+      >
+        <span className="font-semibold uppercase text-[9px] tracking-wider text-blue-600">{label}</span>
+        <span>{disp}{shownUnit ? ` ${shownUnit}` : ''}</span>
+      </span>
+    );
+  }
+  const ts = latest.received_at || latest.timestamp;
+  return (
+    <div className="max-w-[24rem]">
+      {chips.length > 0 ? (
+        <div className="flex flex-wrap gap-1">{chips}</div>
+      ) : (
+        <span className="text-[11px] text-gray-400 italic">Reported, no known parameters</span>
+      )}
+      {ts && (
+        <div className="text-[10px] text-gray-400 mt-1">
+          {new Date(ts).toLocaleString()}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const EMPTY_FORM = {
   hardware_id: '',
@@ -78,11 +150,28 @@ const Instruments = () => {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: regData }, { data: userData }] = await Promise.all([
+      const [{ data: regData }, { data: userData }, latestRes] = await Promise.all([
         api.get('/api/instrument-registry'),
         admin ? api.get('/api/admin/users/list') : Promise.resolve({ data: { users: [] } }),
+        api.get('/api/instruments/all/latest').catch(() => ({ data: { by_type: {} } })),
       ]);
-      setItems(regData.instruments || []);
+      // Build a hardware_id → latest-values map for quick lookup
+      const byHw = {};
+      const byType = latestRes?.data?.by_type || {};
+      for (const arr of Object.values(byType)) {
+        if (!Array.isArray(arr)) continue;
+        for (const it of arr) {
+          if (it?.hardware_id) byHw[it.hardware_id] = it;
+        }
+      }
+      // Also merge flowmeter_latest for flowmeter rows
+      try {
+        const { data: fmData } = await api.get('/api/flowmeter/latest');
+        for (const it of fmData?.instruments || []) {
+          if (it?.hardware_id) byHw[it.hardware_id] = { ...it, instrument_type: 'flowmeter' };
+        }
+      } catch (e) { /* non-fatal */ }
+      setItems((regData.instruments || []).map((r) => ({ ...r, _latest: byHw[r.hardware_id] || null })));
       setUsers(userData.users || []);
     } catch (e) {
       toast.error(formatApiError(e?.response?.data?.detail));
@@ -255,6 +344,7 @@ const Instruments = () => {
                     <th className="text-left p-3">Label</th>
                     <th className="text-left p-3">Owner</th>
                     <th className="text-left p-3">Location</th>
+                    <th className="text-left p-3">Live Values</th>
                     <th className="text-left p-3">Actions</th>
                   </tr>
                 </thead>
@@ -263,9 +353,14 @@ const Instruments = () => {
                     <tr key={it.hardware_id} className="border-b hover:bg-gray-50">
                       <td className="p-3 font-mono text-sm">{it.hardware_id}</td>
                       <td className="p-3">
-                        <Badge className="bg-blue-500 capitalize">{it.instrument_type}</Badge>
+                        <Badge className="bg-blue-500 capitalize">{(it.instrument_type || '').replace(/_/g, ' ')}</Badge>
                         {it.instrument_type === 'flowmeter' && it.category && (
                           <div className="text-xs text-gray-500 mt-1">{it.category.replace(/_/g, ' ')}</div>
+                        )}
+                        {it.device_source && it.device_source !== 'mqtt' && (
+                          <div className="text-[10px] text-purple-600 mt-1 font-medium uppercase tracking-wide">
+                            {it.device_source === 'qespl_api' ? 'QESPL' : it.device_source}
+                          </div>
                         )}
                       </td>
                       <td className="p-3">{it.label || '—'}</td>
@@ -278,6 +373,9 @@ const Instruments = () => {
                         {it.latitude != null && it.longitude != null && (
                           <div className="text-gray-400 text-xs mt-0.5">{Number(it.latitude).toFixed(4)}, {Number(it.longitude).toFixed(4)}</div>
                         )}
+                      </td>
+                      <td className="p-3">
+                        <LiveValues instrument={it} />
                       </td>
                       <td className="p-3">
                         <div className="flex gap-2">

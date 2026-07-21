@@ -11,6 +11,7 @@ import axios from 'axios';
 
 import WeatherCard from '../components/WeatherCard';
 import InstrumentSection from '../components/InstrumentSection';
+import LockedSectionOverlay from '../components/LockedSectionOverlay';
 import LocationMap from '../components/LocationMap';
 import OfflineAlertsBanner from '../components/OfflineAlertsBanner';
 import NotificationRecipientsCard from '../components/NotificationRecipientsCard';
@@ -170,6 +171,15 @@ const EnhancedDashboard = () => {
   byType.tds.forEach((r) => qualityTiles.push({ hardware_id: r.hardware_id, label: 'TDS', value: pickValue(r.values, ['TDS', 'tds'], '—'), unit: 'ppm', status: 'active' }));
   if (byType.tds.length === 0) qualityTiles.push({ hardware_id: '', label: 'TDS', value: null, unit: 'ppm', status: 'inactive' });
 
+  // If the user owns NONE of the water-quality sensor types (or dometer/water_quality),
+  // we consider the whole section "not installed" and show a locked overlay.
+  const hasWaterQuality =
+    byType.ph.length +
+    byType.tds.length +
+    byType.conductivity.length +
+    (byType.dometer?.length || 0) +
+    (byType.water_quality?.length || 0) > 0;
+
   const dwlrTiles = byType.dwlr.map((r) => ({
     hardware_id: r.hardware_id,
     label: 'DWLR',
@@ -178,7 +188,8 @@ const EnhancedDashboard = () => {
     status: 'active',
     meta: r.values?.BATTERY ? `Battery ${r.values.BATTERY}%` : null,
   }));
-  if (dwlrTiles.length === 0) dwlrTiles.push({ hardware_id: '', label: 'DWLR', value: null, unit: 'm', status: 'inactive' });
+  const hasDwlr = dwlrTiles.length > 0;
+  if (!hasDwlr) dwlrTiles.push({ hardware_id: '', label: 'DWLR', value: null, unit: 'm', status: 'inactive' });
 
   return (
     <div className={`min-h-screen ${bg} transition-colors duration-300`} data-testid="dashboard-page">
@@ -306,7 +317,11 @@ const EnhancedDashboard = () => {
           </CardHeader>
           <CardContent>
             {groundwater.length === 0 ? (
-              <p className={`text-center py-6 text-sm ${muted}`}>No groundwater flowmeter registered. Use <code className="bg-gray-100 px-1 rounded">PUT /api/flowmeter-mgmt/{'{hardware_id}'}/category</code> with <code>groundwater_abstraction</code>.</p>
+              <LockedSectionOverlay
+                instrumentType="flowmeter"
+                readableType="Groundwater Flowmeter"
+                isDarkMode={isDarkMode}
+              />
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {groundwater.map((a) => (
@@ -318,16 +333,37 @@ const EnhancedDashboard = () => {
         </Card>
 
         {/* === WATER LEVEL === */}
-        <InstrumentSection
-          title="Water Level"
-          subtitle="DWLR — Digital Water Level Recorder (groundwater table)"
-          color="#27ae60"
-          icon={TrendingUp}
-          tiles={dwlrTiles}
-          emptyText="No DWLR live"
-          isDarkMode={isDarkMode}
-          testId="section-water-level"
-        />
+        {hasDwlr ? (
+          <InstrumentSection
+            title="Water Level"
+            subtitle="DWLR — Digital Water Level Recorder (groundwater table)"
+            color="#27ae60"
+            icon={TrendingUp}
+            tiles={dwlrTiles}
+            emptyText="No DWLR live"
+            isDarkMode={isDarkMode}
+            testId="section-water-level"
+          />
+        ) : (
+          <Card className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`} style={{ borderTopColor: '#27ae60' }} data-testid="section-water-level">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg" style={{ backgroundColor: '#27ae60' }}><TrendingUp className="h-5 w-5 text-white" /></div>
+                <div>
+                  <CardTitle className={text}>Water Level</CardTitle>
+                  <CardDescription className={muted}>DWLR — Digital Water Level Recorder (groundwater table)</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <LockedSectionOverlay
+                instrumentType="dwlr"
+                readableType="DWLR (Water Level Recorder)"
+                isDarkMode={isDarkMode}
+              />
+            </CardContent>
+          </Card>
+        )}
 
         {/* === WATER QUALITY === */}
         <Card className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`} style={{ borderTopColor: '#8e44ad' }} data-testid="section-water-quality">
@@ -341,6 +377,13 @@ const EnhancedDashboard = () => {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
+            {!hasWaterQuality && (
+              <LockedSectionOverlay
+                instrumentType="water_quality"
+                readableType="Water Quality Suite (pH / DO / BOD / COD / TSS / Cl)"
+                isDarkMode={isDarkMode}
+              />
+            )}
             {/* Quality sensor tiles */}
             <div>
               <h3 className={`text-sm font-semibold mb-2 ${text}`}>Quality parameters</h3>

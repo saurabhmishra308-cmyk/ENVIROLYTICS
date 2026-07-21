@@ -6,6 +6,7 @@ import Policies from "./pages/Policies";
 import EnhancedDashboard from "./pages/EnhancedDashboard";
 import Flowmeter from "./pages/Flowmeter";
 import WaterLevelRecorder from "./pages/WaterLevelRecorder";
+import WaterQualityDetail from "./pages/WaterQualityDetail";
 import InstrumentDetail from "./pages/InstrumentDetail";
 import Analysis from "./pages/Analysis";
 import Reports from "./pages/Reports";
@@ -70,6 +71,7 @@ function App() {
 
                 <Route path="/flowmeter" element={<RequireAuth><Flowmeter /></RequireAuth>} />
                 <Route path="/water-level-recorder" element={<RequireAuth><WaterLevelRecorder /></RequireAuth>} />
+                <Route path="/water-quality/:hardwareId" element={<RequireAuth><WaterQualityDetail /></RequireAuth>} />
                 <Route path="/dwlr" element={<RequireAuth><InstrumentDetail type="dwlr" /></RequireAuth>} />
                 <Route path="/ph" element={<RequireAuth><InstrumentDetail type="ph" /></RequireAuth>} />
                 <Route path="/tds" element={<RequireAuth><InstrumentDetail type="tds" /></RequireAuth>} />

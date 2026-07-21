@@ -51,6 +51,8 @@ import api_instrument_registry
 from api_ingestion import router as ingestion_router
 import api_ingestion
 import qespl_poller
+from api_access_requests import router as access_requests_router
+import api_access_requests
 import auth as auth_module
 
 
@@ -79,6 +81,7 @@ api_instrument_registry.set_db(db)
 api_instrument_registry.set_mqtt(mqtt_service)
 api_ingestion.set_db(db, mqtt_service)
 qespl_poller.set_deps(db, mqtt_service)
+api_access_requests.set_db(db)
 auth_module.set_db(db)
 
 # Create the main app
@@ -141,6 +144,7 @@ app.include_router(limits_router)
 app.include_router(renewals_router)
 app.include_router(instrument_registry_router)
 app.include_router(ingestion_router)
+app.include_router(access_requests_router)
 
 app.add_middleware(
     CORSMiddleware,

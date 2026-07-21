@@ -610,10 +610,95 @@ backend:
           to MQTT for devices experiencing firewall issues. All authentication, authorization,
           data routing, and storage mechanisms working correctly.
 
+  - task: "Water-Quality history endpoint"
+    implemented: true
+    working: true
+    file: "backend/api_flowmeter_mgmt.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          NEW FEATURE: Water-Quality history endpoint for chlorine dosing recommendations.
+          GET /api/flowmeter-mgmt/water-quality/{hardware_id}/history?hours=N
+          Returns series of water quality readings with chlorine dosing status based on CPCB STP outlet limits.
+          Chlorine constants: decrease_above_mg_l=0.5 (CPCB max), increase_below_mg_l=0.2 (disinfection floor).
+          Owner-scoped (403 for non-owner access).
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ VERIFIED: Water-Quality history endpoint working perfectly (5/5 tests passed).
+          
+          **Test Results:**
+          1. Register water_quality device with QESPL source → 200 ✅
+          2. Trigger QESPL poll → 200 {polled:1, ok:1} ✅
+          3. GET /api/flowmeter-mgmt/water-quality/WQ_TEST_H1/history?hours=24 → 200 ✅
+             - Response includes: hardware_id, label, hours, count, series, chlorine object ✅
+             - Chlorine object has: target_mg_l, increase_below_mg_l, decrease_above_mg_l, status, message, color ✅
+             - Chlorine constants verified: decrease_above_mg_l=0.5 (CPCB STP outlet limit) ✅
+             - Chlorine constants verified: increase_below_mg_l=0.2 (disinfection floor) ✅
+          4. GET /api/flowmeter-mgmt/water-quality/UNKNOWN_HW/history → 404 ✅
+          5. Non-owner client access → 403 (owner-scoping enforced) ✅
+          
+          **Chlorine Dosing Logic:**
+          - If free-Cl < 0.2 mg/L → status="increase", color="red", message="Increase dosing"
+          - If free-Cl > 0.5 mg/L → status="decrease", color="amber", message="Decrease dosing (exceeds CPCB max)"
+          - If 0.2 ≤ free-Cl ≤ 0.5 → status="ok", color="green", message="Within CPCB band"
+          - If no chlorine reading → status="unknown", color="gray"
+          
+          **CONCLUSION:**
+          Water-Quality history endpoint is PRODUCTION-READY with correct CPCB chlorine dosing constants.
+
+  - task: "Access-request endpoint"
+    implemented: true
+    working: true
+    file: "backend/api_access_requests.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          NEW FEATURE: Access-request endpoint for clients to request instrument access.
+          POST /api/access-requests - client creates request with instrument_type, message, hardware_id_hint
+          GET /api/access-requests - admin sees all, client sees only their own
+          Sends email to admin (default: saurabh@envirolytics.in, override via ACCESS_REQUEST_ADMIN env var)
+          Uses same email transport as notification_service (SMTP/Resend fallback)
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ VERIFIED: Access-request endpoint working perfectly (5/5 tests passed).
+          
+          **Test Results:**
+          1. Create temp client via /api/admin/users/create → 200 ✅
+          2. Login as client → 200 with JWT ✅
+          3. POST /api/access-requests with {instrument_type:"dwlr", message:"Please add my Site-A DWLR", hardware_id_hint:"DWLR_A_1"} → 200 ✅
+             - Response: {success:true, logged:true, email_result:{sent:true, transport:"smtp"}, admin:"saurabh@envirolytics.in"} ✅
+             - Email successfully sent to admin ✅
+          4. GET /api/access-requests as client → 200, count=1 (client sees own request) ✅
+          5. GET /api/access-requests as admin → 200, count=1 (admin sees all requests) ✅
+          6. POST /api/access-requests with missing instrument_type → 422 validation error ✅
+          
+          **Email Transport:**
+          - Email sent successfully via SMTP transport ✅
+          - Admin recipient: saurabh@envirolytics.in (configurable via ACCESS_REQUEST_ADMIN env) ✅
+          - Email includes: requester name/email, instrument_type, hardware_id_hint, message, timestamp ✅
+          
+          **Access Control:**
+          - Client sees ONLY their own access requests ✅
+          - Admin sees ALL access requests ✅
+          - Proper validation: missing instrument_type → 422 ✅
+          
+          **CONCLUSION:**
+          Access-request endpoint is PRODUCTION-READY. Email notifications working correctly.
+
 metadata:
   created_by: "main_agent"
-  version: "1.6"
-  test_sequence: 6
+  version: "1.7"
+  test_sequence: 7
   run_ui: true
 
 test_plan:
@@ -1013,3 +1098,63 @@ agent_communication:
       Backwards compatibility maintained - flowmeter and DWLR behaviour unchanged.
       New instrument types (dometer, water_quality) working correctly with all 3 device sources.
       QESPL data successfully flows through the same pipeline as MQTT/HTTPS ingestion.
+
+  - agent: "testing"
+    message: |
+      ✅ NEW SESSION FEATURES TEST PASSED (19/19 tests)
+      
+      Comprehensive testing completed for NEW additions in this session:
+      1. Water-Quality history endpoint
+      2. Access-request endpoint
+      3. Regression tests
+      
+      **WATER-QUALITY HISTORY ENDPOINT (5/5 tests passed) ✅**
+      1. Register water_quality device (WQ_TEST_H1) with QESPL source → 200 ✅
+      2. Trigger QESPL poll → 200 {polled:1, ok:1} ✅
+      3. GET /api/flowmeter-mgmt/water-quality/WQ_TEST_H1/history?hours=24 as admin → 200 ✅
+         - Response structure verified: hardware_id, label, hours, count, series, chlorine ✅
+         - Chlorine object verified: target_mg_l, increase_below_mg_l, decrease_above_mg_l, status, message, color ✅
+         - Chlorine constants confirmed: decrease_above_mg_l=0.5 (CPCB STP outlet limit) ✅
+         - Chlorine constants confirmed: increase_below_mg_l=0.2 (disinfection floor) ✅
+      4. GET /api/flowmeter-mgmt/water-quality/UNKNOWN_HW/history → 404 ✅
+      5. Non-owner client access → 403 (owner-scoping enforced) ✅
+      
+      **ACCESS-REQUEST ENDPOINT (5/5 tests passed) ✅**
+      1. Create temp client via /api/admin/users/create → 200 ✅
+      2. Login as client → 200 with JWT ✅
+      3. POST /api/access-requests with {instrument_type:"dwlr", message:"Please add my Site-A DWLR", hardware_id_hint:"DWLR_A_1"} → 200 ✅
+         - Response: {success:true, logged:true, email_result:{sent:true, transport:"smtp"}, admin:"saurabh@envirolytics.in"} ✅
+         - Email successfully sent to admin via SMTP ✅
+      4. GET /api/access-requests as client → 200, count=1 (client sees own request) ✅
+      5. GET /api/access-requests as admin → 200, count=1 (admin sees all requests) ✅
+      6. POST /api/access-requests with missing instrument_type → 422 validation error ✅
+      
+      **REGRESSION TESTS (6/6 tests passed) ✅**
+      1. POST /api/instrument-registry with flowmeter (no device_source) → defaults to 'mqtt' ✅
+      2. POST /api/devices/qespl/run-now → 200 ✅
+      3. GET /api/instruments/all/latest → 200 ✅
+      4. GET /api/alerts/offline?hours=2 → 200 ✅
+      5. GET /api/limits → 200 ✅
+      6. GET /api/notifications/emails → 200 (max=4 enforced) ✅
+      
+      **CLEANUP (2/2 tests passed) ✅**
+      1. DELETE test instruments (WQ_TEST_H1, REG_FM_TEST) → 200 ✅
+      2. DELETE test users → 200 ✅
+      3. Backend logs check → No errors or exceptions ✅
+      
+      **CRITICAL FINDINGS:**
+      🎉 ZERO BUGS FOUND - All 19 tests passed
+      🎉 NO unexpected 4xx/5xx responses
+      🎉 NO exceptions in backend logs
+      🎉 All new endpoints working correctly
+      🎉 All regression tests passed (no breaking changes)
+      🎉 Chlorine dosing constants verified: 0.5 mg/L (CPCB max), 0.2 mg/L (min)
+      🎉 Email notifications working (SMTP transport)
+      🎉 Owner-scoping enforced correctly (403 for non-owner access)
+      
+      **CONCLUSION:**
+      Both NEW features are PRODUCTION-READY with NO BUGS.
+      - Water-Quality history endpoint working with correct CPCB chlorine dosing constants
+      - Access-request endpoint working with email notifications to admin
+      - All existing endpoints continue to work correctly (no regressions)
+      - All authentication, authorization, and scoping mechanisms working correctly

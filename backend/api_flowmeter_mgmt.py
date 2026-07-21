@@ -6,6 +6,7 @@ Categories:
   - stp_outlet               (Water Quality tile)
 """
 import io
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -501,3 +502,91 @@ async def dwlr_daily(
             "samples": max(a["level_n"], a["temp_n"]),
         })
     return {"hardware_id": hardware_id, "days": days, "series": series, "count": len(series)}
+
+
+# ============================
+# Water-Quality (DO / pH / BOD / COD / TSS / Chlorine / Turbidity) history
+# ============================
+WQ_PARAMS = ["PH", "DO", "BOD", "COD", "TSS", "CHLORINE", "TURBIDITY", "TDS", "COND", "TEMPER", "ORP"]
+
+# Chlorine dosing thresholds (mg/L free chlorine at STP outlet).
+# Per CPCB / SPCB STP discharge norms the residual chlorine must be kept BELOW
+# 0.5 mg/L at the final treated outlet. We use 0.5 as the decrease-dosing
+# ceiling and 0.2 as the increase-dosing floor. Override via env vars.
+CL_TARGET = float(os.getenv("CHLORINE_TARGET_MG_L", "0.5"))
+CL_INCREASE_BELOW = float(os.getenv("CHLORINE_INCREASE_BELOW_MG_L", "0.2"))
+CL_DECREASE_ABOVE = float(os.getenv("CHLORINE_DECREASE_ABOVE_MG_L", "0.5"))
+
+
+def _classify_chlorine(free_cl_mg_l: Optional[float]) -> dict:
+    if free_cl_mg_l is None:
+        return {"status": "unknown", "message": "No chlorine reading available", "color": "gray"}
+    if free_cl_mg_l < CL_INCREASE_BELOW:
+        return {"status": "increase", "message": f"Increase dosing — free-Cl {free_cl_mg_l:.2f} mg/L is below the {CL_INCREASE_BELOW} mg/L disinfection floor", "color": "red"}
+    if free_cl_mg_l > CL_DECREASE_ABOVE:
+        return {"status": "decrease", "message": f"Decrease dosing — free-Cl {free_cl_mg_l:.2f} mg/L exceeds the CPCB max {CL_DECREASE_ABOVE} mg/L STP outlet limit", "color": "amber"}
+    return {"status": "ok", "message": f"Free-Cl {free_cl_mg_l:.2f} mg/L within CPCB band ({CL_INCREASE_BELOW}–{CL_DECREASE_ABOVE} mg/L)", "color": "green"}
+
+
+@router.get("/water-quality/{hardware_id}/history")
+async def water_quality_history(
+    hardware_id: str,
+    hours: int = Query(24, ge=1, le=24 * 30),
+    user: dict = Depends(get_current_user),
+):
+    """Return recent Water-Quality readings for a device (dometer / water_quality
+    / pH / TDS / conductivity). Each series entry is one raw reading. Chlorine
+    dosing recommendation is included based on the LATEST free-Cl value."""
+    is_admin = user.get("role") == "admin"
+    visible = await api_instrument_registry.visible_hardware_ids(user)
+    if not is_admin and hardware_id not in visible:
+        raise HTTPException(status_code=403, detail="Instrument not in your account.")
+
+    reg = await db.instrument_registry.find_one({"hardware_id": hardware_id}, {"_id": 0})
+    if not reg:
+        raise HTTPException(status_code=404, detail="Instrument not registered.")
+
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(hours=hours)
+
+    series: List[dict] = []
+    cursor = db.instrument_readings.find(
+        {"hardware_id": hardware_id, "timestamp": {"$gte": start.isoformat()}},
+        {"_id": 0, "timestamp": 1, "values": 1},
+    ).sort("timestamp", 1).limit(20000)
+    latest_cl: Optional[float] = None
+    async for r in cursor:
+        ts = r.get("timestamp")
+        v = r.get("values", {}) or {}
+        point = {"time": ts}
+        for k in WQ_PARAMS:
+            if isinstance(v.get(k), (int, float)):
+                point[k] = round(float(v[k]), 3)
+        if len(point) > 1:
+            series.append(point)
+            if isinstance(v.get("CHLORINE"), (int, float)):
+                latest_cl = float(v["CHLORINE"])
+
+    # TDS auto-computed from TSS when TSS live but TDS absent (rough proxy 0.65×TSS).
+    # Only used for the fallback chart on the frontend — not written back to DB.
+    for p in series:
+        if "TDS" not in p and "TSS" in p:
+            p["TDS_from_TSS"] = round(p["TSS"] * 0.65, 2)
+
+    chlorine_status = _classify_chlorine(latest_cl)
+
+    return {
+        "hardware_id": hardware_id,
+        "instrument_type": reg.get("instrument_type"),
+        "label": reg.get("label") or hardware_id,
+        "hours": hours,
+        "count": len(series),
+        "series": series,
+        "chlorine": {
+            "latest_mg_l": latest_cl,
+            "target_mg_l": CL_TARGET,
+            "increase_below_mg_l": CL_INCREASE_BELOW,
+            "decrease_above_mg_l": CL_DECREASE_ABOVE,
+            **chlorine_status,
+        },
+    }
