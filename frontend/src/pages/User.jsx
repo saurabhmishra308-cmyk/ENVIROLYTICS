@@ -25,7 +25,7 @@ const INSTRUMENT_TYPE_OPTIONS = [
 const DEVICE_SOURCE_OPTIONS = [
   { value: 'mqtt', label: 'MQTT (default — device pushes to HiveMQ)' },
   { value: 'https_ingest', label: 'HTTPS POST (device pushes to /api/devices/ingest)' },
-  { value: 'qespl_api', label: 'QESPL API (backend pulls from qenggonline.com)' },
+  { value: 'qespl_api', label: 'ESPL API (backend pulls from qenggonline.com)' },
 ];
 
 const EMPTY_INSTRUMENT_ROW = {
@@ -130,7 +130,7 @@ const UserPage = () => {
       if (!hw) { toast.error(`Instrument #${i + 1}: Hardware ID is required`); return false; }
       if (seen.has(hw)) { toast.error(`Instrument #${i + 1}: Duplicate Hardware ID "${hw}"`); return false; }
       if (it.device_source === 'qespl_api' && !it.qespl_device_id?.trim()) {
-        toast.error(`Instrument #${i + 1}: QESPL device ID is required when source is QESPL API`);
+        toast.error(`Instrument #${i + 1}: ESPL device ID is required when source is ESPL API`);
         return false;
       }
       seen.add(hw);
@@ -551,7 +551,7 @@ const UserPage = () => {
                         </div>
                         {row.device_source === 'qespl_api' && (
                           <div>
-                            <Label className="text-xs">QESPL Device ID *</Label>
+                            <Label className="text-xs">ESPL Device ID *</Label>
                             <Input
                               value={row.qespl_device_id || ''}
                               onChange={(e) => updateInstrumentRow(idx, { qespl_device_id: e.target.value })}
@@ -559,7 +559,7 @@ const UserPage = () => {
                               data-testid={`instrument-qespl-id-${idx}`}
                             />
                             <p className="text-[10px] text-gray-500 mt-1">
-                              The DTU serial number QESPL assigned. Backend will poll{' '}
+                              The DTU serial number ESPL assigned. Backend will poll{' '}
                               <code>api.qenggonline.com</code> every 5 min for this device.
                             </p>
                           </div>

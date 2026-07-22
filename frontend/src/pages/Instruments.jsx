@@ -58,7 +58,7 @@ const LiveValues = ({ instrument }) => {
   if (!latest) {
     return (
       <div className="text-[11px] text-gray-400 italic">
-        {instrument.device_source === 'qespl_api' ? 'Awaiting QESPL poll…' : 'No data yet'}
+        {instrument.device_source === 'qespl_api' ? 'Awaiting ESPL poll…' : 'No data yet'}
       </div>
     );
   }
@@ -70,7 +70,7 @@ const LiveValues = ({ instrument }) => {
     const v = src?.[k];
     if (v === null || v === undefined || v === '') continue;
     const disp = typeof v === 'number' ? v.toFixed(k === 'PH' ? 2 : 1) : String(v);
-    // Prefer unit from QESPL if present (e.g. LEVEL_unit)
+    // Prefer unit from ESPL if present (e.g. LEVEL_unit)
     const unitFromApi = src?.[`${k}_unit`];
     const shownUnit = unitFromApi || unit;
     chips.push(
@@ -324,7 +324,7 @@ const Instruments = () => {
         <Card><CardContent className="pt-6"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Assigned Clients</p><p className="text-3xl font-bold">{totals.clients}</p></div></div></CardContent></Card>
       </div>
 
-      {/* Admin-only live device traffic (MQTT broker + QESPL HTTP polling) */}
+      {/* Admin-only live device traffic (MQTT broker + ESPL HTTP polling) */}
       {admin && <LiveTrafficCard isDarkMode={false} />}
 
       <Card>
@@ -363,7 +363,7 @@ const Instruments = () => {
                         )}
                         {it.device_source && it.device_source !== 'mqtt' && (
                           <div className="text-[10px] text-purple-600 mt-1 font-medium uppercase tracking-wide">
-                            {it.device_source === 'qespl_api' ? 'QESPL' : it.device_source}
+                            {it.device_source === 'qespl_api' ? 'ESPL' : it.device_source}
                           </div>
                         )}
                       </td>

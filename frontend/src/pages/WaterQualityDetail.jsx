@@ -191,7 +191,7 @@ const WaterQualityDetail = () => {
                 No water-quality readings in the selected window.
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                Once the QESPL device starts publishing readings for pH / BOD / COD / TSS / Chlorine they will appear here.
+                Once the ESPL device starts publishing readings for pH / BOD / COD / TSS / Chlorine they will appear here.
               </p>
             </CardContent>
           </Card>
