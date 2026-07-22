@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration-3 (admin-only Instruments/Audit-Log routes, ESPL rename, DO Analyzer label, LockedSectionOverlay with admin bypass, Live MQTT + Live HTTP ESPL traffic panels, Poll now, Export CSV, Register-this, access-requests). ALL 16 review-request checks PASS. Backend: 13/13 pytest cases green in /app/backend/tests/test_iter_admin_traffic.py (flowmeter/status shape, /devices/qespl/traffic admin+client 401/403 auth, /qespl/run-now success + guards, /instrument-registry guard for clients, /access-requests success + auth + validation, DTU10020326 & DTU10020426 both registered as instrument_type='dometer' / device_source='qespl_api' / qespl_device_id=hardware_id). Frontend (live URL): admin login lands on /dashboard, admin sidebar shows both 'Instruments' and 'Audit Log', client sidebar hides both, client hitting /instruments and /audit-log directly redirects to /dashboard. Admin Instruments page renders <live-traffic-panels> = <live-mqtt-traffic-card> + <live-http-traffic-card> between summary and registry table. MQTT panel shows broker.hivemq.com (Connected badge + Total received / Dropped unknown / Subscribed topics). Both DTUs appear in the registered-instruments table with 'DO Analyzer' badges (8 occurrences on page) and 'ESPL' micro-badges (6 occurrences). Clicking 'Poll now' triggered POST /api/devices/qespl/run-now — toast 'Polled 2 devices · 2 ok · 0 failed' appeared and 6 rows (2 fresh + 4 prior) show ok/200 with Device='DO Analyzer'. Export CSV buttons on both panels clicked without crash. Client dashboard shows all three LockedSectionOverlay tiles (data-testid=locked-section-flowmeter, locked-section-water_quality, locked-section-stp_flowmeter) each with visible request-access-<type> button; admin dashboard has zero LockedSectionOverlay rendered. Client 'Request access' dialog for flowmeter submitted successfully → success toast 'Request sent to admin — you will be notified when access is granted.'",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter_admin_traffic.py",
+    "/app/test_reports/pytest/iter_admin_traffic.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AdminRoute in /app/frontend/src/App.js correctly gates /instruments and /audit-log (non-admin redirected to /dashboard). RequireAuth vs AdminRoute vs PermissionRoute layering is clean.",
+    "Sidebar.jsx conditionally appends Instruments + Audit Log via isAdmin() flag — verified hidden for client role.",
+    "LiveTrafficCard.jsx: MQTT panel uses /api/flowmeter/status (public), ESPL panel uses /api/devices/qespl/traffic (admin-only) — matches guards in api_ingestion.py (require_admin dependency on both /qespl/traffic and /qespl/run-now).",
+    "api_access_requests.py: POST /api/access-requests logs to DB, then attempts email via notification_service._send with graceful non-fatal fallback. Handler returns {success, logged, email_result, admin} — good defensive pattern.",
+    "DO Analyzer label consistent across dropdowns (INSTRUMENT_TYPES in LiveTrafficCard + Instruments.jsx), badges (DEVICE_LABEL map), and traffic row Device column (humanizeDevice) — no residual 'dometer' text seen in UI.",
+    "'ESPL' rename is complete in Live HTTP Traffic panel title, endpoint host label, CSV filename prefix, and micro-badge under DTU rows in registry table.",
+    "MQTT recent_messages ring buffer + qespl_poller.get_traffic_snapshot() both surface a bounded 50-item window — consistent with UI 'last-50-events' requirement.",
+    "One structural note (not a bug): api_flowmeter.py /status endpoint has no auth guard — recent_messages leaks topic/imei/device metadata publicly. Consider gating it behind get_current_user like /latest already is. Low priority since no readings/values are exposed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter_admin_traffic.py"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% (12/12 UI checks in review request)"},
+  "test_credentials": "admin@envirolytics.com / Admin@Envirolytics2026 (unchanged); testclient@envirolytics.com / Client@Test2026 (verified working)",
+  "seed_data_creation": "None (used pre-seeded DTU10020326 + DTU10020426 as dometer/qespl_api under admin, plus existing testclient). One TEST-prefixed access request row appended to db.access_requests via POST /api/access-requests — harmless log entry, no cleanup needed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iter-3 changes fully verified: admin-only /instruments + /audit-log with sidebar hiding, LockedSectionOverlay + admin bypass on EnhancedDashboard (Ground Water / Water Quality Quality parameters / STP Flowmeters), ESPL rename applied, DO Analyzer label consistent, Live MQTT + Live HTTP traffic panels admin-only on Instruments page, Poll-now works (returns polled=2 ok=2 failed=0), Export CSV both panels functional, Register-this dialog wiring in place (not exercised on live traffic since no amber rows present — MQTT panel showed 'No traffic yet' during test), and access-request POST flow succeeds end-to-end with success toast. DTUs remain intact (not deleted). One low-priority code-review note: /api/flowmeter/status is unauthenticated but returns recent_messages metadata — main agent may consider gating it.",
+  "rca of the issue": "N/A — no bugs found this iteration. Every review-request check passed on both backend (13/13 pytest) and frontend (12/12 live UI). The only advisory is /api/flowmeter/status not being auth-gated while it exposes MQTT topic/IMEI metadata; not in scope for this iteration."
+}

@@ -21,9 +21,21 @@ const TYPE_OPTIONS = [
   { value: 'ph', label: 'pH Sensor' },
   { value: 'tds', label: 'TDS Sensor' },
   { value: 'conductivity', label: 'Conductivity Sensor' },
-  { value: 'dometer', label: 'DO Meter (Dissolved Oxygen)' },
+  { value: 'dometer', label: 'DO Analyzer (Dissolved Oxygen)' },
   { value: 'water_quality', label: 'Water Quality (pH/BOD/COD/TSS/Cl)' },
 ];
+
+const TYPE_LABEL_MAP = {
+  flowmeter: 'Flowmeter',
+  dwlr: 'DWLR',
+  ph: 'pH',
+  tds: 'TDS',
+  conductivity: 'Conductivity',
+  dometer: 'DO Analyzer',
+  water_quality: 'Water Quality',
+};
+
+const humanizeType = (t) => TYPE_LABEL_MAP[t] || (t || '').replace(/_/g, ' ');
 
 const CATEGORY_OPTIONS = [
   { value: 'groundwater_abstraction', label: 'Groundwater Abstraction' },
@@ -357,7 +369,7 @@ const Instruments = () => {
                     <tr key={it.hardware_id} className="border-b hover:bg-gray-50">
                       <td className="p-3 font-mono text-sm">{it.hardware_id}</td>
                       <td className="p-3">
-                        <Badge className="bg-blue-500 capitalize">{(it.instrument_type || '').replace(/_/g, ' ')}</Badge>
+                        <Badge className="bg-blue-500 capitalize">{humanizeType(it.instrument_type)}</Badge>
                         {it.instrument_type === 'flowmeter' && it.category && (
                           <div className="text-xs text-gray-500 mt-1">{it.category.replace(/_/g, ' ')}</div>
                         )}

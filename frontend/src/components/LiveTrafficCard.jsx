@@ -11,6 +11,18 @@ import api, { formatApiError } from '../lib/api';
 
 const REFRESH_MS = 5000;
 
+const DEVICE_LABEL = {
+  flowmeter: 'Flowmeter',
+  dwlr: 'DWLR',
+  ph: 'pH',
+  tds: 'TDS',
+  conductivity: 'Conductivity',
+  dometer: 'DO Analyzer',
+  water_quality: 'Water Quality',
+  gateway: 'Gateway',
+};
+const humanizeDevice = (t) => DEVICE_LABEL[t] || (t ? String(t).replace(/_/g, ' ') : '—');
+
 const fmtTime = (iso) => {
   if (!iso) return '—';
   try {
@@ -52,7 +64,7 @@ const INSTRUMENT_TYPES = [
   { value: 'ph', label: 'pH Sensor' },
   { value: 'tds', label: 'TDS Sensor' },
   { value: 'conductivity', label: 'Conductivity Sensor' },
-  { value: 'dometer', label: 'DO Meter (Dissolved Oxygen)' },
+  { value: 'dometer', label: 'DO Analyzer (Dissolved Oxygen)' },
   { value: 'water_quality', label: 'Water Quality (pH/BOD/COD/TSS/Cl)' },
 ];
 
@@ -265,7 +277,7 @@ const MQTTPanel = ({ isDarkMode }) => {
                       <td className={`p-2 tabular-nums ${text}`}>{fmtTime(m.time)}</td>
                       <td className={`p-2 font-mono ${text}`}>{m.topic}</td>
                       <td className={`p-2 font-mono ${text}`}>{m.imei || '—'}</td>
-                      <td className={`p-2 ${text}`}>{m.device || '—'}</td>
+                      <td className={`p-2 ${text}`}>{humanizeDevice(m.device)}</td>
                       <td className={`p-2 ${isDropped ? 'text-amber-500' : 'text-green-500'}`}>{m.result}</td>
                       <td className={`p-2 text-right tabular-nums ${muted}`}>{m.bytes}</td>
                       <td className="p-2 text-right">
@@ -416,7 +428,7 @@ const HTTPPanel = ({ isDarkMode }) => {
                       <td className={`p-2 tabular-nums ${text}`}>{fmtTime(p.time)}</td>
                       <td className={`p-2 font-mono ${text}`}>{p.qespl_device_id || '—'}</td>
                       <td className={`p-2 font-mono ${text}`}>{p.hardware_id || '—'}</td>
-                      <td className={`p-2 ${text}`}>{p.device || '—'}</td>
+                      <td className={`p-2 ${text}`}>{humanizeDevice(p.device)}</td>
                       <td className={`p-2 ${ok ? 'text-green-500' : 'text-amber-500'}`}>{p.result}</td>
                       <td className={`p-2 text-right tabular-nums ${muted}`}>{p.http_code ?? '—'}</td>
                       <td className={`p-2 text-right tabular-nums ${muted}`}>{p.bytes ?? 0}</td>

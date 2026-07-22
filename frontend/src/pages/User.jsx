@@ -18,7 +18,7 @@ const INSTRUMENT_TYPE_OPTIONS = [
   { value: 'ph', label: 'pH Sensor' },
   { value: 'tds', label: 'TDS Sensor' },
   { value: 'conductivity', label: 'Conductivity Sensor' },
-  { value: 'dometer', label: 'DO Meter (Dissolved Oxygen)' },
+  { value: 'dometer', label: 'DO Analyzer (Dissolved Oxygen)' },
   { value: 'water_quality', label: 'Water Quality (BOD/COD/TSS/pH/Cl)' },
 ];
 

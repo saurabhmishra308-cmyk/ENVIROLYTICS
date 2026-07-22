@@ -47,6 +47,15 @@ const RequireAuth = ({ children }) => {
   return children;
 };
 
+// Admin-only routes (Instrument Registry, Audit Log). Non-admins get redirected
+// to the dashboard.
+const AdminRoute = ({ children }) => {
+  if (!isAuthenticated()) return <Navigate to="/" replace />;
+  const user = getCurrentUser();
+  if (user?.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  return children;
+};
+
 function App() {
   return (
     <ThemeProvider>
@@ -66,8 +75,8 @@ function App() {
                 <Route path="/user" element={<RequireAuth><DashboardLayout><User /></DashboardLayout></RequireAuth>} />
                 <Route path="/certificates" element={<PermissionRoute permission="certificates"><DashboardLayout><Certificates /></DashboardLayout></PermissionRoute>} />
                 <Route path="/maintenance" element={<PermissionRoute permission="certificates"><DashboardLayout><Certificates /></DashboardLayout></PermissionRoute>} />
-                <Route path="/audit-log" element={<PermissionRoute permission="audit"><DashboardLayout><AuditLog /></DashboardLayout></PermissionRoute>} />
-                <Route path="/instruments" element={<RequireAuth><DashboardLayout><Instruments /></DashboardLayout></RequireAuth>} />
+                <Route path="/audit-log" element={<AdminRoute><DashboardLayout><AuditLog /></DashboardLayout></AdminRoute>} />
+                <Route path="/instruments" element={<AdminRoute><DashboardLayout><Instruments /></DashboardLayout></AdminRoute>} />
 
                 <Route path="/flowmeter" element={<RequireAuth><Flowmeter /></RequireAuth>} />
                 <Route path="/water-level-recorder" element={<RequireAuth><WaterLevelRecorder /></RequireAuth>} />
