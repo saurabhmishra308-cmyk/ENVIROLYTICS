@@ -1,0 +1,50 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "Admin should also have a right to download and check every user or client data. Remove all test site, dummy site and test data or dummy data from the application. only correct live feed data should present. Do not add any Devices transmitting without admin permission to any dummy site or test site. Any instrument wrongly add to any user can be changed by admin easily without deleting user or client. One device can be added to one user only once added should not be allowed to add to other user only allowed for sub user. If wrongly added can be removed by admin. The any device data punched or logged in live traffic should fetch data from the time and date its data is stored.",
+  "summary": "No relevant testing skill found. Retested the previously blocked client-dependent flows with restored testclient@envirolytics.com: API login, client-scoped registry, admin create/reassign/duplicate conflict, client write-blocks, Reports UI client dropdown scoping, startup safety, and cleanup all passed. Final DB check shows 0 BUGVERIFY_* registry/readings/latest leftovers and both required users preserved.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/bugverify_client_flows.py",
+    "/app/test_reports/bugverify_client_flows_result.json",
+    "/app/tests/bugverify_ui_fixture.py",
+    "/app/test_reports/bugverify_ui_fixture.json",
+    "/app/tests/bugverify_cleanup_verify.py",
+    "/app/test_reports/bugverify_cleanup.json",
+    "/app/auth_testing.md"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Startup safety verified in /app/backend/server.py: no db.users.delete_many and no db.instrument_registry.delete_many are called in startup_event; only renewal_reminders_state cleanup for admins was found at startup.",
+    "Code review of /app/backend/api_instrument_registry.py confirms list endpoint scopes non-admin users by owner_user_id, POST/PUT/DELETE depend on require_admin, duplicate hardware_id returns 409, and PUT changes owner_user_id without deleting users.",
+    "Reports UI /app/frontend/src/pages/Reports.jsx loads dropdown data from /api/instrument-registry, so client dropdown inherits backend owner scoping; Playwright confirmed admin-private fixture did not appear for testclient."
+  ],
+  "updated_files": [
+    "/app/tests/bugverify_client_flows.py",
+    "/app/tests/bugverify_ui_fixture.py",
+    "/app/tests/bugverify_cleanup_verify.py",
+    "/app/tests/write_bugverify_iteration10_report.py",
+    "/app/test_reports/bugverify_client_flows_result.json",
+    "/app/test_reports/bugverify_ui_fixture.json",
+    "/app/test_reports/bugverify_cleanup.json",
+    "/app/test_reports/bug_verification_10.json",
+    "/app/test_reports/iteration_10.json",
+    "/app/auth_testing.md"
+  ],
+  "success_rate": {
+    "backend": "13/13 focused checks passed",
+    "frontend": "1/1 requested Reports UI client flow passed"
+  },
+  "seed_data_creation": "Created temporary BUGVERIFY_* registry devices for API and UI scoping checks (client-owned, admin-private, and reassignment fixtures). All were deleted by admin DELETE /api/instrument-registry. Final Mongo verification: instrument_registry, flowmeter_readings/latest/categories, and instrument_readings/latest each have 0 BUGVERIFY_* documents; admin@envirolytics.com and testclient@envirolytics.com still exist.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "testclient@envirolytics.com / Client@Test2026 is restored and usable. This run intentionally preserved admin + testclient and removed only BUGVERIFY_* fixtures. If retesting, rerun /app/tests/bugverify_client_flows.py, then /app/tests/bugverify_ui_fixture.py + Playwright Reports UI check, then /app/tests/bugverify_cleanup_verify.py.",
+  "rca_of_the_issue": "Previous not_fixed verdict was solely due to missing testclient. After restoration, POST /api/auth/login returns HTTP 200 with access_token and role=client. The previously blocked client ownership/scoping flows now pass end-to-end."
+}

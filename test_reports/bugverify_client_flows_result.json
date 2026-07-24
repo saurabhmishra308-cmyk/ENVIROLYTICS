@@ -1,0 +1,277 @@
+{
+  "backend_url": "https://envirolytics-hub.preview.emergentagent.com",
+  "steps": [
+    {
+      "name": "admin login returns token role admin",
+      "passed": true,
+      "status": 200,
+      "user": {
+        "id": "user_0a5d61d8e342",
+        "email": "admin@envirolytics.com",
+        "full_name": "Envirolytics Admin",
+        "role": "admin",
+        "permissions": {
+          "dashboard": true,
+          "reports": true,
+          "analysis": true,
+          "certificates": true,
+          "audit": true,
+          "limits": true
+        }
+      }
+    },
+    {
+      "name": "testclient login returns access_token role client",
+      "passed": true,
+      "status": 200,
+      "user": {
+        "id": "user_d95ea29a3671",
+        "email": "testclient@envirolytics.com",
+        "full_name": "Test Client",
+        "role": "client",
+        "permissions": {
+          "dashboard": false,
+          "reports": false,
+          "analysis": false,
+          "certificates": false,
+          "audit": false,
+          "limits": false
+        }
+      }
+    },
+    {
+      "name": "admin and testclient exist before tests",
+      "passed": true,
+      "status": 200,
+      "admin_id": "user_0a5d61d8e342",
+      "client_id": "user_d95ea29a3671",
+      "user_count": 2
+    },
+    {
+      "name": "pre-cleaned stale BUGVERIFY registry fixtures only",
+      "passed": true,
+      "stale_deleted": []
+    },
+    {
+      "name": "client-scoped registry initially count=0",
+      "passed": true,
+      "status": 200,
+      "count": 0,
+      "instruments": []
+    },
+    {
+      "name": "admin can create client-owned device",
+      "passed": true,
+      "status": 200,
+      "body": {
+        "success": true,
+        "instrument": {
+          "hardware_id": "BUGVERIFY_CLIENT_1784918491",
+          "instrument_type": "flowmeter",
+          "owner_user_id": "user_d95ea29a3671",
+          "label": "BUGVERIFY Client Flowmeter",
+          "location_name": "BUGVERIFY Client Site",
+          "latitude": null,
+          "longitude": null,
+          "category": "groundwater_abstraction",
+          "imei": null,
+          "manual_water_temp_c": null,
+          "plant_capacity_kld": null,
+          "tank_capacity_kld": null,
+          "source": "mqtt",
+          "device_key": "DI3aobcMdnI1o_7YyTNgjImzExRISAut",
+          "created_at": "2026-07-24T18:41:31.747147+00:00",
+          "created_by": "user_0a5d61d8e342"
+        }
+      }
+    },
+    {
+      "name": "client-scoped registry includes newly assigned client device",
+      "passed": true,
+      "status": 200,
+      "count": 1,
+      "hardware_ids": [
+        "BUGVERIFY_CLIENT_1784918491"
+      ]
+    },
+    {
+      "name": "admin can create admin-private device for scoping check",
+      "passed": true,
+      "status": 200,
+      "body": {
+        "success": true,
+        "instrument": {
+          "hardware_id": "BUGVERIFY_ADMIN_1784918491",
+          "instrument_type": "flowmeter",
+          "owner_user_id": "user_0a5d61d8e342",
+          "label": "BUGVERIFY Admin Private Flowmeter",
+          "location_name": "BUGVERIFY Admin Site",
+          "latitude": null,
+          "longitude": null,
+          "category": "groundwater_abstraction",
+          "imei": null,
+          "manual_water_temp_c": null,
+          "plant_capacity_kld": null,
+          "tank_capacity_kld": null,
+          "source": "mqtt",
+          "device_key": "3Au1uKNJGISTYMeKwu3mlyPbWsx2461c",
+          "created_at": "2026-07-24T18:41:31.992225+00:00",
+          "created_by": "user_0a5d61d8e342"
+        }
+      }
+    },
+    {
+      "name": "duplicate hardware_id POST returns HTTP 409 conflict",
+      "passed": true,
+      "status": 409,
+      "body": {
+        "detail": "Instrument 'BUGVERIFY_CLIENT_1784918491' already registered"
+      }
+    },
+    {
+      "name": "admin reassignment succeeds and neither required user is deleted",
+      "passed": true,
+      "create_status": 200,
+      "put_status": 200,
+      "put_body": {
+        "success": true,
+        "updated_fields": [
+          "owner_user_id",
+          "updated_at",
+          "updated_by"
+        ]
+      },
+      "admin_exists": true,
+      "client_exists": true,
+      "user_count": 2
+    },
+    {
+      "name": "client POST/PUT/DELETE registry writes all return 403",
+      "passed": true,
+      "post_status": 403,
+      "put_status": 403,
+      "delete_status": 403,
+      "post_body": {
+        "detail": "Admin access required"
+      },
+      "put_body": {
+        "detail": "Admin access required"
+      },
+      "delete_body": {
+        "detail": "Admin access required"
+      }
+    },
+    {
+      "name": "client GET sees own device only, not admin-private/reassigned devices",
+      "passed": true,
+      "status": 200,
+      "hardware_ids": [
+        "BUGVERIFY_CLIENT_1784918491"
+      ]
+    },
+    {
+      "name": "cleanup removed BUGVERIFY fixtures and preserved admin/testclient users",
+      "passed": true,
+      "leftovers": [],
+      "cleanup": {
+        "BUGVERIFY_CLIENT_1784918491": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "hardware_id": "BUGVERIFY_CLIENT_1784918491",
+            "removed": {
+              "flowmeter_readings": 0,
+              "flowmeter_latest": 0,
+              "flowmeter_categories": 1,
+              "instrument_readings": 0,
+              "instrument_latest": 0,
+              "limits": 0
+            }
+          }
+        },
+        "BUGVERIFY_ADMIN_1784918491": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "hardware_id": "BUGVERIFY_ADMIN_1784918491",
+            "removed": {
+              "flowmeter_readings": 0,
+              "flowmeter_latest": 0,
+              "flowmeter_categories": 1,
+              "instrument_readings": 0,
+              "instrument_latest": 0,
+              "limits": 0
+            }
+          }
+        },
+        "BUGVERIFY_REASSIGN_1784918491": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "hardware_id": "BUGVERIFY_REASSIGN_1784918491",
+            "removed": {
+              "flowmeter_readings": 0,
+              "flowmeter_latest": 0,
+              "flowmeter_categories": 1,
+              "instrument_readings": 0,
+              "instrument_latest": 0,
+              "limits": 0
+            }
+          }
+        }
+      }
+    }
+  ],
+  "created_hardware_ids": [
+    "BUGVERIFY_CLIENT_1784918491",
+    "BUGVERIFY_ADMIN_1784918491",
+    "BUGVERIFY_REASSIGN_1784918491"
+  ],
+  "cleanup": {
+    "BUGVERIFY_CLIENT_1784918491": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "hardware_id": "BUGVERIFY_CLIENT_1784918491",
+        "removed": {
+          "flowmeter_readings": 0,
+          "flowmeter_latest": 0,
+          "flowmeter_categories": 1,
+          "instrument_readings": 0,
+          "instrument_latest": 0,
+          "limits": 0
+        }
+      }
+    },
+    "BUGVERIFY_ADMIN_1784918491": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "hardware_id": "BUGVERIFY_ADMIN_1784918491",
+        "removed": {
+          "flowmeter_readings": 0,
+          "flowmeter_latest": 0,
+          "flowmeter_categories": 1,
+          "instrument_readings": 0,
+          "instrument_latest": 0,
+          "limits": 0
+        }
+      }
+    },
+    "BUGVERIFY_REASSIGN_1784918491": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "hardware_id": "BUGVERIFY_REASSIGN_1784918491",
+        "removed": {
+          "flowmeter_readings": 0,
+          "flowmeter_latest": 0,
+          "flowmeter_categories": 1,
+          "instrument_readings": 0,
+          "instrument_latest": 0,
+          "limits": 0
+        }
+      }
+    }
+  }
+}

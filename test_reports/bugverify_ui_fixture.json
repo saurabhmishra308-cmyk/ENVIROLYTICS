@@ -1,0 +1,9 @@
+{
+  "backend_url": "https://envirolytics-hub.preview.emergentagent.com",
+  "created": [
+    "BUGVERIFY_UI_CLIENT",
+    "BUGVERIFY_UI_ADMIN"
+  ],
+  "client_hw": "BUGVERIFY_UI_CLIENT",
+  "admin_hw": "BUGVERIFY_UI_ADMIN"
+}

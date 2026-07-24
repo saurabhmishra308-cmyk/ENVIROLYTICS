@@ -1,0 +1,16 @@
+{
+  "deleted": [],
+  "cleanup": {},
+  "bugverify_counts": {
+    "instrument_registry": 0,
+    "flowmeter_readings": 0,
+    "flowmeter_latest": 0,
+    "flowmeter_categories": 0,
+    "instrument_readings": 0,
+    "instrument_latest": 0
+  },
+  "required_users_exist": {
+    "admin@envirolytics.com": true,
+    "testclient@envirolytics.com": true
+  }
+}
