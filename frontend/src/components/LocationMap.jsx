@@ -168,6 +168,16 @@ const LocationMap = ({
         </div>`;
       }
       marker.bindPopup(popup);
+
+      // Hover tooltip — kept intentionally short. For admin (or whenever
+      // both `owner_name` + `location_name` are known), show "Owner · Location";
+      // otherwise fall back to whichever single field is present, else the label.
+      const tipParts = [];
+      if (loc.owner_name) tipParts.push(loc.owner_name);
+      if (loc.location_name) tipParts.push(loc.location_name);
+      const tipText = tipParts.length ? tipParts.join(' · ') : (loc.label || loc.hardware_id || loc.full_name || 'Instrument');
+      marker.bindTooltip(tipText, { direction: 'top', offset: [0, -8], opacity: 0.95 });
+
       marker.addTo(markersLayerRef.current);
       pts.push([lat, lng]);
     });

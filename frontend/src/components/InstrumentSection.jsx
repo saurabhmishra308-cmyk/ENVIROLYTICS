@@ -1,6 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { MapPin } from 'lucide-react';
 
 /**
  * A dashboard section grouping one or more instrument types under a category.
@@ -75,6 +76,15 @@ const InstrumentSection = ({
                   {t.hardware_id ? `${t.hardware_id}` : 'No device'}
                   {t.meta ? ` · ${t.meta}` : ''}
                 </p>
+                {t.location && (
+                  <p
+                    className={`text-xs mt-1 flex items-center gap-1 ${muted}`}
+                    data-testid={`tile-location-${t.label.toLowerCase()}-${t.hardware_id || 'pending'}`}
+                  >
+                    <MapPin className="h-3 w-3" />
+                    <span className="truncate" title={t.location}>{t.location}</span>
+                  </p>
+                )}
               </div>
             ))}
           </div>

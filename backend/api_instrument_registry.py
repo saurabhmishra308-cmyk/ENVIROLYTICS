@@ -108,20 +108,24 @@ async def _subscribe_topic(instrument_type: str, hardware_id: str):
 
 
 async def _enrich_with_owner(items: List[dict]) -> List[dict]:
-    """Attach owner email + name to each registry item."""
+    """Attach owner email + name + location to each registry item."""
     owner_ids = list({i["owner_user_id"] for i in items if i.get("owner_user_id")})
     if not owner_ids:
         return items
     owners = {
         u["id"]: u
         async for u in db.users.find(
-            {"id": {"$in": owner_ids}}, {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company_name": 1}
+            {"id": {"$in": owner_ids}},
+            {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company_name": 1, "location_name": 1},
         )
     }
     for it in items:
         owner = owners.get(it.get("owner_user_id"))
         it["owner_email"] = owner.get("email") if owner else None
         it["owner_name"] = (owner.get("full_name") or owner.get("company_name") or owner.get("email")) if owner else None
+        # Owner's home location — used by the dashboard tiles as a fallback
+        # when the device itself has no `location_name` set.
+        it["owner_location_name"] = owner.get("location_name") if owner else None
     return items
 
 
@@ -140,6 +144,10 @@ class CreateInstrumentRequest(BaseModel):
     # STP / DO meter — capacity metadata used by the Water Quality dashboard
     plant_capacity_kld: Optional[float] = Field(None, description="STP plant capacity in KLD (kilolitres per day)")
     tank_capacity_kld: Optional[float] = Field(None, description="Individual aeration tank capacity in KLD")
+    # How this device delivers telemetry to the backend. 'mqtt' (default) covers
+    # every device on the shared broker; 'http' is reserved for devices that
+    # POST readings over HTTP (e.g. ESPL / gateway REST endpoints).
+    source: Optional[str] = Field("mqtt", description="mqtt | http")
 
 
 class UpdateInstrumentRequest(BaseModel):
@@ -154,6 +162,7 @@ class UpdateInstrumentRequest(BaseModel):
     manual_water_temp_c: Optional[float] = None
     plant_capacity_kld: Optional[float] = None
     tank_capacity_kld: Optional[float] = None
+    source: Optional[str] = None
 
 
 # ---------------------------------------------------------------- routes
@@ -215,6 +224,7 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
         # Capacity metadata — STP + DO meter only, ignored for other types.
         "plant_capacity_kld": req.plant_capacity_kld if itype in ("wq_stp", "do_meter") else None,
         "tank_capacity_kld": req.tank_capacity_kld if itype in ("wq_stp", "do_meter") else None,
+        "source": (req.source or "mqtt").lower() if (req.source or "mqtt").lower() in ("mqtt", "http") else "mqtt",
         "device_key": secrets.token_urlsafe(24),  # for HTTPS ingestion auth
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": admin.get("id"),
@@ -281,6 +291,11 @@ async def update_instrument(hardware_id: str, req: UpdateInstrumentRequest, admi
         updates["plant_capacity_kld"] = float(req.plant_capacity_kld)
     if req.tank_capacity_kld is not None:
         updates["tank_capacity_kld"] = float(req.tank_capacity_kld)
+    if req.source is not None:
+        s = req.source.lower().strip()
+        if s not in ("mqtt", "http"):
+            raise HTTPException(status_code=400, detail="source must be 'mqtt' or 'http'")
+        updates["source"] = s
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")

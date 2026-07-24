@@ -34,7 +34,7 @@ const TotaliserCard = ({ label, value, isDarkMode, color = '#4a9fd8' }) => (
   </div>
 );
 
-const FlowmeterTile = ({ agg, isDarkMode, color, onClick }) => {
+const FlowmeterTile = ({ agg, isDarkMode, color, onClick, location }) => {
   const muted = isDarkMode ? 'text-gray-400' : 'text-gray-600';
   const text = isDarkMode ? 'text-white' : 'text-gray-900';
   const isLive = (agg.flow_rate_m3h || 0) > 0 || (agg.totaliser_forward_kl || 0) > 0;
@@ -65,6 +65,12 @@ const FlowmeterTile = ({ agg, isDarkMode, color, onClick }) => {
       {agg.totaliser_forward_kl > 0 && (
         <p className={`text-xs mt-2 ${muted}`}>Cumulative totaliser: <strong>{fmtNumber(agg.totaliser_forward_kl, 2)} KL</strong></p>
       )}
+      {location && (
+        <p className={`text-xs mt-2 flex items-center gap-1 ${muted}`} data-testid={`tile-location-${agg.hardware_id}`}>
+          <MapPin className="h-3 w-3" />
+          <span className="truncate" title={location}>{location}</span>
+        </p>
+      )}
     </div>
   );
 };
@@ -80,7 +86,13 @@ const EnhancedDashboard = () => {
   const [categories, setCategories] = useState([]); // [{hardware_id, category, label}]
   const [byType, setByType] = useState({ dwlr: [], ph: [], tds: [], conductivity: [] });
   const [mqttStatus, setMqttStatus] = useState({ connected: false });
+  const [telemetrySources, setTelemetrySources] = useState({
+    mqtt: { has_devices: true, connected: false },
+    http: { has_devices: false, connected: false },
+  });
   const [locations, setLocations] = useState([]);
+  // hardware_id → resolved location string (device.location_name ‖ owner.location_name)
+  const [locationByHw, setLocationByHw] = useState({});
   const [sendingSelfTest, setSendingSelfTest] = useState(false);
 
   const handleSelfTestAlert = useCallback(async () => {
@@ -181,19 +193,36 @@ const EnhancedDashboard = () => {
       // (admins see everything), so the map naturally shows only the client's own
       // instruments. Users see only their own devices' coordinates — nothing else.
       const { data } = await api.get('/api/instrument-registry');
-      const items = (data.instruments || data.items || []).filter(
-        (it) => it.latitude != null && it.longitude != null
-      );
-      setLocations(items.map((it) => ({
-        hardware_id: it.hardware_id,
-        instrument_type: it.instrument_type,
-        label: it.label || it.hardware_id,
-        location_name: it.location_name || null,
-        latitude: it.latitude,
-        longitude: it.longitude,
-        owner_name: it.owner_name || null,
-      })));
+      const rows = data.instruments || data.items || [];
+      const mapped = rows
+        .filter((it) => it.latitude != null && it.longitude != null)
+        .map((it) => ({
+          hardware_id: it.hardware_id,
+          instrument_type: it.instrument_type,
+          label: it.label || it.hardware_id,
+          location_name: it.location_name || it.owner_location_name || null,
+          latitude: it.latitude,
+          longitude: it.longitude,
+          owner_name: it.owner_name || null,
+        }));
+      setLocations(mapped);
+      // Every registered device (with or without coords) contributes to the
+      // hardware→location map so the tiles can render the 📍 line even when
+      // the device has no lat/lng set.
+      const byHw = {};
+      rows.forEach((it) => {
+        const loc = it.location_name || it.owner_location_name || null;
+        if (loc) byHw[it.hardware_id] = loc;
+      });
+      setLocationByHw(byHw);
     } catch (e) { logError(e, 'locations'); }
+  }, []);
+
+  const fetchTelemetrySources = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/telemetry/sources');
+      if (data) setTelemetrySources(data);
+    } catch (e) { logError(e, 'telemetry_sources'); }
   }, []);
 
   useEffect(() => {
@@ -202,11 +231,13 @@ const EnhancedDashboard = () => {
     fetchWeather();
     fetchLive();
     fetchLocations();
+    fetchTelemetrySources();
     const t = setInterval(fetchLive, POLL_MS);
+    const ts = setInterval(fetchTelemetrySources, POLL_MS * 3);
     // Refresh weather every 5 minutes so the "Live Weather Data" card stays current
     const tw = setInterval(fetchWeather, 5 * 60 * 1000);
-    return () => { clearInterval(t); clearInterval(tw); };
-  }, [navigate, fetchWeather, fetchLive, fetchLocations]);
+    return () => { clearInterval(t); clearInterval(ts); clearInterval(tw); };
+  }, [navigate, fetchWeather, fetchLive, fetchLocations, fetchTelemetrySources]);
 
   if (!user) return null;
 
@@ -235,6 +266,7 @@ const EnhancedDashboard = () => {
     value: pickValue(r.values, ['LEVEL', 'LVL', 'level', 'WATER_LEVEL'], '—'),
     unit: 'mWC',
     status: 'active',
+    location: locationByHw[r.hardware_id] || null,
     meta: r.manual_water_temp_c != null
       ? `${Number(r.manual_water_temp_c).toFixed(1)}°C`
       : (r.values?.WTEMP && Number(r.values.WTEMP) > 0 ? `${Number(r.values.WTEMP).toFixed(1)}°C`
@@ -252,10 +284,18 @@ const EnhancedDashboard = () => {
             <p className="text-white text-[8px] tracking-wider" style={{ opacity: 0.7 }}>SUSTAINABILITY PRIVATE LIMITED</p>
           </div>
           <div className="flex items-center gap-4">
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${mqttStatus.connected ? 'bg-green-600' : 'bg-red-600'}`} data-testid="dashboard-mqtt-badge">
-              <Activity className="h-3 w-3 text-white" />
-              <span className="text-xs text-white font-medium">MQTT {mqttStatus.connected ? 'LIVE' : 'OFFLINE'}</span>
-            </div>
+            {telemetrySources.mqtt?.has_devices && (
+              <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${mqttStatus.connected ? 'bg-green-600' : 'bg-red-600'}`} data-testid="dashboard-mqtt-badge">
+                <Activity className="h-3 w-3 text-white" />
+                <span className="text-xs text-white font-medium">MQTT {mqttStatus.connected ? 'LIVE' : 'OFFLINE'}</span>
+              </div>
+            )}
+            {telemetrySources.http?.has_devices && (
+              <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${telemetrySources.http?.connected ? 'bg-green-600' : 'bg-red-600'}`} data-testid="dashboard-http-badge">
+                <Activity className="h-3 w-3 text-white" />
+                <span className="text-xs text-white font-medium">HTTP {telemetrySources.http?.connected ? 'LIVE' : 'OFFLINE'}</span>
+              </div>
+            )}
             {isAdmin() && <span className="text-xs px-2 py-1 bg-purple-600 text-white rounded">ADMIN</span>}
             <Button
               onClick={handleSelfTestAlert}
@@ -307,7 +347,7 @@ const EnhancedDashboard = () => {
               <p className={`text-[10px] tracking-[0.28em] font-semibold ${
                 isDarkMode ? 'text-cyan-300' : 'text-cyan-700'
               }`}>
-                CENTRAL GROUND WATER AUTHORITY · STATE POLLUTION CONTROL BOARD · STATE GROUND WATER AUTHORITY COMPLIANT
+                CENTRAL / STATE POLLUTION CONTROL BOARD · CENTRAL GROUND WATER AUTHORITY · STATE GROUND WATER AUTHORITY COMPLIANT
               </p>
               <h2 className={`text-2xl md:text-3xl lg:text-4xl font-bold leading-tight ${text}`}>
                 Envirolytics Monitoring Console
@@ -394,7 +434,7 @@ const EnhancedDashboard = () => {
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {groundwater.map((a) => (
-                  <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#4a9fd8" onClick={() => navigate('/flowmeter')} />
+                  <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#4a9fd8" onClick={() => navigate('/flowmeter')} location={locationByHw[a.hardware_id]} />
                 ))}
               </div>
             )}

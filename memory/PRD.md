@@ -41,6 +41,17 @@ DWLRs and Water Quality (STP + DO Meter).
   delivery from the user edit dialog; every user can also self-test from the
   dashboard header. Sends a simple one-liner to the login email + admin-
   configured `notification_emails`. Rate-limited to 1 send / user / 60s.
+- **Dashboard telemetry-source badges** — separate `MQTT LIVE / OFFLINE`
+  and `HTTP LIVE / OFFLINE` badges in the header. Admin sees both always;
+  a client only sees a badge if they own at least one device on that
+  transport. Devices carry a `source` field (`mqtt` default | `http`)
+  editable via `PUT /api/instrument-registry/{hw_id}`.
+- **Instrument-location map with per-type colours** on the dashboard —
+  hover tooltip shows `Client · Location` for admin; each marker is
+  colour-coded by instrument type with a legend strip below.
+- **📍 Location line** rendered under every Flowmeter and DWLR tile using
+  the device's `location_name`, falling back to the owning user's
+  `location_name` when the device level is empty.
 - CSV/PDF report exports per device + date range
 
 ## Recent Changes (2026-07-11)
@@ -86,6 +97,7 @@ DWLRs and Water Quality (STP + DO Meter).
 - `GET  /api/flowmeter/traffic`
 - `POST /api/notifications/test-user/{user_id}`  (admin — per-user smoke test)
 - `POST /api/notifications/test-me`              (any auth user — self-test)
+- `GET  /api/telemetry/sources`                  (per-user MQTT/HTTP badge state)
 
 ## Data Models
 - `instrument_registry`: hardware_id, imei, instrument_type,

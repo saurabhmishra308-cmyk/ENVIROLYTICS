@@ -50,6 +50,8 @@ from api_instrument_registry import router as instrument_registry_router
 import api_instrument_registry
 from api_ingestion import router as ingestion_router
 import api_ingestion
+from api_telemetry import router as telemetry_router
+import api_telemetry
 import auth as auth_module
 
 
@@ -77,6 +79,7 @@ api_renewals.set_db(db)
 api_instrument_registry.set_db(db)
 api_instrument_registry.set_mqtt(mqtt_service)
 api_ingestion.set_db(db, mqtt_service)
+api_telemetry.set_db(db, mqtt_service)
 auth_module.set_db(db)
 
 # Create the main app
@@ -139,6 +142,7 @@ app.include_router(limits_router)
 app.include_router(renewals_router)
 app.include_router(instrument_registry_router)
 app.include_router(ingestion_router)
+app.include_router(telemetry_router)
 
 # Water quality (STP) + DO meter dashboards & reports
 from api_water_quality import router as water_quality_router  # noqa: E402
