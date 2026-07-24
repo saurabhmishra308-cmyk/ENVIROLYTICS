@@ -43,6 +43,23 @@ const LocationMap = ({
   const mapRef = useRef(null);
   const markersLayerRef = useRef(null);
 
+  // "Where are my devices?" — pans/zooms the map so every marker with valid
+  // coordinates is comfortably in view. No-op if there are 0 valid points.
+  const fitToDevices = React.useCallback(() => {
+    if (!mapRef.current || !window.L) return;
+    const L = window.L;
+    const pts = locations
+      .filter((l) => l.latitude != null && l.longitude != null)
+      .map((l) => [Number(l.latitude), Number(l.longitude)])
+      .filter(([a, b]) => !Number.isNaN(a) && !Number.isNaN(b));
+    if (pts.length === 0) return;
+    if (pts.length === 1) {
+      mapRef.current.setView(pts[0], 15, { animate: true });
+    } else {
+      mapRef.current.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 15, animate: true });
+    }
+  }, [locations]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -190,11 +207,33 @@ const LocationMap = ({
 
   return (
     <div className="w-full">
-      <div
-        ref={containerRef}
-        data-testid="location-map"
-        style={{ width: '100%', height, borderRadius: '0.75rem', overflow: 'hidden', zIndex: 0 }}
-      />
+      <div className="relative">
+        <div
+          ref={containerRef}
+          data-testid="location-map"
+          style={{ width: '100%', height, borderRadius: '0.75rem', overflow: 'hidden', zIndex: 0 }}
+        />
+        {/* Floating action button — one-click zoom to all of the current user's
+            instruments. Sits inside the map wrapper so it's always visible
+            without CSS positioning gymnastics. Rendered only when there is
+            at least one device with valid coordinates. */}
+        {locations.some((l) => l.latitude != null && l.longitude != null) && (
+          <button
+            type="button"
+            onClick={fitToDevices}
+            data-testid="map-fit-to-devices-btn"
+            className="absolute bottom-4 right-4 z-[400] inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-white text-gray-900 shadow-lg border border-gray-200 hover:bg-gray-50 hover:shadow-xl transition-shadow font-medium text-xs"
+            title="Zoom the map to fit all of my registered devices"
+            aria-label="Where are my devices?"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+              <circle cx="12" cy="10" r="3" />
+            </svg>
+            Where are my devices?
+          </button>
+        )}
+      </div>
       {showLegend && presentTypes.length > 0 && (
         <div
           className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-200"

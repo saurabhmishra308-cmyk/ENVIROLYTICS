@@ -68,6 +68,11 @@ const Instruments = () => {
   const [trafficOpen, setTrafficOpen] = useState(true);
   const [traffic, setTraffic] = useState(null);
 
+  // Live HTTP traffic (ESPL) panel state
+  const [esplOpen, setEsplOpen] = useState(true);
+  const [espl, setEspl] = useState(null);
+  const [esplPolling, setEsplPolling] = useState(false);
+
   // Dummy mode dialog (per-instrument)
   const [dummyOpen, setDummyOpen] = useState(false);
   const [dummyTarget, setDummyTarget] = useState(null);
@@ -139,6 +144,52 @@ const Instruments = () => {
     const id = setInterval(load, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, [admin, trafficOpen]);
+
+  // Poll the ESPL HTTP traffic buffer every 5s while the panel is open.
+  useEffect(() => {
+    if (!admin || !esplOpen) return undefined;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { data } = await api.get('/api/http-traffic/espl?limit=50');
+        if (!cancelled) setEspl(data);
+      } catch (e) {
+        if (!cancelled) setEspl({ error: formatApiError(e?.response?.data?.detail) });
+      }
+    };
+    load();
+    const id = setInterval(load, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [admin, esplOpen]);
+
+  const esplPollNow = async () => {
+    setEsplPolling(true);
+    try {
+      const { data } = await api.post('/api/http-traffic/espl/poll-now');
+      toast.success(`Polled ${data.polled} device${data.polled === 1 ? '' : 's'} · ${data.ok} ok · ${data.failed} failed`);
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Poll failed');
+    } finally {
+      setEsplPolling(false);
+    }
+  };
+
+  const esplExportCsv = () => {
+    // Same pattern the MQTT card uses — trigger a download via a hidden anchor.
+    const token = localStorage.getItem('envirolytics_token') || '';
+    const url = `${backendUrl}/api/http-traffic/espl/export.csv`;
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.blob())
+      .then((blob) => {
+        const link = document.createElement('a');
+        link.href = window.URL.createObjectURL(blob);
+        link.download = `espl_traffic_${Date.now()}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      })
+      .catch(() => toast.error('CSV export failed'));
+  };
 
   const adoptUnknownImei = (imei) => {
     // Prefill the create-instrument form with the IMEI so admin just needs
@@ -639,6 +690,115 @@ const Instruments = () => {
                                 : <span className="text-amber-700">{m.reason || 'dropped'}</span>}
                             </td>
                             <td className="p-2 text-right font-mono text-gray-600">{m.bytes}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
+
+      {/* ============ LIVE HTTP TRAFFIC — ESPL ============ */}
+      <Card className="border-t-4" style={{ borderTopColor: '#f59e0b' }} data-testid="espl-traffic-card">
+        <CardHeader className="cursor-pointer" onClick={() => setEsplOpen((v) => !v)}>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Activity className={`h-5 w-5 ${espl?.recent?.some?.((r) => r.ok) ? 'text-emerald-500 animate-pulse' : 'text-gray-400'}`} />
+              Live HTTP Traffic — ESPL
+              {espl && (
+                <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-medium">
+                  {(espl.total || 0) === 0 ? 'Idle' : `${espl.ok || 0}/${espl.total || 0} ok`}
+                </span>
+              )}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); esplExportCsv(); }} data-testid="espl-export-csv-btn">
+                Export CSV
+              </Button>
+              <Button size="sm" onClick={(e) => { e.stopPropagation(); esplPollNow(); }} disabled={esplPolling} data-testid="espl-poll-now-btn">
+                {esplPolling ? 'Polling…' : 'Poll now'}
+              </Button>
+              <span className="text-sm font-normal text-gray-500">
+                {esplOpen ? 'Hide ▲' : 'Show ▼'}
+              </span>
+            </div>
+          </CardTitle>
+          <CardDescription>
+            Shows the last 50 REST polls to <span className="font-mono">api.qenggonline.com</span>. Poller runs every 5 min per device. Failed polls appear in amber.
+          </CardDescription>
+        </CardHeader>
+        {esplOpen && (
+          <CardContent>
+            {espl?.error ? (
+              <div className="p-3 rounded bg-red-50 text-red-700 text-sm">{espl.error}</div>
+            ) : !espl ? (
+              <p className="text-center py-6 text-gray-500 text-sm">Loading traffic…</p>
+            ) : (
+              <div className="space-y-4">
+                {/* Counters */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="espl-traffic-counters">
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <p className="text-xs text-gray-600">Endpoint</p>
+                    <p className="text-sm font-mono font-semibold break-all">{espl.endpoint || '—'}</p>
+                  </div>
+                  <div className="p-3 bg-emerald-50 rounded-lg">
+                    <p className="text-xs text-gray-600">Total polls</p>
+                    <p className="text-2xl font-bold tabular-nums text-emerald-700">{espl.total ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-green-50 rounded-lg">
+                    <p className="text-xs text-gray-600">OK</p>
+                    <p className="text-2xl font-bold tabular-nums text-green-700">{espl.ok ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-amber-50 rounded-lg">
+                    <p className="text-xs text-gray-600">Failed</p>
+                    <p className="text-2xl font-bold tabular-nums text-amber-700">{espl.failed ?? 0}</p>
+                  </div>
+                </div>
+
+                {/* Poll log */}
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-xs" data-testid="espl-traffic-table">
+                    <thead className="bg-gray-50 border-b sticky top-0">
+                      <tr>
+                        <th className="text-left p-2 w-44">Time</th>
+                        <th className="text-left p-2 w-36">ESPL Device</th>
+                        <th className="text-left p-2 w-32">Hardware ID</th>
+                        <th className="text-left p-2 w-24">Device</th>
+                        <th className="text-left p-2">Result</th>
+                        <th className="text-right p-2 w-16">HTTP</th>
+                        <th className="text-right p-2 w-16">Bytes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(espl.recent || []).length === 0 ? (
+                        <tr><td colSpan={7} className="text-center py-6 text-gray-500">
+                          Idle — no polls yet. Poller runs every 5 min per device.
+                        </td></tr>
+                      ) : (
+                        (espl.recent || []).map((r) => (
+                          <tr key={r.seq} className={`border-b ${r.ok ? 'bg-white' : 'bg-amber-50/70'}`} data-testid={`espl-row-${r.seq}`}>
+                            <td className="p-2 font-mono text-gray-600 whitespace-nowrap">
+                              {new Date(r.ts).toLocaleString([], { year: '2-digit', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </td>
+                            <td className="p-2 font-mono">{r.device_id}</td>
+                            <td className="p-2 font-mono">{r.hardware_id || <span className="text-gray-400">—</span>}</td>
+                            <td className="p-2">
+                              <span className="text-[10px] uppercase tracking-wide bg-gray-100 rounded px-1.5 py-0.5">{r.instrument_type || '—'}</span>
+                            </td>
+                            <td className="p-2">
+                              {r.ok ? (
+                                <span className="text-emerald-700 font-medium">{r.result}</span>
+                              ) : (
+                                <span className="text-amber-700">{r.result}{r.error ? ` · ${r.error.slice(0, 60)}` : ''}</span>
+                              )}
+                            </td>
+                            <td className="p-2 text-right font-mono">{r.http_status || '—'}</td>
+                            <td className="p-2 text-right font-mono">{r.bytes ?? 0}</td>
                           </tr>
                         ))
                       )}

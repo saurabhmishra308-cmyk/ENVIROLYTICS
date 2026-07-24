@@ -52,6 +52,8 @@ from api_ingestion import router as ingestion_router
 import api_ingestion
 from api_telemetry import router as telemetry_router
 import api_telemetry
+from api_http_traffic import router as http_traffic_router
+import espl_poller
 import auth as auth_module
 
 
@@ -80,6 +82,7 @@ api_instrument_registry.set_db(db)
 api_instrument_registry.set_mqtt(mqtt_service)
 api_ingestion.set_db(db, mqtt_service)
 api_telemetry.set_db(db, mqtt_service)
+espl_poller.set_db(db)
 auth_module.set_db(db)
 
 # Create the main app
@@ -143,6 +146,7 @@ app.include_router(renewals_router)
 app.include_router(instrument_registry_router)
 app.include_router(ingestion_router)
 app.include_router(telemetry_router)
+app.include_router(http_traffic_router)
 
 # Water quality (STP) + DO meter dashboards & reports
 from api_water_quality import router as water_quality_router  # noqa: E402
@@ -174,6 +178,55 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# The two DO-Analyzer devices exposed through the QESPL/ESPL REST API.
+# Idempotent — only inserted if not already present in the registry.
+ESPL_SEED_DEVICES = [
+    {"hardware_id": "DTU10020426", "imei": "DTU10020426",
+     "label": "DO Analyzer · DTU10020426", "instrument_type": "do_meter"},
+    {"hardware_id": "DTU10020326", "imei": "DTU10020326",
+     "label": "DO Analyzer · DTU10020326", "instrument_type": "do_meter"},
+]
+
+
+async def _seed_espl_devices():
+    """Register the two ESPL DO-Analyzer devices under the primary admin.
+    No-op if either device is already in `instrument_registry`."""
+    admin = await db.users.find_one({"role": "admin"}, {"_id": 0, "id": 1})
+    if not admin:
+        logger.warning("[espl] no admin user found — skipping ESPL device seed")
+        return
+    import secrets
+    now_iso = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+    for d in ESPL_SEED_DEVICES:
+        existing = await db.instrument_registry.find_one({"hardware_id": d["hardware_id"]})
+        if existing:
+            # Ensure `source='http'` on legacy rows so the poller picks them up.
+            if existing.get("source") != "http":
+                await db.instrument_registry.update_one(
+                    {"hardware_id": d["hardware_id"]}, {"$set": {"source": "http"}}
+                )
+            continue
+        await db.instrument_registry.insert_one({
+            "hardware_id": d["hardware_id"],
+            "instrument_type": d["instrument_type"],
+            "owner_user_id": admin["id"],
+            "label": d["label"],
+            "location_name": None,
+            "latitude": None,
+            "longitude": None,
+            "category": None,
+            "imei": d["imei"],
+            "manual_water_temp_c": None,
+            "plant_capacity_kld": None,
+            "tank_capacity_kld": None,
+            "source": "http",
+            "device_key": secrets.token_urlsafe(24),
+            "created_at": now_iso,
+            "created_by": admin["id"],
+        })
+        logger.info(f"[espl] seeded {d['hardware_id']} (do_meter, source=http)")
 
 
 @app.on_event("startup")
@@ -245,6 +298,13 @@ async def startup_event():
     # Background loop for dummy-data generation (offline-instrument safety net)
     from dummy_data_service import dummy_data_loop
     app.state.dummy_task = asyncio.create_task(dummy_data_loop(db))
+    # Ensure the two ESPL DO-Analyzer devices are registered (idempotent)
+    try:
+        await _seed_espl_devices()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[espl] seed skipped/failed (non-fatal): {e}")
+    # Background loop for ESPL HTTP polling (5 min per device)
+    espl_poller.start_background(app)
     logger.info("Startup complete")
 
 
@@ -263,5 +323,6 @@ async def shutdown_db_client():
     ren = getattr(app.state, "renewals_task", None)
     if ren:
         ren.cancel()
+    await espl_poller.stop_background(app)
     client.close()
     logger.info("Services shut down")

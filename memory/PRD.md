@@ -52,6 +52,19 @@ DWLRs and Water Quality (STP + DO Meter).
 - **📍 Location line** rendered under every Flowmeter and DWLR tile using
   the device's `location_name`, falling back to the owning user's
   `location_name` when the device level is empty.
+- **ESPL / QESPL HTTP polling** — background poller in
+  `espl_poller.py` calls `POST https://api.qenggonline.com/api/getLatestDeviceIdData/`
+  every 5 min per registered `source='http'` device. Parses the vendor's
+  `param_N: "value#unit#label"` format into canonical `values` keys (DO,
+  DO_SATURATION, TEMPER, pH, TSS, TDS, COD, BOD, …) and stores each poll in
+  `instrument_readings` + `instrument_latest`. Two DO-Analyzer devices
+  (DTU10020426, DTU10020326) are auto-seeded on backend startup.
+- **Live HTTP Traffic — ESPL panel** on the Instruments page — mirrors the
+  MQTT panel, exposes the last 50 REST polls (Time / ESPL Device /
+  Hardware ID / Device / Result / HTTP / Bytes), amber rows for failed
+  polls, `Poll now` + `Export CSV` buttons.
+- **"Where are my devices?" floating action button** on the dashboard map —
+  one-click zoom-to-fit for every device the current user owns.
 - CSV/PDF report exports per device + date range
 
 ## Recent Changes (2026-07-11)
@@ -98,6 +111,9 @@ DWLRs and Water Quality (STP + DO Meter).
 - `POST /api/notifications/test-user/{user_id}`  (admin — per-user smoke test)
 - `POST /api/notifications/test-me`              (any auth user — self-test)
 - `GET  /api/telemetry/sources`                  (per-user MQTT/HTTP badge state)
+- `GET  /api/http-traffic/espl`                  (admin — ESPL poll log)
+- `POST /api/http-traffic/espl/poll-now`         (admin — force poll all HTTP devices)
+- `GET  /api/http-traffic/espl/export.csv`       (admin — CSV of last 50 polls)
 
 ## Data Models
 - `instrument_registry`: hardware_id, imei, instrument_type,
