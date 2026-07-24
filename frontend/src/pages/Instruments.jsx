@@ -57,7 +57,15 @@ const Instruments = () => {
   const [wipeOpen, setWipeOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editTarget, setEditTarget] = useState(null);
-  const [thresholdForm, setThresholdForm] = useState({ turbidity_k: '', chlorine_min: '', chlorine_max: '' });
+  const [thresholdForm, setThresholdForm] = useState({
+    turbidity_k: '',
+    chlorine_min: '',
+    chlorine_max: '',
+    chlorine_dose_target_mg_l: '',
+    chlorine_solution_pct: '',
+    chlorine_pump_kw: '',
+    chlorine_flow_kld: '',
+  });
   const [savingThresholds, setSavingThresholds] = useState(false);
   const [keyTarget, setKeyTarget] = useState(null); // {hardware_id, label, device_key, instrument_type}
 
@@ -416,6 +424,10 @@ const Instruments = () => {
       turbidity_k: it.turbidity_k != null ? String(it.turbidity_k) : '',
       chlorine_min: it.chlorine_min != null ? String(it.chlorine_min) : '',
       chlorine_max: it.chlorine_max != null ? String(it.chlorine_max) : '',
+      chlorine_dose_target_mg_l: it.chlorine_dose_target_mg_l != null ? String(it.chlorine_dose_target_mg_l) : '',
+      chlorine_solution_pct: it.chlorine_solution_pct != null ? String(it.chlorine_solution_pct) : '',
+      chlorine_pump_kw: it.chlorine_pump_kw != null ? String(it.chlorine_pump_kw) : '',
+      chlorine_flow_kld: it.chlorine_flow_kld != null ? String(it.chlorine_flow_kld) : '',
     });
     setEditOpen(true);
   };
@@ -427,10 +439,18 @@ const Instruments = () => {
     const tk = kv(thresholdForm.turbidity_k);
     const cmin = kv(thresholdForm.chlorine_min);
     const cmax = kv(thresholdForm.chlorine_max);
+    const target = kv(thresholdForm.chlorine_dose_target_mg_l);
+    const pct = kv(thresholdForm.chlorine_solution_pct);
+    const kw = kv(thresholdForm.chlorine_pump_kw);
+    const flow = kv(thresholdForm.chlorine_flow_kld);
     if (tk != null) body.turbidity_k = tk;
     if (cmin != null) body.chlorine_min = cmin;
     if (cmax != null) body.chlorine_max = cmax;
-    if (Object.keys(body).length === 0) { toast.error('Enter at least one threshold value'); return; }
+    if (target != null) body.chlorine_dose_target_mg_l = target;
+    if (pct != null) body.chlorine_solution_pct = pct;
+    if (kw != null) body.chlorine_pump_kw = kw;
+    if (flow != null) body.chlorine_flow_kld = flow;
+    if (Object.keys(body).length === 0) { toast.error('Enter at least one value to save'); return; }
     if (body.chlorine_min != null && body.chlorine_max != null && body.chlorine_min >= body.chlorine_max) {
       toast.error('Chlorine min must be less than max');
       return;
@@ -438,7 +458,7 @@ const Instruments = () => {
     setSavingThresholds(true);
     try {
       await api.put(`/api/water-quality/${editTarget.hardware_id}/thresholds`, body);
-      toast.success('Alert thresholds saved');
+      toast.success('Alert thresholds & dose config saved');
       refresh();
     } catch (e) {
       toast.error(formatApiError(e?.response?.data?.detail));
@@ -1146,9 +1166,50 @@ const Instruments = () => {
                     </>
                   )}
                 </div>
+                {/* Automated dose recommendation — plumbed into the Chlorine
+                    Analyzer + STP tabs so ops can act on the alert directly. */}
+                {(form.instrument_type === 'wq_stp' || form.instrument_type === 'chlorine_analyzer') && (
+                  <div className="mt-3 pt-3 border-t border-sky-200">
+                    <div className="text-xs font-semibold text-sky-900 mb-2">Chlorine dose config — powers the automated dose recommendation</div>
+                    <div className="grid grid-cols-4 gap-3">
+                      <div>
+                        <Label className="text-xs">Dose target (mg/L)</Label>
+                        <Input type="number" step="0.05" min="0" max="10"
+                               value={thresholdForm.chlorine_dose_target_mg_l}
+                               onChange={(e) => setThresholdForm({ ...thresholdForm, chlorine_dose_target_mg_l: e.target.value })}
+                               placeholder="1.0"
+                               data-testid="edit-instrument-dose-target" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Solution (% NaOCl)</Label>
+                        <Input type="number" step="0.5" min="0.5" max="100"
+                               value={thresholdForm.chlorine_solution_pct}
+                               onChange={(e) => setThresholdForm({ ...thresholdForm, chlorine_solution_pct: e.target.value })}
+                               placeholder="12"
+                               data-testid="edit-instrument-solution-pct" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Pump (kW)</Label>
+                        <Input type="number" step="0.01" min="0" max="100"
+                               value={thresholdForm.chlorine_pump_kw}
+                               onChange={(e) => setThresholdForm({ ...thresholdForm, chlorine_pump_kw: e.target.value })}
+                               placeholder="0.15"
+                               data-testid="edit-instrument-pump-kw" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Flow (KLD)</Label>
+                        <Input type="number" step="1" min="0"
+                               value={thresholdForm.chlorine_flow_kld}
+                               onChange={(e) => setThresholdForm({ ...thresholdForm, chlorine_flow_kld: e.target.value })}
+                               placeholder="uses plant capacity"
+                               data-testid="edit-instrument-chlorine-flow" />
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center justify-between mt-2">
                   <p className="text-[10.5px] text-sky-800 italic">
-                    Leave a field blank to keep the current value. Turbidity NTU is derived server-side as <code>TSS × k</code>.
+                    Leave blank to keep current values. Dose target defaults to the midpoint of min/max. Flow falls back to Plant Capacity.
                   </p>
                   <Button
                     type="button"

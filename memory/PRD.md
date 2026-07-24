@@ -84,6 +84,13 @@ DWLRs and Water Quality (STP + DO Meter).
   Analyzer layout with live Free-Chlorine + Dose-Setpoint gauges, capacity
   banner, history chart and CSV/PDF reports. New instrument type
   `chlorine_analyzer` is registerable from the Instruments page.
+- **Automated dose recommendation** — backend computes required Cl₂ (kg/day),
+  NaOCl solution volume (L/day), pump rate (mL/min) and dosing-pump energy
+  (kWh/day) from `chlorine_dose_target_mg_l`, `chlorine_solution_pct` (default
+  12), `chlorine_pump_kw` and `chlorine_flow_kld` (falls back to
+  `plant_capacity_kld`). All fields admin-editable per device via `PUT /api/water-quality/{hw}/thresholds`.
+  The Chlorine Analyzer tab shows a full 4-tile card; the STP tab embeds the
+  compact single-line variant inside the chlorine alert banner.
 - **"DO METER" → "DO ANALYZER"** display-only rename across the Water
   Quality page, Instruments dropdown, Dashboard DO tiles and the map
   legend. Backend `instrument_type` key remains `do_meter` (no migration).

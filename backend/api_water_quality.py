@@ -123,6 +123,70 @@ def _chlorine_status(value: float | None, cmin: float, cmax: float) -> dict:
     return {"status": "ok", "action": "Optimal", "min": cmin, "max": cmax}
 
 
+# NaOCl (12 % w/v) density in kg/L. Constant across the app — used to convert
+# the required chlorine-mass dose (kg pure Cl₂ per day) into a solution volume
+# for the dosing pump. 1.2 kg/L is standard for commercial 12 % NaOCl.
+_NAOCL_DENSITY_KG_PER_L = 1.2
+
+
+def _dose_recommendation(
+    current_cl: float | None,
+    target_cl: float | None,
+    flow_kld: float | None,
+    solution_pct: float | None,
+    pump_kw: float | None,
+) -> dict | None:
+    """Compute a plant-wide dose recommendation.
+
+    Returns a dict describing how much sodium-hypochlorite solution should
+    be dosed per day / per minute to move `current_cl` toward `target_cl`
+    given the plant's flow (`flow_kld` — kilolitres per day, ≡ m³/day).
+
+    * `delta_mg_l` — signed target − current gap (positive ⇒ need to dose more)
+    * `dose_kg_per_day` — mass of pure Cl₂ equivalent required (or excess if negative)
+    * `solution_l_per_day` — volume of NaOCl at `solution_pct` % strength
+    * `solution_ml_per_min` — pump rate equivalent (60·24 = 1440 min/day)
+    * `direction` — 'increase' | 'decrease' | 'hold'
+    * `energy_kwh_per_day` — dosing-pump energy contribution (kW × hours pump likely runs; assume 24 h if delta≠0)
+
+    Returns None when required inputs are missing (caller decides how to render).
+    """
+    if not isinstance(current_cl, (int, float)) or not isinstance(target_cl, (int, float)):
+        return None
+    if not isinstance(flow_kld, (int, float)) or flow_kld <= 0:
+        return None
+    pct = float(solution_pct) if isinstance(solution_pct, (int, float)) and solution_pct > 0 else 12.0
+    delta = float(target_cl) - float(current_cl)
+    # mg/L × KLD (= m³/day) × 10⁻³ = kg/day
+    dose_kg_day = round(delta * float(flow_kld) / 1000.0, 4)
+    # kg pure Cl₂ / (pct% × density) → litres of NaOCl solution per day
+    solution_l_day = round(abs(dose_kg_day) / ((pct / 100.0) * _NAOCL_DENSITY_KG_PER_L), 3)
+    solution_ml_min = round(solution_l_day * 1000.0 / 1440.0, 2)
+    if delta > 0.02:
+        direction = "increase"
+    elif delta < -0.02:
+        direction = "decrease"
+    else:
+        direction = "hold"
+    pump_energy = None
+    if isinstance(pump_kw, (int, float)) and pump_kw > 0 and direction != "hold":
+        # Assume the dosing pump runs continuously while the plant is on.
+        pump_energy = round(float(pump_kw) * 24.0, 2)
+    return {
+        "target_mg_l": float(target_cl),
+        "current_mg_l": float(current_cl),
+        "delta_mg_l": round(delta, 3),
+        "direction": direction,
+        "flow_kld": float(flow_kld),
+        "solution_pct": pct,
+        "dose_kg_per_day": abs(dose_kg_day),
+        "dose_signed_kg_per_day": dose_kg_day,
+        "solution_l_per_day": solution_l_day,
+        "solution_ml_per_min": solution_ml_min,
+        "energy_kwh_per_day": pump_energy,
+    }
+
+
 # --------------------------------------------------------------------------- helpers
 
 def _has_wq_permission(user: dict) -> bool:
@@ -258,7 +322,9 @@ async def latest_readings(
              "instrument_type": 1, "owner_user_id": 1, "dummy_config": 1,
              "plant_capacity_kld": 1, "tank_capacity_kld": 1,
              "stp_unit_config": 1, "aeration_videos": 1, "do_tank_config": 1,
-             "turbidity_k": 1, "chlorine_min": 1, "chlorine_max": 1},
+             "turbidity_k": 1, "chlorine_min": 1, "chlorine_max": 1,
+             "chlorine_dose_target_mg_l": 1, "chlorine_solution_pct": 1,
+             "chlorine_pump_kw": 1, "chlorine_flow_kld": 1},
         ):
             regs[reg["hardware_id"]] = reg
 
@@ -267,12 +333,32 @@ async def latest_readings(
         reg = regs.get(it.get("hardware_id")) or {}
         _derive_turbidity(it["values"], reg.get("turbidity_k"))
 
-    # Compute chlorine alerts for STP + chlorine_analyzer devices.
+    # Compute chlorine alerts + automated dose recommendations for STP +
+    # chlorine_analyzer devices. Recommendation falls back to
+    # `plant_capacity_kld` when the admin hasn't set a dedicated
+    # `chlorine_flow_kld`, so a single admin field (plant capacity) is
+    # enough to get a useful number on day one.
     for it in stp_items + chlorine_items:
         reg = regs.get(it.get("hardware_id")) or {}
         cmin = reg.get("chlorine_min") if isinstance(reg.get("chlorine_min"), (int, float)) else CHLORINE_MIN_DEFAULT
         cmax = reg.get("chlorine_max") if isinstance(reg.get("chlorine_max"), (int, float)) else CHLORINE_MAX_DEFAULT
         it["chlorine_alert"] = _chlorine_status(it["values"].get("CHLORINE"), cmin, cmax)
+        target = reg.get("chlorine_dose_target_mg_l")
+        # If no explicit target, aim for the midpoint of the safe band.
+        if not isinstance(target, (int, float)):
+            target = round((cmin + cmax) / 2.0, 2)
+        flow_kld = reg.get("chlorine_flow_kld")
+        if not isinstance(flow_kld, (int, float)) or flow_kld <= 0:
+            flow_kld = reg.get("plant_capacity_kld")
+        rec = _dose_recommendation(
+            current_cl=it["values"].get("CHLORINE"),
+            target_cl=target,
+            flow_kld=flow_kld,
+            solution_pct=reg.get("chlorine_solution_pct"),
+            pump_kw=reg.get("chlorine_pump_kw"),
+        )
+        if rec is not None:
+            it["chlorine_alert"]["recommendation"] = rec
 
     # Resolve derived gardening-flushing KLD (from linked flowmeter, if any)
     # and energy usage for each STP device before returning.
@@ -1017,10 +1103,20 @@ class WQThresholdsConfig(BaseModel):
     * `chlorine_min` / `chlorine_max` — free residual chlorine (mg/L). Any
       reading below `min` triggers an *"Increase dosing"* alert; anything
       above `max` triggers *"Decrease dosing"*.
+    * `chlorine_dose_target_mg_l` — setpoint the automated recommendation
+      aims for. Defaults to the midpoint of `min`/`max` when unset.
+    * `chlorine_solution_pct` — NaOCl solution strength (%, default 12).
+    * `chlorine_pump_kw` — dosing-pump rated kW (used for the energy tally).
+    * `chlorine_flow_kld` — plant flow through the analyser (KLD, ≡ m³/day).
+      Falls back to `plant_capacity_kld` when unset.
     """
     turbidity_k: Optional[float] = Field(default=None, ge=0.0, le=5.0)
     chlorine_min: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     chlorine_max: Optional[float] = Field(default=None, ge=0.0, le=10.0)
+    chlorine_dose_target_mg_l: Optional[float] = Field(default=None, ge=0.0, le=10.0)
+    chlorine_solution_pct: Optional[float] = Field(default=None, ge=0.5, le=100.0)
+    chlorine_pump_kw: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    chlorine_flow_kld: Optional[float] = Field(default=None, ge=0.0, le=1_000_000.0)
 
 
 @router.put("/{hardware_id}/thresholds")
@@ -1043,6 +1139,14 @@ async def update_wq_thresholds(
         updates["chlorine_min"] = float(cfg.chlorine_min)
     if cfg.chlorine_max is not None:
         updates["chlorine_max"] = float(cfg.chlorine_max)
+    if cfg.chlorine_dose_target_mg_l is not None:
+        updates["chlorine_dose_target_mg_l"] = float(cfg.chlorine_dose_target_mg_l)
+    if cfg.chlorine_solution_pct is not None:
+        updates["chlorine_solution_pct"] = float(cfg.chlorine_solution_pct)
+    if cfg.chlorine_pump_kw is not None:
+        updates["chlorine_pump_kw"] = float(cfg.chlorine_pump_kw)
+    if cfg.chlorine_flow_kld is not None:
+        updates["chlorine_flow_kld"] = float(cfg.chlorine_flow_kld)
     if updates.get("chlorine_min") is not None and updates.get("chlorine_max") is not None:
         if updates["chlorine_min"] >= updates["chlorine_max"]:
             raise HTTPException(status_code=400, detail="chlorine_min must be less than chlorine_max")

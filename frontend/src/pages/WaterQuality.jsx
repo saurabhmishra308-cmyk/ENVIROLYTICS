@@ -159,6 +159,57 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
 };
 
 // ------------------------- STP Plant Flow Diagram (industrial SCADA-style) -------------------------
+
+// Reusable dose-recommendation grid — rendered on the Chlorine Analyzer tab
+// AND (as a compact banner) on the STP tab whenever the backend emits a
+// `chlorine_alert.recommendation` payload.
+const DoseRecommendation = ({ r, compact = false }) => {
+  if (!r) return null;
+  const dirColor = r.direction === 'increase' ? 'text-amber-700 bg-amber-50 border-amber-200'
+    : r.direction === 'decrease' ? 'text-red-700 bg-red-50 border-red-200'
+    : 'text-emerald-700 bg-emerald-50 border-emerald-200';
+  const dirLabel = r.direction === 'increase' ? '▲ INCREASE'
+    : r.direction === 'decrease' ? '▼ DECREASE'
+    : '● HOLD';
+  if (compact) {
+    return (
+      <div className="text-[11px] font-mono flex flex-wrap gap-x-3 gap-y-1 mt-1" data-testid="dose-rec-compact">
+        <span className={`px-1.5 py-0.5 rounded ${dirColor}`}>{dirLabel}</span>
+        <span>Δ {r.delta_mg_l > 0 ? '+' : ''}{r.delta_mg_l} mg/L</span>
+        <span>{r.dose_kg_per_day} kg/day Cl₂</span>
+        <span>{r.solution_l_per_day} L/day NaOCl @ {r.solution_pct}%</span>
+        <span>≈ {r.solution_ml_per_min} mL/min</span>
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className={`rounded border p-3 ${dirColor}`}>
+        <p className="text-xs opacity-80">Direction</p>
+        <p className="text-lg font-bold tracking-wide" data-testid="dose-direction">{dirLabel}</p>
+        <p className="text-[10.5px] opacity-80">Δ {r.delta_mg_l > 0 ? '+' : ''}{r.delta_mg_l} mg/L</p>
+      </div>
+      <div className="rounded border p-3 bg-white">
+        <p className="text-xs text-gray-600">Cl₂ mass required</p>
+        <p className="text-lg font-bold tabular-nums" data-testid="dose-kg-day">{r.dose_kg_per_day} kg/day</p>
+        <p className="text-[10.5px] text-gray-500">on {r.flow_kld} KLD flow</p>
+      </div>
+      <div className="rounded border p-3 bg-white">
+        <p className="text-xs text-gray-600">NaOCl solution ({r.solution_pct}%)</p>
+        <p className="text-lg font-bold tabular-nums" data-testid="dose-l-day">{r.solution_l_per_day} L/day</p>
+        <p className="text-[10.5px] text-gray-500">≈ {r.solution_ml_per_min} mL/min pump rate</p>
+      </div>
+      <div className="rounded border p-3 bg-white">
+        <p className="text-xs text-gray-600">Target residual</p>
+        <p className="text-lg font-bold tabular-nums">{r.target_mg_l} mg/L</p>
+        {r.energy_kwh_per_day != null && (
+          <p className="text-[10.5px] text-gray-500">Pump energy ≈ {r.energy_kwh_per_day} kWh/day</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceLabel, lastReceivedAt, stpUnitConfig = {}, stpDerived = {}, onEditConfig, canManage = false }) => {
   const cod = typeof values.COD === 'number' ? values.COD : null;
   const bod = typeof values.BOD === 'number' ? values.BOD : null;
@@ -1027,17 +1078,24 @@ const WaterQuality = () => {
               that is outside the admin-configured band. */}
           {currentDevice?.chlorine_alert && currentDevice.chlorine_alert.status !== 'unknown' && currentDevice.chlorine_alert.status !== 'ok' && (
             <div
-              className={`rounded-lg border p-3 text-sm flex items-center gap-3 ${currentDevice.chlorine_alert.status === 'low' ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-red-50 border-red-300 text-red-900'}`}
+              className={`rounded-lg border p-3 text-sm ${currentDevice.chlorine_alert.status === 'low' ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-red-50 border-red-300 text-red-900'}`}
               data-testid="stp-chlorine-alert"
             >
-              <AlertCircle className={`h-5 w-5 ${currentDevice.chlorine_alert.status === 'low' ? 'text-amber-600' : 'text-red-600'}`} />
-              <div className="flex-1">
-                <strong>Chlorine {currentDevice.chlorine_alert.status === 'low' ? 'below' : 'above'} safe range —</strong>{' '}
-                {currentDevice.chlorine_alert.action}.
-                <span className="ml-2 font-mono text-xs opacity-80">
-                  reading {typeof currentValues.CHLORINE === 'number' ? currentValues.CHLORINE.toFixed(2) : '—'} mg/L · safe band {currentDevice.chlorine_alert.min}–{currentDevice.chlorine_alert.max} mg/L
-                </span>
+              <div className="flex items-center gap-3">
+                <AlertCircle className={`h-5 w-5 ${currentDevice.chlorine_alert.status === 'low' ? 'text-amber-600' : 'text-red-600'}`} />
+                <div className="flex-1">
+                  <strong>Chlorine {currentDevice.chlorine_alert.status === 'low' ? 'below' : 'above'} safe range —</strong>{' '}
+                  {currentDevice.chlorine_alert.action}.
+                  <span className="ml-2 font-mono text-xs opacity-80">
+                    reading {typeof currentValues.CHLORINE === 'number' ? currentValues.CHLORINE.toFixed(2) : '—'} mg/L · safe band {currentDevice.chlorine_alert.min}–{currentDevice.chlorine_alert.max} mg/L
+                  </span>
+                </div>
               </div>
+              {currentDevice.chlorine_alert.recommendation && (
+                <div className="pl-8 pt-2 border-t border-current/20 mt-2">
+                  <DoseRecommendation r={currentDevice.chlorine_alert.recommendation} compact />
+                </div>
+              )}
             </div>
           )}
           {/* STP: gauges + realistic plant flow diagram */}
@@ -1288,6 +1346,24 @@ const WaterQuality = () => {
               )}
             </CardContent>
           </Card>
+          {/* Automated dose recommendation — shown when the admin has set at
+              least a target + flow (chlorine_alert.recommendation is only
+              emitted when we have enough inputs to compute it). */}
+          {currentDevice?.chlorine_alert?.recommendation && (
+            <Card data-testid="chlorine-dose-recommendation">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FlaskConical className="h-5 w-5 text-amber-500" /> Recommended Dose (automated)
+                </CardTitle>
+                <CardDescription>
+                  Computed from the live chlorine reading, admin-set target and plant flow. Updates every 30 s.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DoseRecommendation r={currentDevice.chlorine_alert.recommendation} />
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
 
