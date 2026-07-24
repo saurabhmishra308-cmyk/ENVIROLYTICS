@@ -48,19 +48,39 @@ LABEL_MAP = {
     "do": "DO",
     "dissolved oxygen": "DO",
     "saturation": "DO_SATURATION",
+    "do saturation": "DO_SATURATION",
     "temperature": "TEMPER",
     "temp": "TEMPER",
+    "water temp": "TEMPER",
     "ph": "PH",
+    "p h": "PH",
     "tss": "TSS",
+    "suspended solids": "TSS",
     "tds": "TDS",
     "cod": "COD",
     "bod": "BOD",
     "orp": "ORP",
     "turbidity": "TURBIDITY",
+    "ntu": "TURBIDITY",
     "conductivity": "CONDUCTIVITY",
     "flow": "FLOW",
     "level": "LEVEL",
+    # Chlorine — accept every common label the vendor might send.
+    "chlorine": "CHLORINE",
+    "free chlorine": "CHLORINE",
+    "residual chlorine": "CHLORINE",
+    "free residual chlorine": "CHLORINE",
+    "cl2": "CHLORINE",
+    "cl": "CHLORINE",
+    "hocl": "CHLORINE",
+    "chlorine dose": "CHLORINE_DOSE",
+    "cl2 dose": "CHLORINE_DOSE",
+    "chlorine setpoint": "CHLORINE_DOSE",
+    "dose setpoint": "CHLORINE_DOSE",
 }
+
+# TSS → Turbidity fallback coefficient (device-level `turbidity_k` overrides).
+_TURBIDITY_K_DEFAULT = 0.5
 
 
 class _State:
@@ -132,6 +152,14 @@ async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]
     # Vendor sends naive "YYYY-MM-DDTHH:MM:SS" — treat as UTC for simplicity.
     if isinstance(ts, str) and "T" in ts and "+" not in ts and "Z" not in ts:
         ts = ts + "Z"
+    # If the vendor sent TSS but not turbidity, derive it now using the
+    # device-level `turbidity_k` (defaults to 0.5 — TSS/2, domestic-sewage
+    # rule of thumb). This mirrors the derivation the /water-quality API
+    # applies at read-time for MQTT devices.
+    if "TURBIDITY" not in values and isinstance(values.get("TSS"), (int, float)):
+        k = device.get("turbidity_k")
+        k = float(k) if isinstance(k, (int, float)) else _TURBIDITY_K_DEFAULT
+        values["TURBIDITY"] = round(values["TSS"] * k, 2)
     reading = {
         "hardware_id": device["hardware_id"],
         "instrument_type": device.get("instrument_type", "do_meter"),
@@ -220,7 +248,7 @@ async def _http_devices() -> List[dict]:
         return []
     cursor = _State.db.instrument_registry.find(
         {"source": "http"},
-        {"_id": 0, "hardware_id": 1, "instrument_type": 1, "imei": 1, "owner_user_id": 1},
+        {"_id": 0, "hardware_id": 1, "instrument_type": 1, "imei": 1, "owner_user_id": 1, "turbidity_k": 1},
     )
     return await cursor.to_list(length=500)
 

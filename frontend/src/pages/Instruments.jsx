@@ -57,6 +57,8 @@ const Instruments = () => {
   const [wipeOpen, setWipeOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editTarget, setEditTarget] = useState(null);
+  const [thresholdForm, setThresholdForm] = useState({ turbidity_k: '', chlorine_min: '', chlorine_max: '' });
+  const [savingThresholds, setSavingThresholds] = useState(false);
   const [keyTarget, setKeyTarget] = useState(null); // {hardware_id, label, device_key, instrument_type}
 
   // MQTT simulate dialog (admin-only end-to-end verification)
@@ -407,7 +409,42 @@ const Instruments = () => {
       plant_capacity_kld: it.plant_capacity_kld != null ? String(it.plant_capacity_kld) : '',
       tank_capacity_kld: it.tank_capacity_kld != null ? String(it.tank_capacity_kld) : '',
     });
+    // Preload the alert-threshold section — kept in a separate form so the
+    // "Save thresholds" button posts to the dedicated /thresholds endpoint
+    // without accidentally sending stale registry fields.
+    setThresholdForm({
+      turbidity_k: it.turbidity_k != null ? String(it.turbidity_k) : '',
+      chlorine_min: it.chlorine_min != null ? String(it.chlorine_min) : '',
+      chlorine_max: it.chlorine_max != null ? String(it.chlorine_max) : '',
+    });
     setEditOpen(true);
+  };
+
+  const saveThresholds = async () => {
+    if (!editTarget) return;
+    const body = {};
+    const kv = (s) => { const n = parseFloat(String(s ?? '').trim()); return Number.isFinite(n) ? n : null; };
+    const tk = kv(thresholdForm.turbidity_k);
+    const cmin = kv(thresholdForm.chlorine_min);
+    const cmax = kv(thresholdForm.chlorine_max);
+    if (tk != null) body.turbidity_k = tk;
+    if (cmin != null) body.chlorine_min = cmin;
+    if (cmax != null) body.chlorine_max = cmax;
+    if (Object.keys(body).length === 0) { toast.error('Enter at least one threshold value'); return; }
+    if (body.chlorine_min != null && body.chlorine_max != null && body.chlorine_min >= body.chlorine_max) {
+      toast.error('Chlorine min must be less than max');
+      return;
+    }
+    setSavingThresholds(true);
+    try {
+      await api.put(`/api/water-quality/${editTarget.hardware_id}/thresholds`, body);
+      toast.success('Alert thresholds saved');
+      refresh();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+    } finally {
+      setSavingThresholds(false);
+    }
   };
 
   const handleEdit = async () => {
@@ -1071,6 +1108,59 @@ const Instruments = () => {
                   <Input type="number" step="1" value={form.tank_capacity_kld}
                          onChange={(e) => setForm({ ...form, tank_capacity_kld: e.target.value })}
                          data-testid="edit-instrument-tank-cap" />
+                </div>
+              </div>
+            )}
+            {(form.instrument_type === 'wq_stp' || form.instrument_type === 'chlorine_analyzer' || form.instrument_type === 'do_meter') && (
+              <div className="rounded border bg-sky-50/60 p-3 border-sky-200" data-testid="edit-instrument-thresholds">
+                <div className="text-xs font-semibold text-sky-900 mb-2">Alert thresholds (admin-only)</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {form.instrument_type === 'wq_stp' && (
+                    <div>
+                      <Label className="text-xs">Turbidity k (TSS × k)</Label>
+                      <Input type="number" step="0.01" min="0" max="5"
+                             value={thresholdForm.turbidity_k}
+                             onChange={(e) => setThresholdForm({ ...thresholdForm, turbidity_k: e.target.value })}
+                             placeholder="0.5"
+                             data-testid="edit-instrument-turbidity-k" />
+                    </div>
+                  )}
+                  {(form.instrument_type === 'wq_stp' || form.instrument_type === 'chlorine_analyzer') && (
+                    <>
+                      <div>
+                        <Label className="text-xs">Chlorine min (mg/L)</Label>
+                        <Input type="number" step="0.01" min="0" max="10"
+                               value={thresholdForm.chlorine_min}
+                               onChange={(e) => setThresholdForm({ ...thresholdForm, chlorine_min: e.target.value })}
+                               placeholder="0.2"
+                               data-testid="edit-instrument-chlorine-min" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Chlorine max (mg/L)</Label>
+                        <Input type="number" step="0.01" min="0" max="10"
+                               value={thresholdForm.chlorine_max}
+                               onChange={(e) => setThresholdForm({ ...thresholdForm, chlorine_max: e.target.value })}
+                               placeholder="2.0"
+                               data-testid="edit-instrument-chlorine-max" />
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-[10.5px] text-sky-800 italic">
+                    Leave a field blank to keep the current value. Turbidity NTU is derived server-side as <code>TSS × k</code>.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-[11px] border-sky-400 text-sky-800 hover:bg-sky-100"
+                    onClick={saveThresholds}
+                    disabled={savingThresholds}
+                    data-testid="edit-instrument-save-thresholds"
+                  >
+                    {savingThresholds ? 'Saving…' : 'Save thresholds'}
+                  </Button>
                 </div>
               </div>
             )}

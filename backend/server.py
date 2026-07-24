@@ -180,55 +180,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# The two DO-Analyzer devices exposed through the QESPL/ESPL REST API.
-# Idempotent — only inserted if not already present in the registry.
-ESPL_SEED_DEVICES = [
-    {"hardware_id": "DTU10020426", "imei": "DTU10020426",
-     "label": "DO Analyzer · DTU10020426", "instrument_type": "do_meter"},
-    {"hardware_id": "DTU10020326", "imei": "DTU10020326",
-     "label": "DO Analyzer · DTU10020326", "instrument_type": "do_meter"},
-]
-
-
-async def _seed_espl_devices():
-    """Register the two ESPL DO-Analyzer devices under the primary admin.
-    No-op if either device is already in `instrument_registry`."""
-    admin = await db.users.find_one({"role": "admin"}, {"_id": 0, "id": 1})
-    if not admin:
-        logger.warning("[espl] no admin user found — skipping ESPL device seed")
-        return
-    import secrets
-    now_iso = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
-    for d in ESPL_SEED_DEVICES:
-        existing = await db.instrument_registry.find_one({"hardware_id": d["hardware_id"]})
-        if existing:
-            # Ensure `source='http'` on legacy rows so the poller picks them up.
-            if existing.get("source") != "http":
-                await db.instrument_registry.update_one(
-                    {"hardware_id": d["hardware_id"]}, {"$set": {"source": "http"}}
-                )
-            continue
-        await db.instrument_registry.insert_one({
-            "hardware_id": d["hardware_id"],
-            "instrument_type": d["instrument_type"],
-            "owner_user_id": admin["id"],
-            "label": d["label"],
-            "location_name": None,
-            "latitude": None,
-            "longitude": None,
-            "category": None,
-            "imei": d["imei"],
-            "manual_water_temp_c": None,
-            "plant_capacity_kld": None,
-            "tank_capacity_kld": None,
-            "source": "http",
-            "device_key": secrets.token_urlsafe(24),
-            "created_at": now_iso,
-            "created_by": admin["id"],
-        })
-        logger.info(f"[espl] seeded {d['hardware_id']} (do_meter, source=http)")
-
-
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting Envirolytics Monitor API...")
@@ -298,12 +249,9 @@ async def startup_event():
     # Background loop for dummy-data generation (offline-instrument safety net)
     from dummy_data_service import dummy_data_loop
     app.state.dummy_task = asyncio.create_task(dummy_data_loop(db))
-    # Ensure the two ESPL DO-Analyzer devices are registered (idempotent)
-    try:
-        await _seed_espl_devices()
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[espl] seed skipped/failed (non-fatal): {e}")
-    # Background loop for ESPL HTTP polling (5 min per device)
+    # Background loop for ESPL HTTP polling (5 min per device). Devices are
+    # picked up from the registry whenever an admin registers one with
+    # `source='http'` — no hardcoded devices.
     espl_poller.start_background(app)
     logger.info("Startup complete")
 

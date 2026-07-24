@@ -56,9 +56,10 @@ DWLRs and Water Quality (STP + DO Meter).
   `espl_poller.py` calls `POST https://api.qenggonline.com/api/getLatestDeviceIdData/`
   every 5 min per registered `source='http'` device. Parses the vendor's
   `param_N: "value#unit#label"` format into canonical `values` keys (DO,
-  DO_SATURATION, TEMPER, pH, TSS, TDS, COD, BOD, …) and stores each poll in
-  `instrument_readings` + `instrument_latest`. Two DO-Analyzer devices
-  (DTU10020426, DTU10020326) are auto-seeded on backend startup.
+  DO_SATURATION, TEMPER, pH, TSS, TDS, COD, BOD, CHLORINE, CHLORINE_DOSE,
+  TURBIDITY, ORP, CONDUCTIVITY …) and derives `TURBIDITY = TSS × k` when
+  the vendor didn't send it directly. Devices are added by admins via the
+  Instruments page — no hardcoded seeds.
 - **Live HTTP Traffic — ESPL panel** on the Instruments page — mirrors the
   MQTT panel, exposes the last 50 REST polls (Time / ESPL Device /
   Hardware ID / Device / Result / HTTP / Bytes), amber rows for failed
