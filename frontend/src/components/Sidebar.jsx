@@ -46,12 +46,13 @@ const Sidebar = () => {
     { path: '/site', icon: MapPin, label: 'Site' },
     { path: '/user', icon: Users, label: 'User' },
     { path: '/certificates', icon: Award, label: 'Certificates' },
+    { path: '/audit-log', icon: History, label: 'Instrument Report' },
   ];
   if (wqAllowed) {
     baseMenu.push({ path: '/water-quality', icon: Droplets, label: 'Water Quality' });
   }
   const menuItems = admin
-    ? [...baseMenu, { path: '/instruments', icon: Cpu, label: 'Instruments' }, { path: '/audit-log', icon: History, label: 'Instrument Report' }]
+    ? [...baseMenu, { path: '/instruments', icon: Cpu, label: 'Instruments' }]
     : baseMenu;
 
   const isActive = (path) => location.pathname === path;

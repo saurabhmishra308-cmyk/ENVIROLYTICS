@@ -37,7 +37,7 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from auth import require_admin
+from auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -200,21 +200,23 @@ async def _events_for_instrument(reg: dict, start: datetime) -> Dict:
 @router.get("/events")
 async def instrument_events(
     days: int = Query(7, ge=1, le=90, description="Lookback window in days"),
-    admin: dict = Depends(require_admin),
+    user: dict = Depends(get_current_user),
 ):
-    """Grouped connectivity + power-cycle timeline for every user + device.
+    """Grouped connectivity + power-cycle timeline.
 
-    Admin-only. Non-admin roles have no reason to see other users' devices,
-    and the offline-alerts banner already covers the client's own instruments.
+    * Admin — sees every user and every registered device.
+    * Client / sub-user — sees only their own installed instruments.
     """
     if db is None:
         raise HTTPException(status_code=503, detail="Database not initialised")
 
     start = datetime.now(timezone.utc) - timedelta(days=days)
+    is_admin = user.get("role") == "admin"
 
-    # Load every registered instrument + owner in a single pass.
+    # Load registered instruments — admins see all, everyone else only their own.
+    reg_query: Dict = {} if is_admin else {"owner_user_id": user.get("id")}
     registry: List[dict] = []
-    async for reg in db.instrument_registry.find({}, {"_id": 0}):
+    async for reg in db.instrument_registry.find(reg_query, {"_id": 0}):
         registry.append(reg)
 
     owner_ids = list({r.get("owner_user_id") for r in registry if r.get("owner_user_id")})
