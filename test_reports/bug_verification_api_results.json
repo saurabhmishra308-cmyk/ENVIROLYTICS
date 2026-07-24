@@ -1,0 +1,349 @@
+{
+  "base_url": "https://envirolytics-hub.preview.emergentagent.com",
+  "db": "test_database",
+  "results": [
+    {
+      "name": "admin login works",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzBhNWQ2MWQ4ZTM0MiIsImVtYWlsIjoiYWRtaW5AZW52aXJvbHl0aWNzLmNvbSIsInJvbGUiOiJhZG1pbiIsImV4cCI6MTc4NTAwNDQwOSwidHlwZSI6ImFjY2VzcyJ9.fkzQ2qCoutix3FFBKsjzqZvkvYLVrkYcWLzJU9AkEDU",
+          "token_type": "bearer",
+          "user": {
+            "id": "user_0a5d61d8e342",
+            "email": "admin@envirolytics.com",
+            "full_name": "Envirolytics Admin",
+            "role": "admin",
+            "permissions": {
+              "dashboard": true,
+              "reports": true,
+              "analysis": true,
+              "certificates": true,
+              "audit": true,
+              "limits": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "required testclient login works",
+      "ok": false,
+      "details": {
+        "status": 401,
+        "body": {
+          "detail": "Invalid email or password"
+        }
+      }
+    },
+    {
+      "name": "initial exactly admin + testclient users",
+      "ok": false,
+      "details": {
+        "users": [
+          {
+            "id": "user_0a5d61d8e342",
+            "email": "admin@envirolytics.com",
+            "role": "admin",
+            "is_active": true
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "name": "initial admin registry count zero",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "instruments": [],
+          "count": 0
+        }
+      }
+    },
+    {
+      "name": "initial water-quality latest empty arrays",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "unit": "mg/L",
+          "stp_params_meta": {
+            "COD": {
+              "unit_default": "mg/L",
+              "min": 0.0,
+              "max": 500.0,
+              "safe_max": 250.0
+            },
+            "BOD": {
+              "unit_default": "mg/L",
+              "min": 0.0,
+              "max": 300.0,
+              "safe_max": 30.0
+            },
+            "TSS": {
+              "unit_default": "mg/L",
+              "min": 0.0,
+              "max": 500.0,
+              "safe_max": 100.0
+            },
+            "PH": {
+              "unit_default": "pH",
+              "min": 0.0,
+              "max": 14.0,
+              "safe_min": 6.5,
+              "safe_max": 8.5
+            },
+            "TURBIDITY": {
+              "unit_default": "NTU",
+              "min": 0.0,
+              "max": 500.0,
+              "safe_max": 10.0
+            },
+            "CHLORINE": {
+              "unit_default": "mg/L",
+              "min": 0.0,
+              "max": 5.0,
+              "safe_min": 0.2,
+              "safe_max": 2.0
+            }
+          },
+          "do_params_meta": {
+            "DO_TANK_1": {
+              "unit_default": "mg/L",
+              "min": 0.0,
+              "max": 20.0,
+              "safe_min": 2.0,
+              "safe_max": 8.0
+            },
+            "DO_TANK_2": {
+              "unit_default": "mg/L",
+              "min": 0.0,
+              "max": 20.0,
+              "safe_min": 2.0,
+              "safe_max": 8.0
+            }
+          },
+          "chlorine_params_meta": {
+            "CHLORINE": {
+              "unit_default": "mg/L",
+              "min": 0.0,
+              "max": 5.0,
+              "safe_min": 0.2,
+              "safe_max": 2.0
+            },
+            "CHLORINE_DOSE": {
+              "unit_default": "mg/L",
+              "min": 0.0,
+              "max": 5.0,
+              "safe_min": 0.5,
+              "safe_max": 3.0
+            }
+          },
+          "stp": [],
+          "do": [],
+          "chlorine": []
+        }
+      }
+    },
+    {
+      "name": "initial readings/latest collections empty",
+      "ok": true,
+      "details": {
+        "instrument_readings": 0,
+        "instrument_latest": 0,
+        "flowmeter_readings": 0,
+        "flowmeter_latest": 0
+      }
+    },
+    {
+      "name": "admin can register real flowmeter",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "instrument": {
+            "hardware_id": "BUGVERIFY_FM_260724",
+            "instrument_type": "flowmeter",
+            "owner_user_id": "user_0a5d61d8e342",
+            "label": "BugVerify Real Flowmeter",
+            "location_name": "BugVerify Live Site",
+            "latitude": null,
+            "longitude": null,
+            "category": "groundwater_abstraction",
+            "imei": "BUGVERIFYIMEIFM260724",
+            "manual_water_temp_c": null,
+            "plant_capacity_kld": null,
+            "tank_capacity_kld": null,
+            "source": "mqtt",
+            "device_key": "I_Fr-JOYizXTnGfxgV2dYkpTlBmqFoCp",
+            "created_at": "2026-07-24T18:33:29.930865+00:00",
+            "created_by": "user_0a5d61d8e342"
+          }
+        }
+      }
+    },
+    {
+      "name": "duplicate hardware_id POST returns 409",
+      "ok": true,
+      "details": {
+        "status": 409,
+        "body": {
+          "detail": "Instrument 'BUGVERIFY_FM_260724' already registered"
+        }
+      }
+    },
+    {
+      "name": "flowmeter live ingest stores vendor TIME ISO UTC and creates latest",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "hardware_id": "BUGVERIFY_FM_260724",
+          "instrument_type": "flowmeter"
+        },
+        "counts": {
+          "flowmeter_readings": 1,
+          "flowmeter_latest": 1
+        },
+        "timestamp": "2026-07-03T13:52:19+00:00"
+      }
+    },
+    {
+      "name": "admin delete flowmeter cascades registry/readings/latest/categories",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "hardware_id": "BUGVERIFY_FM_260724",
+          "removed": {
+            "flowmeter_readings": 1,
+            "flowmeter_latest": 1,
+            "flowmeter_categories": 1,
+            "instrument_readings": 0,
+            "instrument_latest": 0,
+            "limits": 0
+          }
+        },
+        "counts": {
+          "registry": 0,
+          "flowmeter_readings": 0,
+          "flowmeter_latest": 0,
+          "flowmeter_categories": 0
+        }
+      }
+    },
+    {
+      "name": "admin can register DWLR",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "instrument": {
+            "hardware_id": "BUGVERIFY_DWLR_260724",
+            "instrument_type": "dwlr",
+            "owner_user_id": "user_0a5d61d8e342",
+            "label": "BugVerify DWLR",
+            "location_name": "BugVerify Admin Site",
+            "latitude": null,
+            "longitude": null,
+            "category": null,
+            "imei": "BUGVERIFYIMEIDWLR260724",
+            "manual_water_temp_c": 24.2,
+            "plant_capacity_kld": null,
+            "tank_capacity_kld": null,
+            "source": "mqtt",
+            "device_key": "pGxAWzCfm_lZ8X4Jxf1vvnfRnYPKS4jf",
+            "created_at": "2026-07-24T18:33:30.382655+00:00",
+            "created_by": "user_0a5d61d8e342"
+          }
+        }
+      }
+    },
+    {
+      "name": "DWLR MQTT simulation stores vendor TIME as ISO UTC timestamp",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "dispatched": true,
+          "topic": "PBUGVERIFY/0",
+          "topic_inferred_type": "dwlr",
+          "hardware_id": "BUGVERIFY_DWLR_260724",
+          "instrument_type": "dwlr",
+          "owner_user_id": "user_0a5d61d8e342",
+          "label": "BugVerify DWLR",
+          "imei": "BUGVERIFYIMEIDWLR260724"
+        },
+        "stored_timestamp": "2026-07-03T13:52:19+00:00"
+      }
+    },
+    {
+      "name": "unknown IMEI dropped and not auto-registered",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "dispatched": false,
+          "reason": "IMEI 'BUGVERIFY_UNKNOWN_IMEI_260724' is not registered \u2014 add it to an instrument in the registry",
+          "topic": "PUNKNOWN/0",
+          "topic_inferred_type": "dwlr"
+        }
+      }
+    },
+    {
+      "name": "admin reassignment to testclient works and client sees device",
+      "ok": false,
+      "details": {
+        "blocked_by": "required testclient missing or cannot login"
+      }
+    },
+    {
+      "name": "client registry writes POST/PUT/DELETE forbidden",
+      "ok": false,
+      "details": {
+        "blocked_by": "required testclient missing or cannot login"
+      }
+    },
+    {
+      "name": "admin delete DWLR cascades instrument readings/latest",
+      "ok": true,
+      "details": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "hardware_id": "BUGVERIFY_DWLR_260724",
+          "removed": {
+            "flowmeter_readings": 0,
+            "flowmeter_latest": 0,
+            "flowmeter_categories": 0,
+            "instrument_readings": 1,
+            "instrument_latest": 1,
+            "limits": 0
+          }
+        },
+        "counts": {
+          "registry": 0,
+          "instrument_readings": 0,
+          "instrument_latest": 0
+        }
+      }
+    },
+    {
+      "name": "test fixture cleanup complete",
+      "ok": true,
+      "details": {
+        "BUGVERIFY_FM_260724": 0,
+        "BUGVERIFY_DWLR_260724": 0,
+        "BUGVERIFY_CLIENT_BLOCKED": 0
+      }
+    }
+  ],
+  "all_ok": false
+}

@@ -375,12 +375,25 @@ class MQTTFlowmeterService:
                 values["LVL"] = values["LEVEL"]
 
             now_iso = datetime.now(timezone.utc).isoformat()
+            # Prefer the vendor's `TIME` field ("YYMMDDHHMMSS") so downstream
+            # views (reports, live traffic, history) show *when the device
+            # actually captured the reading* — not the ingestion time. Falls
+            # back to `now_iso` when the field is missing or malformed.
+            raw_time = str(data.get("TIME") or "").strip()
+            if raw_time and len(raw_time) >= 12 and raw_time.isdigit():
+                try:
+                    ts_dt = parse_timestamp(raw_time).replace(tzinfo=timezone.utc)
+                    ts_iso = ts_dt.isoformat()
+                except Exception:  # noqa: BLE001
+                    ts_iso = now_iso
+            else:
+                ts_iso = now_iso
             doc = {
                 "instrument_type": instrument_type,
                 "hardware_id": hardware_id,
                 "imei": str(data.get("IMEI") or data.get("imei") or "").strip() or None,
                 "values": values,
-                "timestamp": data.get("TIME") or now_iso,
+                "timestamp": ts_iso,
                 "received_at": now_iso,
             }
             await self.db.instrument_readings.insert_one(dict(doc))
@@ -419,6 +432,8 @@ class MQTTFlowmeterService:
             unit_name = get_unit_name(unit_code)
 
             timestamp = parse_timestamp(data.get("TIME", ""))
+            if isinstance(timestamp, datetime) and timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
             timestamp_iso = timestamp.isoformat() if isinstance(timestamp, datetime) else str(timestamp)
 
             reading = {
