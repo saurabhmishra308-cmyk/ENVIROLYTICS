@@ -29,7 +29,7 @@ import asyncio
 import logging
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Deque, Dict, List, Optional
 
 import httpx
@@ -169,7 +169,30 @@ async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]
         "source": "http",
         "raw": payload,   # kept for admin debugging
     }
-    await _State.db.instrument_readings.insert_one(dict(reading))
+    # Down-sample HTTPS-polled devices too, per admin-configured
+    # `data_frequency_minutes` on the registry.
+    freq = device.get("data_frequency_minutes")
+    should_store = True
+    try:
+        freq_int = int(freq) if freq is not None else 0
+    except (TypeError, ValueError):
+        freq_int = 0
+    if freq_int > 0:
+        last = await _State.db.instrument_readings.find_one(
+            {"hardware_id": device["hardware_id"]},
+            {"received_at": 1, "_id": 0},
+            sort=[("received_at", -1)],
+        )
+        last_iso = (last or {}).get("received_at")
+        if last_iso:
+            try:
+                last_dt = datetime.fromisoformat(str(last_iso).replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) - last_dt < timedelta(minutes=freq_int):
+                    should_store = False
+            except ValueError:
+                pass
+    if should_store:
+        await _State.db.instrument_readings.insert_one(dict(reading))
     reading.pop("_id", None)
     await _State.db.instrument_latest.update_one(
         {"hardware_id": device["hardware_id"]},

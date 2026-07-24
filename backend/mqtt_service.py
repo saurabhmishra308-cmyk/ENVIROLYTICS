@@ -21,7 +21,7 @@ import asyncio
 import re
 import ssl
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 import paho.mqtt.client as mqtt
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -329,6 +329,51 @@ class MQTTFlowmeterService:
             "broker": f"{self.broker_host}:{self.broker_port}",
         }
 
+    async def _should_store_reading(self, kind: str, hardware_id: str) -> bool:
+        """Return True when a new reading is due to be *persisted* for this
+        device, according to the admin-configured
+        `data_frequency_minutes` on the registry.
+
+        The `_latest` collections are *always* updated regardless — the
+        dashboard live tile has to reflect the current reading. This method
+        only gates the append-only history collections so admins can
+        down-sample noisy devices (e.g. keep one row per hour instead of
+        one per 30 seconds).
+
+        `kind` is either `"instrument"` or `"flowmeter"`.
+        """
+        reg = await self.db.instrument_registry.find_one(
+            {"hardware_id": hardware_id}, {"data_frequency_minutes": 1}
+        )
+        freq = (reg or {}).get("data_frequency_minutes")
+        if not freq:
+            return True  # No throttling configured — store every reading.
+        try:
+            freq_minutes = int(freq)
+        except (TypeError, ValueError):
+            return True
+        if freq_minutes <= 0:
+            return True
+
+        coll = self.db.flowmeter_readings if kind == "flowmeter" else self.db.instrument_readings
+        last = await coll.find_one(
+            {"hardware_id": hardware_id},
+            {"received_at": 1, "timestamp": 1, "_id": 0},
+            sort=[("received_at", -1)],
+        )
+        if not last:
+            return True
+
+        last_ts_str = last.get("received_at") or last.get("timestamp")
+        if not last_ts_str:
+            return True
+        try:
+            last_ts = datetime.fromisoformat(str(last_ts_str).replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        elapsed = datetime.now(timezone.utc) - last_ts
+        return elapsed >= timedelta(minutes=freq_minutes)
+
     async def process_instrument_data(self, instrument_type: str, hardware_id: str, data: Dict):
         """Generic instrument reading handler.
 
@@ -396,7 +441,10 @@ class MQTTFlowmeterService:
                 "timestamp": ts_iso,
                 "received_at": now_iso,
             }
-            await self.db.instrument_readings.insert_one(dict(doc))
+            # Down-sample: only persist to history if enough time has elapsed
+            # since the last stored reading, per registry.data_frequency_minutes.
+            if await self._should_store_reading("instrument", hardware_id):
+                await self.db.instrument_readings.insert_one(dict(doc))
             await self.db.instrument_latest.update_one(
                 {"instrument_type": instrument_type, "hardware_id": hardware_id},
                 {"$set": doc},
@@ -458,7 +506,8 @@ class MQTTFlowmeterService:
                 "received_at": datetime.now(timezone.utc).isoformat(),
             }
 
-            await self.db.flowmeter_readings.insert_one(dict(reading))
+            if await self._should_store_reading("flowmeter", hardware_id):
+                await self.db.flowmeter_readings.insert_one(dict(reading))
             await self.db.flowmeter_latest.update_one(
                 {"hardware_id": hardware_id},
                 {"$set": reading},

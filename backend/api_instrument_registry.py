@@ -506,6 +506,133 @@ async def rename_hardware_id(
     }
 
 
+# --------------------------------------------------------------------------- data frequency
+class DataFrequencyRequest(BaseModel):
+    minutes: int = Field(..., ge=0, le=1440,
+                         description="Minutes between stored readings (5..1440). 0 disables throttling.")
+
+
+@router.put("/{hardware_id}/data-frequency")
+async def set_data_frequency(
+    hardware_id: str,
+    req: DataFrequencyRequest,
+    admin: dict = Depends(require_admin),
+):
+    """Configure how often incoming readings are persisted for this device.
+
+    A value of `0` disables throttling — every reading that arrives is stored.
+    Any positive value (5..1440 min) instructs the ingestion layer to drop
+    readings that arrive within the interval since the last stored reading.
+    The `_latest` collections are always updated so the live dashboard tile
+    reflects the most recent value.
+    """
+    if req.minutes and (req.minutes < 5 or req.minutes > 1440):
+        raise HTTPException(status_code=400, detail="Frequency must be 0, or between 5 and 1440 minutes")
+    existing = await db.instrument_registry.find_one({"hardware_id": hardware_id}, {"_id": 0, "hardware_id": 1})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+    await db.instrument_registry.update_one(
+        {"hardware_id": hardware_id},
+        {"$set": {
+            "data_frequency_minutes": int(req.minutes) or None,
+            "data_frequency_updated_at": datetime.now(timezone.utc).isoformat(),
+            "data_frequency_updated_by": admin.get("id"),
+        }},
+    )
+    return {"success": True, "hardware_id": hardware_id, "data_frequency_minutes": int(req.minutes) or None}
+
+
+# --------------------------------------------------------------------------- clear history
+class ClearHistoryRequest(BaseModel):
+    from_ts: Optional[str] = Field(None, description="Inclusive ISO datetime (UTC). Omit for open-ended lower bound.")
+    to_ts: Optional[str] = Field(None, description="Inclusive ISO datetime (UTC). Omit for open-ended upper bound.")
+
+
+def _parse_iso_bound(s: Optional[str], field: str) -> Optional[str]:
+    if s is None or s == "":
+        return None
+    try:
+        dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid {field}: expected ISO datetime")
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+@router.post("/{hardware_id}/clear-history")
+async def clear_history(
+    hardware_id: str,
+    req: ClearHistoryRequest,
+    admin: dict = Depends(require_admin),
+):
+    """Delete historical readings for one device, within an optional date range.
+
+    * Both bounds omitted → wipes *all* history for the device (readings and
+      the `_latest` cache).
+    * Any bound provided → deletes only rows whose `received_at` falls inside
+      the closed interval; `_latest` is preserved when it's outside the range.
+
+    Every clear is logged to `audit_log` with the affected row counts so it's
+    reversible via forensics.
+    """
+    existing = await db.instrument_registry.find_one({"hardware_id": hardware_id}, {"_id": 0, "instrument_type": 1})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+
+    from_iso = _parse_iso_bound(req.from_ts, "from_ts")
+    to_iso = _parse_iso_bound(req.to_ts, "to_ts")
+
+    match_range: Dict = {}
+    if from_iso: match_range["$gte"] = from_iso
+    if to_iso:   match_range["$lte"] = to_iso
+
+    reading_query: Dict = {"hardware_id": hardware_id}
+    if match_range:
+        reading_query["received_at"] = match_range
+
+    fm_res = await db.flowmeter_readings.delete_many(reading_query)
+    inst_res = await db.instrument_readings.delete_many(reading_query)
+
+    # Also drop `_latest` when either it falls inside the range or no range
+    # was given at all (i.e. full wipe). Prevents a stale tile from surviving
+    # after a full historic purge.
+    latest_res_fm = latest_res_inst = None
+    if not match_range:
+        latest_res_fm = await db.flowmeter_latest.delete_many({"hardware_id": hardware_id})
+        latest_res_inst = await db.instrument_latest.delete_many({"hardware_id": hardware_id})
+    else:
+        latest_res_fm = await db.flowmeter_latest.delete_many({"hardware_id": hardware_id, "received_at": match_range})
+        latest_res_inst = await db.instrument_latest.delete_many({"hardware_id": hardware_id, "received_at": match_range})
+
+    counts = {
+        "flowmeter_readings": fm_res.deleted_count,
+        "instrument_readings": inst_res.deleted_count,
+        "flowmeter_latest": latest_res_fm.deleted_count if latest_res_fm else 0,
+        "instrument_latest": latest_res_inst.deleted_count if latest_res_inst else 0,
+    }
+
+    await db.audit_log.insert_one({
+        "action": "clear_history",
+        "entity_type": "instrument_registry",
+        "entity_id": hardware_id,
+        "hardware_id": hardware_id,
+        "from_ts": from_iso,
+        "to_ts": to_iso,
+        "actor_id": admin.get("id"),
+        "actor_email": admin.get("email"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "affected_rows": counts,
+    })
+
+    return {
+        "success": True,
+        "hardware_id": hardware_id,
+        "from_ts": from_iso,
+        "to_ts": to_iso,
+        "affected_rows": counts,
+        "total_rows_deleted": sum(counts.values()),
+    }
+
+
 @router.post("/backfill-keys")
 async def backfill_device_keys(admin: dict = Depends(require_admin)):
     """One-shot: add a freshly-generated `device_key` to every legacy instrument

@@ -8,7 +8,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../components/ui/dialog';
 import {
-  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw, Radio, Activity, CheckCircle2, XCircle, Dices, History, Hash,
+  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw, Radio, Activity, CheckCircle2, XCircle, Dices, History, Hash, Clock, Eraser,
 } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
@@ -86,6 +86,12 @@ const Instruments = () => {
   // Rename hardware_id dialog (admin only)
   const [renameTarget, setRenameTarget] = useState(null); // { device, new_id }
   const [renaming, setRenaming] = useState(false);
+  // Clear-history dialog
+  const [clearTarget, setClearTarget] = useState(null); // { device, from, to }
+  const [clearing, setClearing] = useState(false);
+  // Data-frequency dialog
+  const [freqTarget, setFreqTarget] = useState(null);   // { device, minutes }
+  const [savingFreq, setSavingFreq] = useState(false);
   // MQTT simulate dialog (admin-only end-to-end verification)
   const [simOpen, setSimOpen] = useState(false);
   const [simSubmitting, setSimSubmitting] = useState(false);
@@ -533,6 +539,43 @@ const Instruments = () => {
     } catch (e) {
       toast.error(formatApiError(e?.response?.data?.detail) || 'Rename failed');
     } finally { setRenaming(false); }
+  };
+
+  const doClearHistory = async () => {
+    if (!clearTarget?.device) return;
+    const { device, from, to } = clearTarget;
+    const label = cleanLabel(device.label || device.hardware_id);
+    const scope = from || to ? `readings between ${from || 'start'} and ${to || 'now'}` : 'ALL history';
+    if (!window.confirm(`Delete ${scope} for ${label}?\nThis cannot be undone.`)) return;
+    setClearing(true);
+    try {
+      const { data } = await api.post(
+        `/api/instrument-registry/${encodeURIComponent(device.hardware_id)}/clear-history`,
+        { from_ts: from || null, to_ts: to || null },
+      );
+      toast.success(`Cleared ${data.total_rows_deleted} rows for ${label}`);
+      setClearTarget(null);
+      refresh();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Clear failed');
+    } finally { setClearing(false); }
+  };
+
+  const doSaveFrequency = async () => {
+    if (!freqTarget?.device) return;
+    const minutes = parseInt(freqTarget.minutes, 10) || 0;
+    setSavingFreq(true);
+    try {
+      await api.put(
+        `/api/instrument-registry/${encodeURIComponent(freqTarget.device.hardware_id)}/data-frequency`,
+        { minutes },
+      );
+      toast.success(minutes ? `Frequency set to ${minutes} min` : 'Throttling disabled');
+      setFreqTarget(null);
+      refresh();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Save failed');
+    } finally { setSavingFreq(false); }
   };
 
   const handleWipeDemo = async () => {
@@ -985,6 +1028,12 @@ const Instruments = () => {
                           <Button size="sm" variant="outline" onClick={() => setRenameTarget({ device: it, new_id: '' })} data-testid={`rename-instrument-${it.hardware_id}`} title="Rename this device's hardware ID across every collection">
                             <Hash className="h-3 w-3 mr-1" /> Rename ID
                           </Button>
+                          <Button size="sm" variant="outline" onClick={() => setFreqTarget({ device: it, minutes: it.data_frequency_minutes || 0 })} data-testid={`freq-instrument-${it.hardware_id}`} title="How often incoming readings should be stored">
+                            <Clock className="h-3 w-3 mr-1" /> Data freq{it.data_frequency_minutes ? ` (${it.data_frequency_minutes}m)` : ''}
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-red-600" onClick={() => setClearTarget({ device: it, from: '', to: '' })} data-testid={`clear-history-${it.hardware_id}`} title="Delete historical readings for this device">
+                            <Eraser className="h-3 w-3 mr-1" /> Clear history
+                          </Button>
                           <Button size="sm" variant="outline" className="text-red-600 border-red-600" onClick={() => handleDelete(it)} data-testid={`delete-instrument-${it.hardware_id}`}>
                             <Trash2 className="h-3 w-3" />
                           </Button>
@@ -1417,6 +1466,105 @@ const Instruments = () => {
             <Button variant="outline" onClick={() => setRenameTarget(null)} disabled={renaming}>Cancel</Button>
             <Button onClick={doRename} disabled={renaming || !renameTarget?.new_id?.trim()} data-testid="rename-confirm-btn">
               {renaming ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Renaming…</> : <><Hash className="h-4 w-4 mr-2" /> Rename &amp; cascade</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Data receiving frequency (down-sampling) */}
+      <Dialog open={!!freqTarget} onOpenChange={(o) => { if (!o) setFreqTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-800">
+              <Clock className="h-5 w-5" /> Data receiving frequency
+            </DialogTitle>
+            <DialogDescription>
+              How often incoming readings should be persisted to the history.
+              The live tile always shows the most recent value regardless of this setting.
+            </DialogDescription>
+          </DialogHeader>
+          {freqTarget && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-700">
+                <span className="text-gray-500">Device:</span> <strong>{cleanLabel(freqTarget.device.label || freqTarget.device.hardware_id)}</strong>
+              </p>
+              <div>
+                <Label>Store one reading every</Label>
+                <select
+                  className="w-full border rounded px-3 py-2"
+                  value={freqTarget.minutes}
+                  onChange={(e) => setFreqTarget({ ...freqTarget, minutes: parseInt(e.target.value, 10) })}
+                  data-testid="freq-select"
+                >
+                  <option value={0}>No throttling — store every reading</option>
+                  {[5, 10, 15, 30, 60, 120, 180, 240, 360, 480, 720, 1440].map((m) => (
+                    <option key={m} value={m}>
+                      {m < 60 ? `${m} min` : `${m / 60} hour${m === 60 ? '' : 's'}`}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Any reading arriving within this window of the last stored one will be dropped from history.
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFreqTarget(null)} disabled={savingFreq}>Cancel</Button>
+            <Button onClick={doSaveFrequency} disabled={savingFreq} data-testid="freq-save-btn">
+              {savingFreq ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Saving…</> : 'Save frequency'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear history — deletes readings in a date range (or all) */}
+      <Dialog open={!!clearTarget} onOpenChange={(o) => { if (!o) setClearTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <Eraser className="h-5 w-5" /> Clear historical data
+            </DialogTitle>
+            <DialogDescription>
+              Deletes readings for the selected date range (both bounds inclusive).
+              Leave both fields empty to wipe all history for this device.
+            </DialogDescription>
+          </DialogHeader>
+          {clearTarget && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-700">
+                <span className="text-gray-500">Device:</span> <strong>{cleanLabel(clearTarget.device.label || clearTarget.device.hardware_id)}</strong>
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>From</Label>
+                  <Input
+                    type="datetime-local"
+                    value={clearTarget.from}
+                    onChange={(e) => setClearTarget({ ...clearTarget, from: e.target.value })}
+                    data-testid="clear-from"
+                  />
+                </div>
+                <div>
+                  <Label>To</Label>
+                  <Input
+                    type="datetime-local"
+                    value={clearTarget.to}
+                    onChange={(e) => setClearTarget({ ...clearTarget, to: e.target.value })}
+                    data-testid="clear-to"
+                  />
+                </div>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded p-3 text-xs text-red-700">
+                <strong>Warning:</strong> deleted readings cannot be recovered.
+                The delete is logged in the audit trail with your account.
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearTarget(null)} disabled={clearing}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={doClearHistory} disabled={clearing} data-testid="clear-confirm-btn">
+              {clearing ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Deleting…</> : <><Eraser className="h-4 w-4 mr-2" /> Delete readings</>}
             </Button>
           </DialogFooter>
         </DialogContent>
