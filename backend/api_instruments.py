@@ -124,7 +124,7 @@ async def list_types():
 @router.get("/all/latest")
 async def latest_all_types(user: dict = Depends(get_current_user)):
     """Latest reading per device across ALL instrument types (filtered by ownership for non-admin)."""
-    cursor = db.instrument_latest.find({}, {"_id": 0})
+    cursor = db.instrument_latest.find({"_dummy": {"$ne": True}}, {"_id": 0})
     items = await cursor.to_list(length=500)
     visible = await api_instrument_registry.visible_hardware_ids(user)
     if visible is not None:
@@ -140,7 +140,7 @@ async def latest_all_types(user: dict = Depends(get_current_user)):
 async def latest_for_type(instrument_type: str, user: dict = Depends(get_current_user)):
     """Latest reading per device for an instrument type (filtered by ownership for non-admin)."""
     t = _validate_type(instrument_type)
-    cursor = db.instrument_latest.find({"instrument_type": t}, {"_id": 0})
+    cursor = db.instrument_latest.find({"instrument_type": t, "_dummy": {"$ne": True}}, {"_id": 0})
     items = await cursor.to_list(length=200)
     visible = await api_instrument_registry.visible_hardware_ids(user)
     if visible is not None:
@@ -153,7 +153,7 @@ async def latest_for_type(instrument_type: str, user: dict = Depends(get_current
 async def latest_for_device(instrument_type: str, hardware_id: str):
     t = _validate_type(instrument_type)
     doc = await db.instrument_latest.find_one(
-        {"instrument_type": t, "hardware_id": hardware_id}, {"_id": 0}
+        {"instrument_type": t, "hardware_id": hardware_id, "_dummy": {"$ne": True}}, {"_id": 0}
     )
     if not doc:
         raise HTTPException(status_code=404, detail="No reading yet")
@@ -167,7 +167,8 @@ async def history_for_device(instrument_type: str, hardware_id: str, limit: int 
         raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
     cursor = (
         db.instrument_readings.find(
-            {"instrument_type": t, "hardware_id": hardware_id}
+            {"instrument_type": t, "hardware_id": hardware_id,
+             "_dummy": {"$ne": True}}
         )
         .sort("timestamp", -1)
         .limit(limit)

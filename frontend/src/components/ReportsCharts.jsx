@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import api, { formatApiError } from '../lib/api';
 import { getToken, getCurrentUser } from '../mockData';
 import LimitsCard from './LimitsCard';
+import { cleanLabel } from '../utils/labels';
 
 const AXIS_TICK = { fontSize: 11 };
 const fmtBucket = (iso) => {
@@ -242,7 +243,7 @@ const AllBorewellsReport = ({ days }) => {
                   {(data.borewells || []).map((b) => (
                     <tr key={b.hardware_id} className="border-b">
                       <td className="px-3 py-2 font-mono text-xs">{b.hardware_id}</td>
-                      <td className="px-3 py-2">{b.label}</td>
+                      <td className="px-3 py-2">{cleanLabel(b.label)}</td>
                       <td className="px-3 py-2 text-right font-medium">{Number(b.consumption_kl).toFixed(2)}</td>
                     </tr>
                   ))}

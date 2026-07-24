@@ -5,6 +5,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { Droplets, TrendingUp, Activity } from 'lucide-react';
 import api from '../lib/api';
 import HourlyPumpingLevelChart from '../components/HourlyPumpingLevelChart';
+import { cleanLabel } from '../utils/labels';
 
 // Module-level constants — avoid creating new objects on every render
 const AXIS_TICK = { fontSize: 11 };
@@ -102,7 +103,7 @@ const Analysis = () => {
                 <div key={agg.hardware_id} className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-semibold text-gray-900">{agg.label || agg.hardware_id} <span className="text-xs text-gray-500">({agg.hardware_id})</span></p>
+                      <p className="font-semibold text-gray-900">{cleanLabel(agg.label || agg.hardware_id)} <span className="text-xs text-gray-500">({agg.hardware_id})</span></p>
                       <p className="text-xs text-gray-500">Now: <strong>{agg.flow_rate_m3h?.toFixed(3)} m³/hr</strong></p>
                     </div>
                     <Badge className="bg-blue-500">{agg.consumption_kl?.daily?.toFixed(2)} KL / day</Badge>

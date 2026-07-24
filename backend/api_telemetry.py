@@ -40,7 +40,8 @@ async def _http_live_now(hardware_ids):
         return False
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=HTTP_LIVE_WINDOW_MIN)).isoformat()
     # Check both flowmeter_latest and instrument_latest.
-    q = {"hardware_id": {"$in": list(hardware_ids)}, "received_at": {"$gte": cutoff}}
+    q = {"hardware_id": {"$in": list(hardware_ids)}, "received_at": {"$gte": cutoff},
+         "_dummy": {"$ne": True}}
     if await db.flowmeter_latest.find_one(q):
         return True
     if await db.instrument_latest.find_one(q):

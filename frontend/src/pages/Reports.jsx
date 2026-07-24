@@ -12,6 +12,7 @@ import api, { formatApiError } from '../lib/api';
 import { isAdmin, getToken, getCurrentUser } from '../mockData';
 import { toast } from 'sonner';
 import ReportsCharts from '../components/ReportsCharts';
+import { cleanLabel } from '../utils/labels';
 
 const formatDate = (d) => (d ? d.toISOString().split('T')[0] : '');
 const fmt = (n, d = 2) => (n == null || isNaN(n) ? '—' : Number(n).toFixed(d));
@@ -254,9 +255,9 @@ const Reports = () => {
   const downloadProfessionalCSV = () => {
     if (!filteredReadings.length) { toast.error('No data to export'); return; }
     const dev = selectedDevice || {};
-    const siteName = dev.label || dev.hardware_id || '—';
+    const siteName = cleanLabel(dev.label || dev.hardware_id || '—');
     const locationName = dev.location_name || dev.owner_location_name || '—';
-    const deviceLabel = dev.label || dev.hardware_id || hardwareId || '—';
+    const deviceLabel = cleanLabel(dev.label || dev.hardware_id || hardwareId || '—');
     const rows = [];
     // Header block — client name + report meta (each on its own row so Excel keeps them)
     rows.push([`ENVIROLYTICS — ${section.toUpperCase()} REPORT`]);
@@ -532,7 +533,7 @@ const Reports = () => {
                     <option value="">— Select {section.toUpperCase()} device —</option>
                     {devices.map((d) => (
                       <option key={d.hardware_id} value={d.hardware_id}>
-                        {(d.label || d.hardware_id)}{d.location_name ? ` · ${d.location_name}` : ''} ({d.hardware_id})
+                        {cleanLabel(d.label || d.hardware_id)}{d.location_name ? ` · ${d.location_name}` : ''} ({d.hardware_id})
                       </option>
                     ))}
                   </select>
@@ -627,9 +628,9 @@ const Reports = () => {
                     <tbody>
                       {filteredReadings.slice(0, 500).map((r, i) => {
                         const d = parseReadingDate(r);
-                        const siteName = selectedDevice?.label || selectedDevice?.hardware_id || '—';
+                        const siteName = cleanLabel(selectedDevice?.label || selectedDevice?.hardware_id || '—');
                         const locationName = selectedDevice?.location_name || selectedDevice?.owner_location_name || '—';
-                        const deviceLbl = selectedDevice?.label || selectedDevice?.hardware_id || hardwareId || '—';
+                        const deviceLbl = cleanLabel(selectedDevice?.label || selectedDevice?.hardware_id || hardwareId || '—');
                         const level = section === 'dwlr' ? pickNum(r.values, ['LEVEL', 'LVL', 'level', 'WATER_LEVEL', 'RAW']) : null;
                         const temp = section === 'dwlr'
                           ? (selectedDevice?.manual_water_temp_c ?? pickNum(r.values, ['WTEMP'], { skipZero: true }) ?? pickNum(r.values, ['ATEMP', 'TEMPER', 'TEMP', 'temperature']))

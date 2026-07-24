@@ -1,22 +1,31 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { History, User, Calendar, Hash, Loader2, RefreshCw, ShieldAlert } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
 import { toast } from 'sonner';
+import { cleanLabel } from '../utils/labels';
 
-const TYPE_OPTIONS = [
-  { value: '', label: 'All sources' },
-  { value: 'flowmeter', label: 'Flowmeter' },
-  { value: 'dwlr', label: 'DWLR' },
-  { value: 'ph', label: 'pH' },
-  { value: 'tds', label: 'TDS' },
-  { value: 'conductivity', label: 'Conductivity' },
-];
+// Human-readable label for every instrument type the registry can emit.
+// The dropdown is populated dynamically from the actual registry, but this
+// map decorates known types with a friendly name. Anything unrecognised
+// falls back to a Title-Cased version of the raw type.
+const TYPE_LABELS = {
+  flowmeter: 'Flowmeter',
+  dwlr: 'DWLR (Piezometer)',
+  ph: 'pH',
+  tds: 'TDS',
+  conductivity: 'Conductivity',
+  wq_stp: 'STP water quality',
+  do_meter: 'DO analyzer',
+  chlorine_analyzer: 'Chlorine analyzer',
+  ocems: 'OCEMS',
+};
+
+const prettyType = (t) => TYPE_LABELS[t] || (t ? t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '—');
 
 const formatValuesSnapshot = (snap, source) => {
   if (!snap) return '—';
@@ -40,7 +49,47 @@ const AuditLog = () => {
   const [summary, setSummary] = useState(null);
   const [edits, setEdits] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [devices, setDevices] = useState([]);
   const [filters, setFilters] = useState({ instrument_type: '', hardware_id: '', limit: 100 });
+
+  // Load the instrument registry once — feeds both the "Instrument source" and
+  // "Device" dropdowns with the *actual* instruments/parameters the admin has
+  // provisioned (so we never guess at types or expose stale/free-text IDs).
+  useEffect(() => {
+    if (!admin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get('/api/instrument-registry');
+        if (cancelled) return;
+        setDevices(data?.instruments || []);
+      } catch (e) {
+        if (process.env.NODE_ENV === 'development') console.warn('[audit-devices]', e?.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [admin]);
+
+  // Distinct instrument types across the registry — drives the source dropdown.
+  const sourceOptions = useMemo(() => {
+    const types = Array.from(new Set(devices.map((d) => d.instrument_type).filter(Boolean))).sort();
+    return [{ value: '', label: 'All sources' }, ...types.map((t) => ({ value: t, label: prettyType(t) }))];
+  }, [devices]);
+
+  // Device options filtered by the currently selected source.
+  const deviceOptions = useMemo(() => {
+    const filtered = filters.instrument_type
+      ? devices.filter((d) => d.instrument_type === filters.instrument_type)
+      : devices;
+    return filtered
+      .map((d) => ({
+        hardware_id: d.hardware_id,
+        label: cleanLabel(d.label || d.hardware_id),
+        instrument_type: d.instrument_type,
+        location_name: d.location_name,
+      }))
+      .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
+  }, [devices, filters.instrument_type]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -144,15 +193,27 @@ const AuditLog = () => {
               <select
                 className="w-full border rounded px-3 py-2"
                 value={filters.instrument_type}
-                onChange={(e) => setFilters({ ...filters, instrument_type: e.target.value })}
+                onChange={(e) => setFilters({ ...filters, instrument_type: e.target.value, hardware_id: '' })}
                 data-testid="audit-filter-source"
               >
-                {TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {sourceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <Label>Hardware ID</Label>
-              <Input value={filters.hardware_id} onChange={(e) => setFilters({ ...filters, hardware_id: e.target.value })} placeholder="e.g. FM_GW_001" data-testid="audit-filter-hardware" />
+              <Label>Device</Label>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={filters.hardware_id}
+                onChange={(e) => setFilters({ ...filters, hardware_id: e.target.value })}
+                data-testid="audit-filter-device"
+              >
+                <option value="">All devices</option>
+                {deviceOptions.map((d) => (
+                  <option key={d.hardware_id} value={d.hardware_id}>
+                    {d.label}{d.location_name ? ` · ${d.location_name}` : ''} ({d.hardware_id})
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <Label>Limit</Label>
@@ -195,25 +256,32 @@ const AuditLog = () => {
                     <th className="text-left p-2"><Calendar className="h-3 w-3 inline mr-1" />Edited at</th>
                     <th className="text-left p-2"><User className="h-3 w-3 inline mr-1" />Edited by</th>
                     <th className="text-left p-2">Source</th>
-                    <th className="text-left p-2"><Hash className="h-3 w-3 inline mr-1" />Hardware ID</th>
+                    <th className="text-left p-2"><Hash className="h-3 w-3 inline mr-1" />Device</th>
                     <th className="text-left p-2">Reading timestamp</th>
                     <th className="text-left p-2">Values after edit</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {edits.map((e) => (
+                  {edits.map((e) => {
+                    const dev = devices.find((d) => d.hardware_id === e.hardware_id);
+                    const devLabel = dev ? cleanLabel(dev.label || dev.hardware_id) : (e.hardware_id || '—');
+                    return (
                     <tr key={e.reading_id} className="border-b hover:bg-gray-50" data-testid={`audit-row-${e.reading_id}`}>
                       <td className="p-2 whitespace-nowrap">{e.edited_at ? new Date(e.edited_at).toLocaleString() : '—'}</td>
                       <td className="p-2">
                         <div className="text-sm font-medium">{e.editor?.full_name || '—'}</div>
                         <div className="text-xs text-gray-500">{e.editor?.email}</div>
                       </td>
-                      <td className="p-2"><Badge className={e.source === 'flowmeter' ? 'bg-blue-500' : 'bg-purple-500'}>{e.source}</Badge></td>
-                      <td className="p-2 font-mono text-xs">{e.hardware_id || '—'}</td>
+                      <td className="p-2"><Badge className={e.source === 'flowmeter' ? 'bg-blue-500' : 'bg-purple-500'}>{prettyType(dev?.instrument_type || e.source)}</Badge></td>
+                      <td className="p-2">
+                        <div className="text-sm font-medium">{devLabel}</div>
+                        {e.hardware_id && dev && <div className="text-[10px] font-mono text-gray-500">{e.hardware_id}</div>}
+                      </td>
                       <td className="p-2 text-xs text-gray-600 whitespace-nowrap">{e.timestamp ? new Date(e.timestamp).toLocaleString() : '—'}</td>
                       <td className="p-2 text-xs text-gray-700">{formatValuesSnapshot(e.values_snapshot, e.source)}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

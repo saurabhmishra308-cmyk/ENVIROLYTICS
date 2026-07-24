@@ -8,6 +8,7 @@ import { Progress } from '../components/ui/progress';
 import { LogOut, ArrowLeft, Waves, MapPin, Activity, Thermometer, Inbox, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import api, { formatApiError } from '../lib/api';
+import { cleanLabel } from '../utils/labels';
 
 const fmt = (n, d = 2) => (typeof n === 'number' && !Number.isNaN(n) ? n.toFixed(d) : '—');
 
@@ -73,7 +74,7 @@ const WaterLevelRecorder = () => {
 
         return {
           hardware_id: reg.hardware_id,
-          label: reg.label || reg.hardware_id,
+          label: cleanLabel(reg.label || reg.hardware_id),
           location_name: reg.location_name,
           latitude: reg.latitude,
           longitude: reg.longitude,

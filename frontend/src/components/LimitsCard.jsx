@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { GaugeCircle, Plus, Pencil, Trash2, MailCheck, PlayCircle, AlertTriangle, Eye, EyeOff, TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
 import api, { formatApiError } from '../lib/api';
+import { cleanLabel } from '../utils/labels';
 
 const emptyForm = () => ({
   hardware_id: '',
@@ -161,8 +162,8 @@ const LimitsCard = ({ canManage }) => {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold truncate" title={it.label || it.hardware_id}>
-                          {it.label || it.hardware_id}
+                        <p className="font-semibold truncate" title={cleanLabel(it.label || it.hardware_id)}>
+                          {cleanLabel(it.label || it.hardware_id)}
                         </p>
                         <Badge variant="outline" className="text-[10px] font-mono">{it.hardware_id}</Badge>
                         {!it.is_active && <Badge variant="outline">Disabled</Badge>}

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { cleanLabel } from '../utils/labels';
 
 /**
  * Leaflet map with two base layers (Satellite + Streets) and pin markers.
@@ -166,7 +167,7 @@ const LocationMap = ({
       // Build the popup — different content per mode.
       let popup;
       if (loc.instrument_type) {
-        const title = loc.label || loc.hardware_id || 'Instrument';
+        const title = cleanLabel(loc.label || loc.hardware_id || 'Instrument');
         const subtitle = [loc.location_name, loc.owner_name].filter(Boolean).join(' · ');
         popup = `<div style="min-width:220px;font-family:Inter,sans-serif">
           <div style="font-weight:600;font-size:14px;margin-bottom:2px">${title}</div>
@@ -193,7 +194,7 @@ const LocationMap = ({
       const tipParts = [];
       if (loc.owner_name) tipParts.push(loc.owner_name);
       if (loc.location_name) tipParts.push(loc.location_name);
-      const tipText = tipParts.length ? tipParts.join(' · ') : (loc.label || loc.hardware_id || loc.full_name || 'Instrument');
+      const tipText = tipParts.length ? tipParts.join(' · ') : cleanLabel(loc.label || loc.hardware_id || loc.full_name || 'Instrument');
       marker.bindTooltip(tipText, { direction: 'top', offset: [0, -8], opacity: 0.95 });
 
       marker.addTo(markersLayerRef.current);

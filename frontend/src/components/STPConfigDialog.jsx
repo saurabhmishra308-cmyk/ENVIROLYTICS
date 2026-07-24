@@ -6,6 +6,7 @@ import { Label } from './ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { toast } from 'sonner';
 import api, { formatApiError } from '../lib/api';
+import { cleanLabel } from '../utils/labels';
 
 const num = (v) => (v === '' || v == null ? null : Number(v));
 const s = (v) => (v == null || Number.isNaN(v) ? '' : String(v));
@@ -331,7 +332,7 @@ export const STPConfigDialog = ({ open, onOpenChange, hardwareId, deviceLabel, e
                     <option value="">— Select flowmeter —</option>
                     {flowmeters.map((fm) => (
                       <option key={fm.hardware_id} value={fm.hardware_id}>
-                        {fm.label || fm.hardware_id} · {fm.location_name || fm.hardware_id}
+                        {cleanLabel(fm.label || fm.hardware_id)} · {fm.location_name || fm.hardware_id}
                       </option>
                     ))}
                   </select>

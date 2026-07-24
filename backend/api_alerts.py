@@ -66,7 +66,7 @@ async def offline_devices(
     offline: List[dict] = []
 
     # ---- Flowmeters
-    fm_cursor = db.flowmeter_latest.find({}, {"_id": 0}).limit(1000)
+    fm_cursor = db.flowmeter_latest.find({"_dummy": {"$ne": True}}, {"_id": 0}).limit(1000)
     async for doc in fm_cursor:
         hw = doc.get("hardware_id")
         if hw not in visible:
@@ -83,7 +83,7 @@ async def offline_devices(
         })
 
     # ---- Generic instruments (DWLR, pH, TDS, conductivity, …)
-    inst_cursor = db.instrument_latest.find({}, {"_id": 0}).limit(1000)
+    inst_cursor = db.instrument_latest.find({"_dummy": {"$ne": True}}, {"_id": 0}).limit(1000)
     async for doc in inst_cursor:
         hw = doc.get("hardware_id")
         if hw not in visible:
@@ -102,10 +102,10 @@ async def offline_devices(
     # Also surface registered devices that have NEVER reported any data.
     seen_hw = {o["hardware_id"] for o in offline}
     reported_hw: Set[str] = set()
-    async for doc in db.flowmeter_latest.find({}, {"_id": 0, "hardware_id": 1}):
+    async for doc in db.flowmeter_latest.find({"_dummy": {"$ne": True}}, {"_id": 0, "hardware_id": 1}):
         if doc.get("hardware_id"):
             reported_hw.add(doc["hardware_id"])
-    async for doc in db.instrument_latest.find({}, {"_id": 0, "hardware_id": 1}):
+    async for doc in db.instrument_latest.find({"_dummy": {"$ne": True}}, {"_id": 0, "hardware_id": 1}):
         if doc.get("hardware_id"):
             reported_hw.add(doc["hardware_id"])
 

@@ -257,7 +257,7 @@ async def latest_readings(
         return visible is None or r.get("hardware_id") in visible
 
     stp_items: List[dict] = []
-    async for r in db.instrument_latest.find({"instrument_type": "wq_stp"}, {"_id": 0}):
+    async for r in db.instrument_latest.find({"instrument_type": "wq_stp", "_dummy": {"$ne": True}}, {"_id": 0}):
         if not _in(r):
             continue
         vals = dict(r.get("values") or {})
@@ -268,7 +268,7 @@ async def latest_readings(
         stp_items.append(r)
 
     do_items: List[dict] = []
-    async for r in db.instrument_latest.find({"instrument_type": "do_meter"}, {"_id": 0}):
+    async for r in db.instrument_latest.find({"instrument_type": "do_meter", "_dummy": {"$ne": True}}, {"_id": 0}):
         if not _in(r):
             continue
         vals = dict(r.get("values") or {})
@@ -279,7 +279,7 @@ async def latest_readings(
         do_items.append(r)
 
     chlorine_items: List[dict] = []
-    async for r in db.instrument_latest.find({"instrument_type": "chlorine_analyzer"}, {"_id": 0}):
+    async for r in db.instrument_latest.find({"instrument_type": "chlorine_analyzer", "_dummy": {"$ne": True}}, {"_id": 0}):
         if not _in(r):
             continue
         r["values"] = dict(r.get("values") or {})
@@ -441,7 +441,8 @@ async def history(
         bucket_fmt = "%Y-%m-%d"
 
     cursor = db.instrument_readings.find(
-        {"hardware_id": hardware_id, "received_at": {"$gte": since.isoformat()}},
+        {"hardware_id": hardware_id, "received_at": {"$gte": since.isoformat()},
+         "_dummy": {"$ne": True}},
         {"_id": 0, "values": 1, "received_at": 1, "instrument_type": 1},
     )
 
@@ -536,7 +537,8 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
 
     cursor = db.instrument_readings.find(
         {"hardware_id": req.hardware_id,
-         "received_at": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}},
+         "received_at": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()},
+         "_dummy": {"$ne": True}},
         {"_id": 0, "values": 1, "received_at": 1},
     ).sort("received_at", 1)
 
@@ -778,7 +780,8 @@ async def _flowmeter_daily_kld(hardware_id: str) -> Optional[float]:
         return None
     since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     cursor = db.flowmeter_readings.find(
-        {"hardware_id": hardware_id, "received_at": {"$gte": since}},
+        {"hardware_id": hardware_id, "received_at": {"$gte": since},
+         "_dummy": {"$ne": True}},
         {"_id": 0, "values": 1, "received_at": 1},
     ).sort("received_at", 1)
     lo, hi = None, None

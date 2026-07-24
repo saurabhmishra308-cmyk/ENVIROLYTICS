@@ -702,14 +702,18 @@ async def _tick(db: AsyncIOMotorDatabase) -> None:
 
         try:
             itype = (reg.get("instrument_type") or "dwlr").lower()
+            # `update_latest=False` — the dummy loop never overwrites the
+            # `_latest` collections. That guarantees Dashboard tiles / live
+            # views always show the last REAL device reading (or stay offline
+            # if none) — no synthetic value ever leaks into a "live" surface.
             if itype == "flowmeter":
-                await _generate_flowmeter(db, reg, cfg)
+                await _generate_flowmeter(db, reg, cfg, update_latest=False)
             elif itype == "wq_stp":
-                await _generate_wq_stp(db, reg, cfg)
+                await _generate_wq_stp(db, reg, cfg, update_latest=False)
             elif itype == "do_meter":
-                await _generate_do_meter(db, reg, cfg)
+                await _generate_do_meter(db, reg, cfg, update_latest=False)
             else:
-                await _generate_dwlr(db, reg, cfg)
+                await _generate_dwlr(db, reg, cfg, update_latest=False)
             await db.instrument_registry.update_one(
                 {"hardware_id": reg["hardware_id"]},
                 {"$set": {"dummy_config.last_generated_at": _iso_now()}},

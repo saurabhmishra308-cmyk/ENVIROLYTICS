@@ -13,6 +13,7 @@ import {
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
 import { toast } from 'sonner';
+import { cleanLabel } from '../utils/labels';
 
 const TYPE_OPTIONS = [
   { value: 'flowmeter', label: 'Flowmeter' },
@@ -924,7 +925,7 @@ const Instruments = () => {
                           <div className="text-xs text-gray-500 mt-1">{it.category.replace(/_/g, ' ')}</div>
                         )}
                       </td>
-                      <td className="p-3">{it.label || '—'}</td>
+                      <td className="p-3">{cleanLabel(it.label) || '—'}</td>
                       <td className="p-3 font-mono text-xs">
                         {it.imei ? (
                           <span className="text-gray-800">{it.imei}</span>
@@ -1351,7 +1352,7 @@ const Instruments = () => {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-blue-700">
-              <KeyRound className="h-5 w-5" /> HTTPS Ingestion — {keyTarget?.label || keyTarget?.hardware_id}
+              <KeyRound className="h-5 w-5" /> HTTPS Ingestion — {cleanLabel(keyTarget?.label || keyTarget?.hardware_id)}
             </DialogTitle>
             <DialogDescription>
               If your device can&apos;t reach the MQTT broker (firewall / NAT issues), publish
@@ -1438,7 +1439,7 @@ const Instruments = () => {
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-700">
-              <Dices className="h-5 w-5" /> Dummy Data — {dummyTarget?.label || dummyTarget?.hardware_id}
+              <Dices className="h-5 w-5" /> Dummy Data — {cleanLabel(dummyTarget?.label || dummyTarget?.hardware_id)}
               <span className="text-xs bg-gray-100 px-2 py-0.5 rounded font-mono ml-2">{dummyTarget?.instrument_type}</span>
             </DialogTitle>
             <DialogDescription>

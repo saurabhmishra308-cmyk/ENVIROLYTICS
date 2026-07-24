@@ -94,7 +94,8 @@ async def flow_vs_level(
     # Flowmeter readings (hourly averaged flow)
     flow_buckets = {}
     fm_cursor = db.flowmeter_readings.find(
-        {"hardware_id": hardware_id, "timestamp": {"$gte": start.isoformat()}},
+        {"hardware_id": hardware_id, "timestamp": {"$gte": start.isoformat()},
+         "_dummy": {"$ne": True}},
         {"_id": 0, "timestamp": 1, "flow_rate_lph": 1},
     ).limit(10000)
     async for r in fm_cursor:
@@ -108,7 +109,8 @@ async def flow_vs_level(
     if dwlr_id:
         dw_cursor = db.instrument_readings.find(
             {"instrument_type": "dwlr", "hardware_id": dwlr_id,
-             "timestamp": {"$gte": start.isoformat()}},
+             "timestamp": {"$gte": start.isoformat()},
+             "_dummy": {"$ne": True}},
             {"_id": 0, "timestamp": 1, "values": 1},
         ).limit(10000)
         async for r in dw_cursor:
@@ -192,7 +194,8 @@ async def level_vs_rainfall(
     level_buckets = {}
     dw_cursor = db.instrument_readings.find(
         {"instrument_type": "dwlr", "hardware_id": hardware_id,
-         "timestamp": {"$gte": start.isoformat()}},
+         "timestamp": {"$gte": start.isoformat()},
+         "_dummy": {"$ne": True}},
         {"_id": 0, "timestamp": 1, "values": 1},
     )
     async for r in dw_cursor:
@@ -237,13 +240,15 @@ async def level_vs_rainfall(
 async def _consumption_kl(hardware_id: str, start: datetime, end: datetime) -> float:
     """Forward-totalizer delta between first reading >= start and last <= end."""
     first_doc = await db.flowmeter_readings.find_one(
-        {"hardware_id": hardware_id, "timestamp": {"$gte": start.isoformat()}},
+        {"hardware_id": hardware_id, "timestamp": {"$gte": start.isoformat()},
+         "_dummy": {"$ne": True}},
         sort=[("timestamp", 1)],
     )
     if not first_doc:
         return 0.0
     last_doc = await db.flowmeter_readings.find_one(
-        {"hardware_id": hardware_id, "timestamp": {"$lte": end.isoformat()}},
+        {"hardware_id": hardware_id, "timestamp": {"$lte": end.isoformat()},
+         "_dummy": {"$ne": True}},
         sort=[("timestamp", -1)],
     )
     if not last_doc:
@@ -356,7 +361,8 @@ async def rainfall_impact(
     if dwlr_id:
         dw_cursor = db.instrument_readings.find(
             {"instrument_type": "dwlr", "hardware_id": dwlr_id,
-             "timestamp": {"$gte": start.isoformat()}},
+             "timestamp": {"$gte": start.isoformat()},
+             "_dummy": {"$ne": True}},
             {"_id": 0, "timestamp": 1, "values": 1},
         )
         async for r in dw_cursor:
@@ -453,7 +459,8 @@ async def hourly_pumping_vs_level(
             agg = {"sum": 0.0, "n": 0}
             async for r in db.instrument_readings.find(
                 {"instrument_type": "dwlr", "hardware_id": dwlr_id,
-                 "timestamp": {"$gte": b_start.isoformat(), "$lt": b_end.isoformat()}},
+                 "timestamp": {"$gte": b_start.isoformat(), "$lt": b_end.isoformat()},
+                 "_dummy": {"$ne": True}},
                 {"_id": 0, "values": 1},
             ):
                 v = r.get("values", {}) or {}

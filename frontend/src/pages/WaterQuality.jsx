@@ -16,6 +16,7 @@ import { DOTankConfigDialog } from '../components/DOTankConfigDialog';
 import { FlowmeterTile } from '../components/FlowmeterTile';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { cleanLabel } from '../utils/labels';
 
 // ------------------------- Gauge (SVG, animated needle) -------------------------
 const Gauge2D = ({ value, min = 0, max = 100, unit = '', label = '', safeMin, safeMax }) => {
@@ -815,7 +816,7 @@ const WaterQuality = () => {
   const [printing, setPrinting] = useState(false);
 
   const printSCADASnapshot = async () => {
-    const label = currentDevice?._registry?.label || selectedHw || 'stp';
+    const label = cleanLabel(currentDevice?._registry?.label || selectedHw || 'stp');
     const node = document.getElementById(`scada-snapshot-${label}`);
     if (!node) { toast.error('SCADA diagram not ready'); return; }
     setPrinting(true);
@@ -1044,7 +1045,7 @@ const WaterQuality = () => {
       {currentList.length > 0 && (
         <div className="flex flex-wrap gap-2" data-testid="wq-device-picker">
           {currentList.map((d) => {
-            const label = d._registry?.label || d.hardware_id;
+            const label = cleanLabel(d._registry?.label || d.hardware_id);
             return (
               <button key={d.hardware_id}
                 onClick={() => setSelectedHw(d.hardware_id)}
@@ -1102,7 +1103,7 @@ const WaterQuality = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Gauge className="h-5 w-5 text-sky-500" /> Live Parameters — {currentDevice?._registry?.label || selectedHw}
+                <Gauge className="h-5 w-5 text-sky-500" /> Live Parameters — {cleanLabel(currentDevice?._registry?.label || selectedHw)}
               </CardTitle>
               <CardDescription>Real-time values from the STP water-quality analyser. Turbidity is derived from TSS · k (k = {currentDevice?._registry?.turbidity_k ?? 0.5}); chlorine is monitored against the {currentDevice?.chlorine_alert?.min ?? 0.2}–{currentDevice?.chlorine_alert?.max ?? 2.0} mg/L residual band.</CardDescription>
             </CardHeader>
@@ -1146,7 +1147,7 @@ const WaterQuality = () => {
                 values={currentValues}
                 unit={unit}
                 plantCapacityKld={currentDevice?._registry?.plant_capacity_kld}
-                deviceLabel={currentDevice?._registry?.label || selectedHw}
+                deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)}
                 lastReceivedAt={currentDevice?.received_at}
                 stpUnitConfig={currentDevice?._registry?.stp_unit_config}
                 stpDerived={currentDevice?._registry?.stp_derived}
@@ -1193,7 +1194,7 @@ const WaterQuality = () => {
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span className="flex items-center gap-2">
-                  <Wind className="h-5 w-5 text-sky-500" /> Aeration Tanks — {currentDevice?._registry?.label || selectedHw}
+                  <Wind className="h-5 w-5 text-sky-500" /> Aeration Tanks — {cleanLabel(currentDevice?._registry?.label || selectedHw)}
                 </span>
                 {isAdmin && (
                   <Button size="sm" variant="outline" onClick={() => setShowDoTankConfig(true)} data-testid="do-configure-tanks-btn">
@@ -1271,7 +1272,7 @@ const WaterQuality = () => {
             <CardContent>
               <LiveCameraWidget
                 hardwareId={selectedHw}
-                deviceLabel={currentDevice?._registry?.label || selectedHw}
+                deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)}
                 telemetry={{
                   DO_TANK_1: currentValues.DO_TANK_1,
                   DO_TANK_2: currentValues.DO_TANK_2,
@@ -1312,7 +1313,7 @@ const WaterQuality = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Droplets className="h-5 w-5 text-sky-500" /> Chlorine Analyzer — {currentDevice?._registry?.label || selectedHw}
+                <Droplets className="h-5 w-5 text-sky-500" /> Chlorine Analyzer — {cleanLabel(currentDevice?._registry?.label || selectedHw)}
               </CardTitle>
               <CardDescription>
                 Free-residual chlorine (mg/L) with in-band alerting. Safe band <b>{currentDevice?.chlorine_alert?.min ?? 0.2}</b>–<b>{currentDevice?.chlorine_alert?.max ?? 2.0}</b> mg/L
@@ -1467,7 +1468,7 @@ const WaterQuality = () => {
           open={showStpConfig}
           onOpenChange={setShowStpConfig}
           hardwareId={selectedHw}
-          deviceLabel={currentDevice?._registry?.label || selectedHw}
+          deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)}
           existing={currentDevice?._registry?.stp_unit_config}
           onSaved={load}
         />
@@ -1479,7 +1480,7 @@ const WaterQuality = () => {
           open={showDoTankConfig}
           onOpenChange={setShowDoTankConfig}
           hardwareId={selectedHw}
-          deviceLabel={currentDevice?._registry?.label || selectedHw}
+          deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)}
           existing={currentDevice?._registry?.do_tank_config}
           onSaved={load}
         />

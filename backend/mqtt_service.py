@@ -546,20 +546,24 @@ class MQTTFlowmeterService:
         return {"rc": info.rc, "mid": info.mid}
 
     async def get_latest_reading(self, hardware_id: str) -> Optional[Dict]:
-        reading = await self.db.flowmeter_latest.find_one({"hardware_id": hardware_id})
+        reading = await self.db.flowmeter_latest.find_one(
+            {"hardware_id": hardware_id, "_dummy": {"$ne": True}}
+        )
         if reading:
             reading["_id"] = str(reading["_id"])
         return reading
 
     async def get_all_latest_readings(self) -> List[Dict]:
-        cursor = self.db.flowmeter_latest.find({}).limit(100)
+        cursor = self.db.flowmeter_latest.find({"_dummy": {"$ne": True}}).limit(100)
         readings = await cursor.to_list(length=100)
         for r in readings:
             r["_id"] = str(r["_id"])
         return readings
 
     async def get_readings_history(self, hardware_id: str, limit: int = 100) -> List[Dict]:
-        cursor = self.db.flowmeter_readings.find({"hardware_id": hardware_id}).sort(
+        cursor = self.db.flowmeter_readings.find(
+            {"hardware_id": hardware_id, "_dummy": {"$ne": True}}
+        ).sort(
             "timestamp", -1
         ).limit(limit)
         readings = await cursor.to_list(length=limit)

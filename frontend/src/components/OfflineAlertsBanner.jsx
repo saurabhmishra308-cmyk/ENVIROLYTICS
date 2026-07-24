@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Radio, ShieldAlert, AlertOctagon } from 'lucide-react';
 import api from '../lib/api';
+import { cleanLabel } from '../utils/labels';
 
 const POLL_MS = 60 * 1000;
 const THRESHOLD_HOURS = 2;
@@ -156,8 +157,8 @@ const OfflineAlertsBanner = ({ isDarkMode }) => {
                   <p className={`text-[10px] uppercase tracking-widest font-semibold ${subText}`}>
                     {b.kind === 'exceeded' ? 'Limit exceeded' : 'Below minimum'}
                   </p>
-                  <p className={`text-sm font-medium truncate ${chipText}`} title={b.label}>
-                    {b.label} — {b.consumption_kl_this_month.toFixed(2)} / {b.kind === 'exceeded' ? b.monthly_limit_kl : b.min_limit_kl} KL
+                  <p className={`text-sm font-medium truncate ${chipText}`} title={cleanLabel(b.label)}>
+                    {cleanLabel(b.label)} — {b.consumption_kl_this_month.toFixed(2)} / {b.kind === 'exceeded' ? b.monthly_limit_kl : b.min_limit_kl} KL
                   </p>
                 </div>
                 <span

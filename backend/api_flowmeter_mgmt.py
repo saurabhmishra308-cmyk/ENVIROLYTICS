@@ -426,7 +426,7 @@ async def export_data_scoped(
         if end_date:
             query["timestamp"]["$lte"] = end_date
 
-    cursor = db.flowmeter_readings.find(query).sort("timestamp", -1).limit(5000)
+    cursor = db.flowmeter_readings.find({**query, "_dummy": {"$ne": True}}).sort("timestamp", -1).limit(5000)
     readings = await cursor.to_list(length=5000)
     for r in readings:
         r.pop("_id", None)
@@ -469,7 +469,8 @@ async def dwlr_daily(
     buckets = {}
     cursor = db.instrument_readings.find(
         {"instrument_type": "dwlr", "hardware_id": hardware_id,
-         "timestamp": {"$gte": start.isoformat()}},
+         "timestamp": {"$gte": start.isoformat()},
+         "_dummy": {"$ne": True}},
         {"_id": 0, "timestamp": 1, "values": 1},
     ).limit(20000)
     async for r in cursor:

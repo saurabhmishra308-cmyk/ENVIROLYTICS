@@ -1,5 +1,6 @@
 import React from 'react';
 import { Badge } from './ui/badge';
+import { cleanLabel } from '../utils/labels';
 
 const fmtNumber = (n, d = 2) => {
   if (n == null || Number.isNaN(Number(n))) return '—';
@@ -30,7 +31,7 @@ export const FlowmeterTile = ({ agg, isDarkMode, color = '#4a9fd8', onClick }) =
     >
       <div className="flex items-start justify-between mb-2">
         <div>
-          <p className={`font-bold ${text}`}>{agg.label || agg.hardware_id}</p>
+          <p className={`font-bold ${text}`}>{cleanLabel(agg.label || agg.hardware_id)}</p>
           <p className={`text-xs ${muted}`}>{agg.hardware_id}</p>
         </div>
         <Badge className={isLive ? 'bg-green-500' : 'bg-gray-400'}>{isLive ? 'LIVE' : 'IDLE'}</Badge>

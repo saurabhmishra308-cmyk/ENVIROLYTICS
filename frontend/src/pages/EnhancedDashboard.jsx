@@ -15,6 +15,7 @@ import InstrumentSection from '../components/InstrumentSection';
 import LocationMap from '../components/LocationMap';
 import OfflineAlertsBanner from '../components/OfflineAlertsBanner';
 import NotificationRecipientsCard from '../components/NotificationRecipientsCard';
+import { cleanLabel } from '../utils/labels';
 
 const POLL_MS = 5000;
 const logError = (e, c) => { if (process.env.NODE_ENV === 'development') console.error(`[${c}]`, e); };
@@ -47,7 +48,7 @@ const FlowmeterTile = ({ agg, isDarkMode, color, onClick, location }) => {
     >
       <div className="flex items-start justify-between mb-2">
         <div>
-          <p className={`font-bold ${text}`}>{agg.label || agg.hardware_id}</p>
+          <p className={`font-bold ${text}`}>{cleanLabel(agg.label || agg.hardware_id)}</p>
           <p className={`text-xs ${muted}`}>{agg.hardware_id}</p>
         </div>
         <Badge className={isLive ? 'bg-green-500' : 'bg-gray-400'}>{isLive ? 'LIVE' : 'IDLE'}</Badge>
@@ -199,7 +200,7 @@ const EnhancedDashboard = () => {
         .map((it) => ({
           hardware_id: it.hardware_id,
           instrument_type: it.instrument_type,
-          label: it.label || it.hardware_id,
+          label: cleanLabel(it.label || it.hardware_id),
           location_name: it.location_name || it.owner_location_name || null,
           latitude: it.latitude,
           longitude: it.longitude,
@@ -532,7 +533,7 @@ const EnhancedDashboard = () => {
                     <div key={d.hardware_id} data-testid={`stp-tile-row-${d.hardware_id}`}>
                       <div className={`text-xs font-semibold mb-1.5 ${text} flex items-center gap-2 flex-wrap`}>
                         <span>
-                          {reg.label || d.hardware_id}
+                          {cleanLabel(reg.label || d.hardware_id)}
                           {reg.plant_capacity_kld != null && (
                             <span className={`ml-2 text-[10px] font-mono ${muted}`}>· {reg.plant_capacity_kld} KLD</span>
                           )}
@@ -607,7 +608,7 @@ const EnhancedDashboard = () => {
                   return (
                     <div key={d.hardware_id} data-testid={`do-tile-row-${d.hardware_id}`}>
                       <div className={`text-xs font-semibold mb-1.5 ${text} flex items-center gap-2 flex-wrap`}>
-                        <span>{reg.label || d.hardware_id}</span>
+                        <span>{cleanLabel(reg.label || d.hardware_id)}</span>
                         <span
                           className="text-[10px] font-medium px-1.5 py-0.5 rounded-full text-white flex items-center gap-1"
                           style={{ backgroundColor: stale.color }}

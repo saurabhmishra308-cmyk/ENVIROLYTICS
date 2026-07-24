@@ -90,7 +90,8 @@ async def _month_consumption_kl(hardware_id: str) -> float:
     """Forward-totaliser delta between the first reading of the month and the latest."""
     start = _month_start().isoformat()
     first = await db.flowmeter_readings.find_one(
-        {"hardware_id": hardware_id, "timestamp": {"$gte": start}},
+        {"hardware_id": hardware_id, "timestamp": {"$gte": start},
+         "_dummy": {"$ne": True}},
         sort=[("timestamp", 1)],
     )
     last = await db.flowmeter_latest.find_one({"hardware_id": hardware_id})

@@ -317,7 +317,7 @@ async def _owner_email_for(db, hardware_id: str) -> Tuple[Optional[str], Optiona
 async def _find_offline(db) -> List[dict]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=OFFLINE_THRESHOLD_HOURS)
     out: List[dict] = []
-    async for d in db.flowmeter_latest.find({}, {"_id": 0}):
+    async for d in db.flowmeter_latest.find({"_dummy": {"$ne": True}}, {"_id": 0}):
         ls = _parse_iso(d.get("received_at")) or _parse_iso(d.get("timestamp"))
         if ls and ls < cutoff:
             owner_id, owner_email, extras = await _owner_email_for(db, d.get("hardware_id"))
@@ -327,7 +327,7 @@ async def _find_offline(db) -> List[dict]:
                 "owner_user_id": owner_id, "owner_email": owner_email,
                 "extra_emails": extras,
             })
-    async for d in db.instrument_latest.find({}, {"_id": 0}):
+    async for d in db.instrument_latest.find({"_dummy": {"$ne": True}}, {"_id": 0}):
         ls = _parse_iso(d.get("received_at")) or _parse_iso(d.get("timestamp"))
         if ls and ls < cutoff:
             owner_id, owner_email, extras = await _owner_email_for(db, d.get("hardware_id"))
