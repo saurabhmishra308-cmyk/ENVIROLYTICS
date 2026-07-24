@@ -1,47 +1,53 @@
 import { useEffect } from 'react';
+import { isAdmin } from '../mockData';
 
 /**
  * SecurityHardening — mount once near the root of the tree.
  *
- * What it does (best-effort content protection):
- *  • Disables the right-click menu everywhere
- *  • Disables text selection on body (form fields still selectable so admins
- *    can correct typos while typing credentials / IMEIs / coords)
- *  • Blocks copy / cut / drag from any non-input element
- *  • Blocks paste OUTSIDE of form inputs (paste inside inputs still works so
- *    admins can paste MQTT topics, hardware IDs etc. into the registration
- *    forms — otherwise the app becomes unusable)
- *  • Swallows common DevTools + save shortcuts (F12, Ctrl/Cmd+Shift+I/J/C,
- *    Ctrl/Cmd+S, Ctrl/Cmd+P, Ctrl/Cmd+U)
- *  • Intercepts the PrintScreen key: shows a full-page black overlay for
- *    ~800 ms and clears the OS clipboard, so any screenshot captured during
- *    the window shows a blank page. This is a *deterrent*, not a real
- *    guarantee — OS-level screen capture cannot be blocked from a web page.
+ * Content-protection for CLIENT users only. Admins get an unrestricted
+ * browser (right-click / selection / copy / paste / DevTools / PrintScreen
+ * all work normally) so support & QA can operate without friction. Every
+ * event handler re-reads `isAdmin()` at call time so a login / logout
+ * flips the behaviour instantly without a page reload.
  *
- * The component renders nothing; it only wires document-level listeners and
- * injects a `<style>` block.
+ * For non-admin users the hardening blocks (best-effort):
+ *  • Right-click menu
+ *  • Text selection outside form fields
+ *  • Copy / cut / drag from any non-input element
+ *  • Paste outside form inputs (paste in inputs still works so clients can
+ *    paste MQTT topics, hardware IDs, etc. into search / support forms)
+ *  • DevTools + save shortcuts (F12, Ctrl/Cmd+Shift+I/J/C, Ctrl/Cmd+U/S/P)
+ *  • Ctrl+A on non-input surfaces
+ *
+ * PrintScreen: an ~800 ms black overlay + clipboard-clear (deterrent only —
+ * OS-level screen capture can never be prevented from a web page).
+ *
+ * Renders nothing; only wires document listeners and injects CSS.
  */
 export default function SecurityHardening() {
   useEffect(() => {
-    // ────────── CSS: disable selection globally, allow it in form inputs ──────────
+    // ────────── CSS: apply select-none only when body has __client_lock__ ──────────
+    // We toggle the body class on every tick based on isAdmin() so admins
+    // never get the selection lock, even without a page reload.
     const styleEl = document.createElement('style');
     styleEl.setAttribute('data-security-hardening', 'true');
     styleEl.textContent = `
-      html, body {
+      body.__client_lock__ {
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
         user-select: none;
         -webkit-touch-callout: none;
       }
-      /* Keep inputs / textareas / contenteditable usable — otherwise admins
-         can't correct typos while typing credentials or IMEIs. */
-      input, textarea, select, [contenteditable="true"], [contenteditable=""] {
+      body.__client_lock__ input,
+      body.__client_lock__ textarea,
+      body.__client_lock__ select,
+      body.__client_lock__ [contenteditable="true"],
+      body.__client_lock__ [contenteditable=""] {
         -webkit-user-select: text !important;
         user-select: text !important;
         -webkit-touch-callout: default !important;
       }
-      /* Screenshot deterrent overlay */
       body.__print_shield__::before {
         content: '';
         position: fixed;
@@ -53,12 +59,23 @@ export default function SecurityHardening() {
     `;
     document.head.appendChild(styleEl);
 
+    // Reconcile the body class with the current role every 1s (also on
+    // storage events for cross-tab logins/logouts).
+    const reconcileClass = () => {
+      let admin = false;
+      try { admin = isAdmin(); } catch (_e) { admin = false; }
+      if (admin) document.body.classList.remove('__client_lock__');
+      else document.body.classList.add('__client_lock__');
+    };
+    reconcileClass();
+    const reconcileTimer = setInterval(reconcileClass, 1000);
+    window.addEventListener('storage', reconcileClass);
+
     // ────────── helpers ──────────
     const inInput = (target) => {
       if (!target) return false;
       const tag = (target.tagName || '').toUpperCase();
       if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
-      // contenteditable descendants
       let el = target;
       while (el) {
         if (el.isContentEditable) return true;
@@ -66,45 +83,52 @@ export default function SecurityHardening() {
       }
       return false;
     };
+    const admin = () => {
+      try { return isAdmin(); } catch (_e) { return false; }
+    };
+    const clearClip = () => {
+      try {
+        const p = navigator.clipboard && navigator.clipboard.writeText('');
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch (_e) { /* ignore */ }
+    };
 
     // ────────── right-click ──────────
     const onContextMenu = (e) => {
+      if (admin()) return;             // admins get the browser menu
       e.preventDefault();
       return false;
     };
 
     // ────────── selection + copy + cut + drag ──────────
     const cancel = (e) => {
-      if (inInput(e.target)) return; // let admins fix typos
+      if (admin()) return;
+      if (inInput(e.target)) return;   // let clients fix typos in inputs
       e.preventDefault();
       return false;
     };
     const onPaste = (e) => {
-      // Allow paste ONLY inside form inputs so admins can paste MQTT topics,
-      // IMEIs, coordinates, etc. Everything else is blocked.
-      if (inInput(e.target)) return;
+      if (admin()) return;
+      if (inInput(e.target)) return;   // paste allowed in forms
       e.preventDefault();
     };
 
-    // ────────── PrintScreen — blur overlay + clear clipboard ──────────
+    // ────────── PrintScreen + DevTools shortcuts ──────────
     const onKeyDown = (e) => {
-      // PrintScreen (fires on keyup in many browsers but keydown works on
-      // Windows Firefox / Edge; we bind both).
+      if (admin()) return;             // admins get everything
+
       if (e.key === 'PrintScreen' || e.code === 'PrintScreen') {
-        try { navigator.clipboard?.writeText('')?.catch(() => {}); } catch { /* ignore */ }
+        clearClip();
         document.body.classList.add('__print_shield__');
         setTimeout(() => document.body.classList.remove('__print_shield__'), 800);
         return;
       }
-
-      // DevTools + save shortcuts
-      const mod = e.ctrlKey || e.metaKey; // Cmd on macOS, Ctrl elsewhere
+      const mod = e.ctrlKey || e.metaKey;
       const isF12 = e.key === 'F12';
       const isDevKey = mod && e.shiftKey && ['I', 'i', 'J', 'j', 'C', 'c'].includes(e.key);
       const isViewSrc = mod && ['U', 'u'].includes(e.key);
       const isSave    = mod && ['S', 's'].includes(e.key);
       const isPrint   = mod && ['P', 'p'].includes(e.key);
-      // Ctrl+A on non-input surfaces (would select whole page)
       const isSelectAll = mod && ['A', 'a'].includes(e.key) && !inInput(e.target);
       if (isF12 || isDevKey || isViewSrc || isSave || isPrint || isSelectAll) {
         e.preventDefault();
@@ -113,8 +137,9 @@ export default function SecurityHardening() {
       }
     };
     const onKeyUp = (e) => {
+      if (admin()) return;
       if (e.key === 'PrintScreen' || e.code === 'PrintScreen') {
-        try { navigator.clipboard?.writeText('')?.catch(() => {}); } catch { /* ignore */ }
+        clearClip();
         document.body.classList.add('__print_shield__');
         setTimeout(() => document.body.classList.remove('__print_shield__'), 800);
       }
@@ -130,6 +155,8 @@ export default function SecurityHardening() {
     document.addEventListener('keyup', onKeyUp, true);
 
     return () => {
+      clearInterval(reconcileTimer);
+      window.removeEventListener('storage', reconcileClass);
       document.removeEventListener('contextmenu', onContextMenu);
       document.removeEventListener('selectstart', cancel);
       document.removeEventListener('copy', cancel);
@@ -138,6 +165,7 @@ export default function SecurityHardening() {
       document.removeEventListener('paste', onPaste);
       document.removeEventListener('keydown', onKeyDown, true);
       document.removeEventListener('keyup', onKeyUp, true);
+      document.body.classList.remove('__client_lock__');
       styleEl.remove();
     };
   }, []);
