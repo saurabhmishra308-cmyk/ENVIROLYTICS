@@ -757,7 +757,7 @@ const Instruments = () => {
                             <td className="p-2 font-mono">{m.imei || <span className="text-gray-400">—</span>}</td>
                             <td className="p-2">
                               {m.hardware_id ? (
-                                <span className="text-gray-900">{m.hardware_id}<span className="ml-1 text-[10px] text-gray-500">({m.instrument_type})</span></span>
+                                <span className="text-gray-900">{cleanLabel(m.hardware_id)}<span className="ml-1 text-[10px] text-gray-500">({m.instrument_type})</span></span>
                               ) : (
                                 <span className="text-gray-400">—</span>
                               )}
@@ -864,7 +864,7 @@ const Instruments = () => {
                               {new Date(r.ts).toLocaleString([], { year: '2-digit', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                             </td>
                             <td className="p-2 font-mono">{r.device_id}</td>
-                            <td className="p-2 font-mono">{r.hardware_id || <span className="text-gray-400">—</span>}</td>
+                            <td className="p-2 font-mono">{r.hardware_id ? cleanLabel(r.hardware_id) : <span className="text-gray-400">—</span>}</td>
                             <td className="p-2">
                               <span className="text-[10px] uppercase tracking-wide bg-gray-100 rounded px-1.5 py-0.5">{r.instrument_type || '—'}</span>
                             </td>
@@ -918,7 +918,7 @@ const Instruments = () => {
                 <tbody>
                   {items.map((it) => (
                     <tr key={it.hardware_id} className="border-b hover:bg-gray-50">
-                      <td className="p-3 font-mono text-sm">{it.hardware_id}</td>
+                      <td className="p-3 font-mono text-sm">{cleanLabel(it.hardware_id)}</td>
                       <td className="p-3">
                         <Badge className="bg-blue-500 capitalize">{it.instrument_type}</Badge>
                         {it.instrument_type === 'flowmeter' && it.category && (
