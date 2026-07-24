@@ -39,6 +39,8 @@ import notification_service
 import field_simulator
 from api_reports import router as reports_router
 import api_reports
+from api_instrument_report import router as instrument_report_router
+import api_instrument_report
 from api_subusers import router as subusers_router
 import api_subusers
 from api_weather import router as weather_router
@@ -75,6 +77,7 @@ api_audit.set_db(db)
 api_alerts.set_db(db)
 api_notifications.set_db(db)
 api_reports.set_db(db)
+api_instrument_report.set_db(db)
 api_subusers.set_db(db)
 api_limits.set_db(db)
 api_renewals.set_db(db)
@@ -139,6 +142,7 @@ app.include_router(audit_router)
 app.include_router(alerts_router)
 app.include_router(notifications_router)
 app.include_router(reports_router)
+app.include_router(instrument_report_router)
 app.include_router(subusers_router)
 app.include_router(weather_router)
 app.include_router(limits_router)

@@ -51,7 +51,7 @@ const Sidebar = () => {
     baseMenu.push({ path: '/water-quality', icon: Droplets, label: 'Water Quality' });
   }
   const menuItems = admin
-    ? [...baseMenu, { path: '/instruments', icon: Cpu, label: 'Instruments' }, { path: '/audit-log', icon: History, label: 'Audit Log' }]
+    ? [...baseMenu, { path: '/instruments', icon: Cpu, label: 'Instruments' }, { path: '/audit-log', icon: History, label: 'Instrument Report' }]
     : baseMenu;
 
   const isActive = (path) => location.pathname === path;
