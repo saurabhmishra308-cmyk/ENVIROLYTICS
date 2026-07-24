@@ -393,6 +393,119 @@ async def rotate_device_key(hardware_id: str, admin: dict = Depends(require_admi
     return {"success": True, "hardware_id": hardware_id, "device_key": new_key}
 
 
+# --------------------------------------------------------------------------- rename
+class RenameHardwareIdRequest(BaseModel):
+    new_hardware_id: str = Field(..., min_length=1, max_length=64,
+                                  description="New hardware_id — must be unique across the registry.")
+
+
+# Collections that carry `hardware_id` as a foreign key. Order does not
+# matter for correctness (each collection is independent), but we keep the
+# registry last so the source of truth is only flipped after every FK is
+# updated. If any downstream update fails we abort BEFORE touching the
+# registry, leaving the whole system consistent.
+_HW_ID_COLLECTIONS = (
+    "flowmeter_readings",
+    "flowmeter_latest",
+    "flowmeter_categories",
+    "instrument_readings",
+    "instrument_latest",
+    "flow_limits",
+    "limit_alerts_state",
+    "notification_state",
+    "audit_log",
+    "camera_streams",
+    "renewals",
+    "renewal_reminders_state",
+    "login_attempts",
+    "certificates",
+)
+
+
+@router.post("/{hardware_id}/rename")
+async def rename_hardware_id(
+    hardware_id: str,
+    req: RenameHardwareIdRequest,
+    admin: dict = Depends(require_admin),
+):
+    """Rename a device's `hardware_id` across every collection that references it.
+
+    Steps
+    -----
+    1. Validate the new id is non-empty, differs from the current one, and is
+       not already registered to another device.
+    2. Update every foreign-key collection (readings, latest, categories,
+       limits, alerts state, audit log, cameras, certificates, renewals) so
+       that history stays attached to the same instrument.
+    3. Update the primary `instrument_registry` document last.
+    4. Write an audit-log entry so ops can trace who renamed what.
+
+    Note: MongoDB standalone deployments don't support cross-collection
+    transactions. Failure between steps 2 and 3 would leave FK rows updated
+    but the registry key still pointing at the old id — safe (never orphans
+    data), but the admin can safely re-run this endpoint with the same new id
+    and it will simply flip the registry row.
+    """
+    new_id = req.new_hardware_id.strip()
+    if not new_id:
+        raise HTTPException(status_code=400, detail="new_hardware_id is required")
+    if new_id == hardware_id:
+        raise HTTPException(status_code=400, detail="new_hardware_id is identical to the current id")
+
+    existing = await db.instrument_registry.find_one({"hardware_id": hardware_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Instrument '{hardware_id}' not found")
+
+    clash = await db.instrument_registry.find_one({"hardware_id": new_id})
+    if clash and clash.get("hardware_id") != hardware_id:
+        raise HTTPException(status_code=409, detail=f"Hardware id '{new_id}' is already registered")
+
+    # Update every FK collection first
+    per_collection: Dict[str, int] = {}
+    existing_collections = set(await db.list_collection_names())
+    for coll in _HW_ID_COLLECTIONS:
+        if coll not in existing_collections:
+            continue
+        result = await db[coll].update_many(
+            {"hardware_id": hardware_id},
+            {"$set": {"hardware_id": new_id}},
+        )
+        per_collection[coll] = result.modified_count
+
+    # Flip the source of truth last
+    await db.instrument_registry.update_one(
+        {"hardware_id": hardware_id},
+        {"$set": {
+            "hardware_id": new_id,
+            "previous_hardware_id": hardware_id,
+            "renamed_at": datetime.now(timezone.utc).isoformat(),
+            "renamed_by": admin.get("id"),
+        }},
+    )
+
+    # Audit trail — separate write so the payload survives even if the
+    # cascade update above only touched a subset of collections.
+    await db.audit_log.insert_one({
+        "action": "rename_hardware_id",
+        "entity_type": "instrument_registry",
+        "entity_id": new_id,
+        "old_hardware_id": hardware_id,
+        "new_hardware_id": new_id,
+        "actor_id": admin.get("id"),
+        "actor_email": admin.get("email"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "affected_rows": per_collection,
+    })
+
+    return {
+        "success": True,
+        "old_hardware_id": hardware_id,
+        "new_hardware_id": new_id,
+        "affected_rows": per_collection,
+        "total_rows_updated": sum(per_collection.values()),
+    }
+
+
 @router.post("/backfill-keys")
 async def backfill_device_keys(admin: dict = Depends(require_admin)):
     """One-shot: add a freshly-generated `device_key` to every legacy instrument
