@@ -94,6 +94,19 @@ DWLRs and Water Quality (STP + DO Meter).
 - **"DO METER" → "DO ANALYZER"** display-only rename across the Water
   Quality page, Instruments dropdown, Dashboard DO tiles and the map
   legend. Backend `instrument_type` key remains `do_meter` (no migration).
+- **Reports page redesign**: hardware-ID text input replaced with a device
+  dropdown (scoped to the current user's registered instruments); Filter
+  button replaces the Refresh; Frequency selector (Daily / Weekly / Monthly
+  / Quarterly / Yearly) buckets readings per period. Table + CSV columns:
+  * DWLR — S.No. / Site Name / Location / Device / Date (`24 July 2026`) /
+    Time / Water Level (mWC) / Temperature (°C). Skips `WTEMP:0.00` (falls
+    back to admin `manual_water_temp_c` then `ATEMP`).
+  * Flowmeter — S.No. / Site Name / Location / Device / Date / Time /
+    Flow rate (L/h) / Initial Totaliser (KL) / Final Totaliser (KL) /
+    Consumption (KL). Totalisers use vendor formula
+    `Forward = TOT2×65535 + TOT1` / `Reverse = RTOT2×65535 + RTOT1`.
+  * Professional CSV includes ENVIROLYTICS header block with client name,
+    device, site, location, date range, frequency and generation timestamp.
 - CSV/PDF report exports per device + date range
 
 ## Recent Changes (2026-07-11)
