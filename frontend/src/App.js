@@ -19,6 +19,7 @@ import WaterQuality from "./pages/WaterQuality";
 import Sidebar from "./components/Sidebar";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AuthGate from "./components/AuthGate";
+import SecurityHardening from "./components/SecurityHardening";
 import { Toaster } from "./components/ui/sonner";
 import { getCurrentUser, isAuthenticated } from "./mockData";
 
@@ -51,6 +52,7 @@ function App() {
   return (
     <ThemeProvider>
       <div className="App">
+        <SecurityHardening />
         <BrowserRouter>
           <AuthGate>
             <ErrorBoundary>

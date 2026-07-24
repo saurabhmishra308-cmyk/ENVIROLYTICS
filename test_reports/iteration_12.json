@@ -1,0 +1,52 @@
+{
+  "summary": "Frontend-only verification of SecurityHardening component. All 8 requested behaviors verified via page.evaluate + synthetic event dispatch: contextmenu preventDefault, body userSelect=none, copy/cut/dragstart/selectstart preventDefault outside inputs, paste blocked outside inputs but allowed inside inputs, copy allowed inside inputs, DevTools shortcuts (F12, Ctrl+Shift+I/J/C, Ctrl+U/S/P) + Ctrl+A blocked outside inputs, Ctrl+A allowed inside inputs, PrintScreen adds body.__print_shield__ class then clears within 1s. Login flow (admin@envirolytics.com) succeeds → lands on /dashboard, /reports loads, DWLR tab clickable, right-click still blocked on /reports. Fixed one real bug I discovered: navigator.clipboard.writeText('') returns a Promise whose rejection ('NotAllowedError: Write permission denied') was NOT caught by the sync try/catch — it surfaced as an Uncaught runtime error overlay in dev after every PrintScreen and blocked all subsequent clicks. Added .catch(()=>{}) to both keydown and keyup handlers.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/reports Flowmeter tab", "issues": ["Pre-existing (unrelated to this task) React hydration warning: <span> cannot be a child of <option> in the Device <select> (Reports.jsx line 532). Purely a console warning, not blocking."]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/sec_login_filled.jpg", "/app/test_reports/sec_reports_final.jpg"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FIXED: navigator.clipboard.writeText() returns a Promise — a sync try/catch does NOT catch its rejection. Original code produced an unhandledrejection ('NotAllowedError: Write permission denied') every time PrintScreen fired without user-gesture clipboard permission. In the dev preview this triggered the webpack error overlay and blocked all clicks; in production it would silently pollute the console. Added `?.catch(() => {})` in both keydown and keyup handlers.",
+    "PrintScreen deterrent by design cannot block OS-level capture (Snipping Tool, PrtScr → paste into an app that reads the raw screen buffer). Confirmed source has no false claims to the contrary — it's a UI overlay + best-effort clipboard clear only. Recommend documenting this limitation for the customer.",
+    "The clipboard.writeText('') call requires the Clipboard-Write permission and a transient user activation. On many browsers it will always reject on a keyup event fired without a click preceding it. Consider gating on `document.hasFocus() && navigator.permissions` or dropping the clipboard clear entirely since the overlay is the real deterrent.",
+    "DevTools shortcut list is Chromium-centric. Ctrl+Shift+K (Firefox web console) and Cmd+Opt+U (Safari view-source) are not intercepted. Low priority — a determined user cannot be stopped anyway.",
+    "Body-level `user-select: none` will also block selection inside third-party libraries that render outside inputs (e.g. tooltip text, chart labels). Acceptable given the requirement, but worth flagging."
+  ],
+  "updated_files": ["/app/frontend/src/components/SecurityHardening.jsx"],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "test_credentials": "Admin: admin@envirolytics.com / Admin@Envirolytics2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "SecurityHardening is verified end-to-end. Screenshot deterrent limitation is a browser sandbox constraint — do not attempt to prove OS-level screenshot blocking. If regression testing, use page.evaluate + dispatchEvent (NOT page.keyboard.press) because real Playwright keys fire below the JS listener layer and bypass the handlers.",
+  "verification_evidence": {
+    "contextmenu_prevented_login": true,
+    "contextmenu_prevented_reports": true,
+    "body_user_select": "none",
+    "copy_body_prevented": true,
+    "cut_body_prevented": true,
+    "dragstart_body_prevented": true,
+    "selectstart_body_prevented": true,
+    "paste_body_prevented": true,
+    "paste_input_prevented": false,
+    "copy_input_prevented": false,
+    "F12_prevented": true,
+    "Ctrl_Shift_I_prevented": true,
+    "Ctrl_Shift_J_prevented": true,
+    "Ctrl_Shift_C_prevented": true,
+    "Ctrl_U_prevented": true,
+    "Ctrl_S_prevented": true,
+    "Ctrl_P_prevented": true,
+    "Ctrl_A_body_prevented": true,
+    "Ctrl_A_input_prevented": false,
+    "printscreen_class_added_then_cleared": true,
+    "login_lands_on_dashboard": true,
+    "reports_page_loads": true
+  },
+  "rca of the issue": "SecurityHardening.jsx wrapped `navigator.clipboard.writeText('')` in a synchronous try/catch. writeText returns a Promise, so the NotAllowedError (raised when no clipboard-write permission or user gesture is present) surfaces as an unhandled promise rejection. In the CRA/webpack-dev-server dev preview this triggers a full-viewport error overlay iframe that intercepts pointer events, effectively soft-locking the UI after any PrintScreen press. Fix: append `?.catch(() => {})` to swallow the promise rejection. Both keydown and keyup handlers were patched. Verified post-fix: PrintScreen dispatch produced no console error and no overlay; subsequent login click succeeded."
+}
