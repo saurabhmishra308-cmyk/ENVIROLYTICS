@@ -1,0 +1,205 @@
+{
+  "daily": {
+    "headers": [
+      "S.No.",
+      "Site Name",
+      "Location",
+      "Device",
+      "Date",
+      "Time",
+      "Water Level (mWC)",
+      "Temperature (\u00b0C)",
+      "Actions"
+    ],
+    "rowCount": 30,
+    "firstRow": [
+      "1",
+      "Piezometer Test",
+      "Piezometer (Basement 2)",
+      "Piezometer Test",
+      "24 July 2026",
+      "15:15:00",
+      "11.45",
+      "26.5",
+      ""
+    ],
+    "lastRow": [
+      "30",
+      "Piezometer Test",
+      "Piezometer (Basement 2)",
+      "Piezometer Test",
+      "24 July 2026",
+      "08:00:00",
+      "10.00",
+      "26.5",
+      ""
+    ],
+    "title": " DWLR data (30)"
+  },
+  "weekly": {
+    "headers": [
+      "S.No.",
+      "Site Name",
+      "Location",
+      "Device",
+      "Date",
+      "Time",
+      "Water Level (mWC)",
+      "Temperature (\u00b0C)",
+      "Actions"
+    ],
+    "rowCount": 1,
+    "firstRow": [
+      "1",
+      "Piezometer Test",
+      "Piezometer (Basement 2)",
+      "Piezometer Test",
+      "24 July 2026",
+      "15:15:00",
+      "11.45",
+      "26.5",
+      ""
+    ],
+    "lastRow": [
+      "1",
+      "Piezometer Test",
+      "Piezometer (Basement 2)",
+      "Piezometer Test",
+      "24 July 2026",
+      "15:15:00",
+      "11.45",
+      "26.5",
+      ""
+    ],
+    "title": " DWLR data (1)"
+  },
+  "monthly": {
+    "headers": [
+      "S.No.",
+      "Site Name",
+      "Location",
+      "Device",
+      "Date",
+      "Time",
+      "Water Level (mWC)",
+      "Temperature (\u00b0C)",
+      "Actions"
+    ],
+    "rowCount": 1,
+    "firstRow": [
+      "1",
+      "Piezometer Test",
+      "Piezometer (Basement 2)",
+      "Piezometer Test",
+      "24 July 2026",
+      "15:15:00",
+      "11.45",
+      "26.5",
+      ""
+    ],
+    "lastRow": [
+      "1",
+      "Piezometer Test",
+      "Piezometer (Basement 2)",
+      "Piezometer Test",
+      "24 July 2026",
+      "15:15:00",
+      "11.45",
+      "26.5",
+      ""
+    ],
+    "title": " DWLR data (1)"
+  },
+  "csv_path": "/app/test_reports/browser_reports_dwlr/envirolytics_dwlr_PIEZO_BUGTEST_01_daily_2026-07-24.csv",
+  "csv_row_count": 30,
+  "csv_devices": [
+    "Piezometer Test"
+  ],
+  "flow_daily": {
+    "headers": [
+      "S.No.",
+      "Site Name",
+      "Location",
+      "Device",
+      "Date",
+      "Time",
+      "Flow rate (L/h)",
+      "Initial Totaliser (KL)",
+      "Final Totaliser (KL)",
+      "Consumption (KL)",
+      "Actions"
+    ],
+    "rowCount": 1,
+    "firstRow": [
+      "1",
+      "Flowmeter Bugtest",
+      "Flow Test Location",
+      "Flowmeter Bugtest",
+      "24 July 2026",
+      "14:00:00",
+      "1150.00",
+      "10000.00",
+      "11500.00",
+      "1500.00",
+      ""
+    ],
+    "lastRow": [
+      "1",
+      "Flowmeter Bugtest",
+      "Flow Test Location",
+      "Flowmeter Bugtest",
+      "24 July 2026",
+      "14:00:00",
+      "1150.00",
+      "10000.00",
+      "11500.00",
+      "1500.00",
+      ""
+    ],
+    "title": ""
+  },
+  "flow_weekly": {
+    "headers": [
+      "S.No.",
+      "Site Name",
+      "Location",
+      "Device",
+      "Date",
+      "Time",
+      "Flow rate (L/h)",
+      "Initial Totaliser (KL)",
+      "Final Totaliser (KL)",
+      "Consumption (KL)",
+      "Actions"
+    ],
+    "rowCount": 1,
+    "firstRow": [
+      "1",
+      "Flowmeter Bugtest",
+      "Flow Test Location",
+      "Flowmeter Bugtest",
+      "24 July 2026",
+      "14:00:00",
+      "1150.00",
+      "10000.00",
+      "11500.00",
+      "1500.00",
+      ""
+    ],
+    "lastRow": [
+      "1",
+      "Flowmeter Bugtest",
+      "Flow Test Location",
+      "Flowmeter Bugtest",
+      "24 July 2026",
+      "14:00:00",
+      "1150.00",
+      "10000.00",
+      "11500.00",
+      "1500.00",
+      ""
+    ],
+    "title": ""
+  },
+  "error_text": ""
+}

@@ -1,0 +1,43 @@
+{
+  "start_text": "7/24/2026",
+  "end_text": "7/25/2026",
+  "daily_range": {
+    "rowCount": 30,
+    "firstRow": [
+      "1",
+      "Piezometer Test",
+      "Piezometer (Basement 2)",
+      "Piezometer Test",
+      "24 July 2026",
+      "15:15:00",
+      "11.45",
+      "26.5",
+      ""
+    ],
+    "lastRow": [
+      "30",
+      "Piezometer Test",
+      "Piezometer (Basement 2)",
+      "Piezometer Test",
+      "24 July 2026",
+      "08:00:00",
+      "10.00",
+      "26.5",
+      ""
+    ]
+  },
+  "weekly_range": {
+    "rowCount": 1,
+    "firstRow": [
+      "1",
+      "Piezometer Test",
+      "Piezometer (Basement 2)",
+      "Piezometer Test",
+      "24 July 2026",
+      "15:15:00",
+      "11.45",
+      "26.5",
+      ""
+    ]
+  }
+}

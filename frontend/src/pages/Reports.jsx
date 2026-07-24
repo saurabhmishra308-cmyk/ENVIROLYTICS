@@ -233,12 +233,19 @@ const Reports = () => {
       return summaries.sort((a, b) => new Date(b._bucket_end) - new Date(a._bucket_end));
     }
 
-    // Non-flowmeter fallback: latest per bucket.
-    if (frequency === 'daily' && !s && !e) return withDate.map(({ r }) => r).reverse();
+    // Non-flowmeter (DWLR / pH / TDS / Conductivity):
+    // • "Daily" = show every raw reading in the range (each 15-min sample is
+    //   a data-point the operator wants to see — bucketing to one/day hides
+    //   them).
+    // • Weekly / Monthly / Quarterly / Yearly = latest reading per bucket
+    //   (period snapshot).
+    if (frequency === 'daily') {
+      return withDate.map(({ r }) => r).reverse(); // newest first
+    }
     const byBucket = new Map();
     for (const { r, d } of withDate) {
       const key = bucketKey(d, frequency);
-      byBucket.set(key, r); // withDate is ascending → last write wins = latest reading
+      byBucket.set(key, r); // ascending order → last write wins = latest reading
     }
     return Array.from(byBucket.values()).sort((a, b) => (parseReadingDate(b)?.getTime() || 0) - (parseReadingDate(a)?.getTime() || 0));
   }, [readings, startDate, endDate, frequency, section]);
@@ -249,7 +256,7 @@ const Reports = () => {
     const dev = selectedDevice || {};
     const siteName = dev.label || dev.hardware_id || '—';
     const locationName = dev.location_name || dev.owner_location_name || '—';
-    const deviceLabel = `${dev.instrument_type?.toUpperCase() || section.toUpperCase()} · ${dev.hardware_id || hardwareId}`;
+    const deviceLabel = dev.label || dev.hardware_id || hardwareId || '—';
     const rows = [];
     // Header block — client name + report meta (each on its own row so Excel keeps them)
     rows.push([`ENVIROLYTICS — ${section.toUpperCase()} REPORT`]);
@@ -622,7 +629,7 @@ const Reports = () => {
                         const d = parseReadingDate(r);
                         const siteName = selectedDevice?.label || selectedDevice?.hardware_id || '—';
                         const locationName = selectedDevice?.location_name || selectedDevice?.owner_location_name || '—';
-                        const deviceLbl = `${(selectedDevice?.instrument_type || section).toUpperCase()} · ${selectedDevice?.hardware_id || hardwareId}`;
+                        const deviceLbl = selectedDevice?.label || selectedDevice?.hardware_id || hardwareId || '—';
                         const level = section === 'dwlr' ? pickNum(r.values, ['LEVEL', 'LVL', 'level', 'WATER_LEVEL', 'RAW']) : null;
                         const temp = section === 'dwlr'
                           ? (selectedDevice?.manual_water_temp_c ?? pickNum(r.values, ['WTEMP'], { skipZero: true }) ?? pickNum(r.values, ['ATEMP', 'TEMPER', 'TEMP', 'temperature']))

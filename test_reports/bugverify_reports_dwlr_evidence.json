@@ -1,0 +1,42 @@
+{
+  "base_url": "https://envirolytics-hub.preview.emergentagent.com",
+  "skill_lookup": "No relevant testing skill found.",
+  "test_plan": [
+    "Seed DWLR labeled Piezometer Test with 30 readings at 15-minute intervals today.",
+    "Confirm API history returns all 30 readings; emulate Reports.jsx filtering for Daily, Weekly, Monthly.",
+    "Drive Reports UI as admin: DWLR tab, select fixture, date range covering today, Daily/Weekly/Monthly Filter; inspect table label, columns, row counts, order.",
+    "Download professional CSV from UI and verify Device column values match friendly label only.",
+    "Seed flowmeter fixture and confirm Daily/Weekly UI aggregation still produces period rows with initial/final/consumption.",
+    "Cleanup PIEZO/FLOW_BUGTEST fixtures."
+  ],
+  "code_review": {
+    "git_status": null,
+    "reports_fix": "Reports.jsx uses label||hardware_id for UI/CSV device label; non-flowmeter daily returns raw readings reversed; weekly+ buckets latest per period."
+  },
+  "api_evidence": {
+    "dwlr_history_count": 30,
+    "dwlr_first_newest_timestamp": "2026-07-24T15:15:00+00:00",
+    "dwlr_last_oldest_timestamp": "2026-07-24T08:00:00+00:00",
+    "dwlr_daily_filtered_count_expected_30": 30,
+    "dwlr_weekly_filtered_count_expected_1": 1,
+    "dwlr_monthly_filtered_count_expected_1": 1,
+    "flow_history_count": 4,
+    "flow_daily_bucket_count_expected_1": 1,
+    "flow_weekly_bucket_count_expected_1": 1,
+    "flow_daily_summary": [
+      {
+        "_bucket_key": "2026-07-24",
+        "_bucket_size": 4,
+        "hardware_id": "FLOW_BUGTEST_01",
+        "timestamp": "2026-07-24T14:00:00+00:00",
+        "_bucket_start": "2026-07-24T08:00:00+00:00",
+        "_bucket_end": "2026-07-24T14:00:00+00:00",
+        "initial_forward_totalizer": 10000.0,
+        "final_forward_totalizer": 11500.0,
+        "forward_consumption": 1500.0
+      }
+    ]
+  },
+  "ui_evidence": {},
+  "cleanup": {}
+}

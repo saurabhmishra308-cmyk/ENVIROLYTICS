@@ -1,0 +1,44 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "In Reports & Historical Data, after selecting a DWLR device (Piezometer Test), a date range and clicking Filter, two issues: (1) the Device column shows 'DWLR · Piezometer Test' instead of just 'Piezometer Test'; (2) only ONE row appears at 23:54:50 despite the instrument transmitting every 15 min from 4:30 PM — where did the other readings go?",
+  "summary": "No relevant testing skill found. Verified the preview Reports flow end-to-end with a seeded DWLR fixture labeled Piezometer Test and 30 readings at 15-minute intervals. DWLR Daily with explicit 24/7/2026–25/7/2026 date range now shows 30 rows newest-first and Device cells/CSV Device column show only Piezometer Test; Weekly and Monthly collapse to 1 latest bucket row. Also verified flowmeter Daily/Weekly aggregation still shows one period row with initial/final totaliser and consumption. Test fixtures were cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/bugverify_reports_dwlr.py",
+    "/app/test_reports/bugverify_reports_dwlr_evidence.json",
+    "/app/test_reports/browser_reports_dwlr/ui_evidence.json",
+    "/app/test_reports/browser_reports_dwlr_date/ui_date_range_evidence.json"
+  ],
+  "action_items": [
+    "Redeploy the preview fix to production (https://monitor.envirolytics.in) before expecting the production Reports page to change."
+  ],
+  "critical_code_review_comments": [
+    "Inspected /app/frontend/src/pages/Reports.jsx: non-flowmeter Daily now returns every raw reading in range; Weekly/Monthly/Quarterly/Yearly still bucket latest-per-period; UI and professional CSV Device label now use label || hardware_id rather than instrument-type prefix.",
+    "Admin UI appends an Actions column after the required DWLR columns; the required DWLR ordering is correct for the first eight data columns."
+  ],
+  "updated_files": [
+    "/app/tests/bugverify_reports_dwlr.py",
+    "/app/test_reports/bugverify_reports_dwlr_evidence.json",
+    "/app/test_reports/browser_reports_dwlr/ui_evidence.json",
+    "/app/test_reports/browser_reports_dwlr_date/ui_date_range_evidence.json",
+    "/app/test_reports/bug_verification_11.json",
+    "/app/test_reports/iteration_11.json"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "seed_data_creation": "Created temporary admin-owned DWLR PIEZO_BUGTEST_01 (label Piezometer Test, location Piezometer (Basement 2)) with 30 readings from 08:00 to 15:15 UTC at 15-minute intervals, plus temporary flowmeter FLOW_BUGTEST_01 with 4 readings. Cleanup confirmed registry/readings/latest counts returned to 0 for both fixtures.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Preview URL tested: https://envirolytics-hub.preview.emergentagent.com. Credentials used: admin@envirolytics.com / Admin@Envirolytics2026. If retesting, rerun /app/tests/bugverify_reports_dwlr.py then browser-check Reports > DWLR; cleanup with python /app/tests/bugverify_reports_dwlr.py --cleanup.",
+  "rca_of_the_issue": "The prior Reports.jsx behavior prefixed Device with instrument type/hardware ID and bucketed non-flowmeter Daily readings when a date range was applied, hiding 15-minute DWLR samples. The current preview code preserves raw non-flowmeter Daily readings and uses the friendly registry label for UI/CSV Device values. No mocked APIs were used."
+}
