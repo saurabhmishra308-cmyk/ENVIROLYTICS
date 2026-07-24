@@ -20,16 +20,30 @@ const TYPE_OPTIONS = [
   { value: 'ph', label: 'pH Sensor' },
   { value: 'tds', label: 'TDS Sensor' },
   { value: 'conductivity', label: 'Conductivity Sensor' },
-  { value: 'wq_stp', label: 'STP Water Quality (COD/BOD/TSS/pH)' },
+  { value: 'wq_stp', label: 'OCEMS (Online Continuous Effluent Monitoring System)' },
   { value: 'do_meter', label: 'DO Analyzer (Aeration Tanks)' },
   { value: 'chlorine_analyzer', label: 'Chlorine Analyzer (STP Effluent)' },
 ];
 
+// Category picker options for `flowmeter` — every other type has a *fixed*
+// category derived from `INSTRUMENT_CATEGORY_MAP` below (see form auto-fill).
 const CATEGORY_OPTIONS = [
   { value: 'groundwater_abstraction', label: 'Groundwater Abstraction' },
   { value: 'stp_inlet', label: 'STP Inlet' },
   { value: 'stp_outlet', label: 'STP Outlet' },
 ];
+
+// Fixed category per non-flowmeter instrument type. Displayed read-only in the
+// form; sent to the backend on save so downstream reports can group devices.
+const INSTRUMENT_CATEGORY_MAP = {
+  dwlr:              { value: 'groundwater_level',   label: 'Ground Water Level Monitoring' },
+  ph:                { value: 'groundwater_quality', label: 'Ground Water Quality' },
+  tds:               { value: 'groundwater_quality', label: 'Ground Water Quality' },
+  conductivity:      { value: 'groundwater_quality', label: 'Ground Water Quality' },
+  wq_stp:            { value: 'stp_water_quality',   label: 'STP Water Quality' },
+  do_meter:          { value: 'stp_water_quality',   label: 'STP Water Quality' },
+  chlorine_analyzer: { value: 'stp_water_quality',   label: 'STP Water Quality' },
+};
 
 const EMPTY_FORM = {
   hardware_id: '',
@@ -346,8 +360,13 @@ const Instruments = () => {
     out.location_name = out.location_name?.trim() || null;
     out.latitude = out.latitude === '' || out.latitude == null ? null : parseFloat(out.latitude);
     out.longitude = out.longitude === '' || out.longitude == null ? null : parseFloat(out.longitude);
+    // Category — flowmeter uses the user-picked value from CATEGORY_OPTIONS;
+    // every other type carries a *fixed* category from INSTRUMENT_CATEGORY_MAP
+    // so reports/dashboards can group DWLRs (Ground Water Level) separately
+    // from STP-side devices (STP Water Quality) etc.
     if (out.instrument_type !== 'flowmeter') {
-      delete out.category;
+      const fixed = INSTRUMENT_CATEGORY_MAP[out.instrument_type];
+      if (fixed) out.category = fixed.value; else delete out.category;
     }
     // IMEI: strip non-digits, empty string → drop
     const imei = String(out.imei || '').replace(/\D/g, '').trim();
@@ -979,6 +998,19 @@ const Instruments = () => {
                 <select className="w-full border rounded px-3 py-2" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} data-testid="instrument-category">
                   {CATEGORY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
+              </div>
+            )}
+            {form.instrument_type !== 'flowmeter' && INSTRUMENT_CATEGORY_MAP[form.instrument_type] && (
+              <div>
+                <Label>Category</Label>
+                <div
+                  className="w-full border rounded px-3 py-2 bg-gray-50 text-gray-700 text-sm"
+                  data-testid="instrument-fixed-category"
+                >
+                  {INSTRUMENT_CATEGORY_MAP[form.instrument_type].label}
+                  <span className="ml-2 text-[10px] uppercase tracking-wider text-gray-500">auto</span>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1">Category is fixed for this instrument type and grouped accordingly in reports.</p>
               </div>
             )}
             <div>
