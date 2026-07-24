@@ -26,8 +26,9 @@ const TYPE_STYLES = {
   tds:          { color: '#0ea5e9', ring: '#075985', label: 'TDS Sensor' },
   conductivity: { color: '#14b8a6', ring: '#115e59', label: 'Conductivity Sensor' },
   wq_stp:       { color: '#c2410c', ring: '#7c2d12', label: 'STP Effluent Analyser' },
-  do_meter:     { color: '#0284c7', ring: '#075985', label: 'DO Meter (Aeration Tank)' },
-  other:        { color: '#6b7280', ring: '#374151', label: 'Other Device' },
+  do_meter:           { color: '#0284c7', ring: '#075985', label: 'DO Analyzer (Aeration Tank)' },
+  chlorine_analyzer:  { color: '#eab308', ring: '#854d0e', label: 'Chlorine Analyzer (STP Effluent)' },
+  other:              { color: '#6b7280', ring: '#374151', label: 'Other Device' },
 };
 
 const typeStyle = (t) => TYPE_STYLES[(t || '').toLowerCase()] || TYPE_STYLES.other;

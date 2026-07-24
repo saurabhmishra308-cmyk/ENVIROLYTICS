@@ -584,7 +584,7 @@ const EnhancedDashboard = () => {
                 <Wind className="h-5 w-5 text-white" />
               </div>
               <div>
-                <CardTitle className={text}>DO Meter (Aeration Tank) parameter</CardTitle>
+                <CardTitle className={text}>DO Analyzer (Aeration Tank) parameter</CardTitle>
                 <CardDescription className={muted}>
                   Live Dissolved Oxygen readings per aeration tank — click for animated view
                 </CardDescription>
@@ -593,7 +593,7 @@ const EnhancedDashboard = () => {
           </CardHeader>
           <CardContent>
             {doDevices.length === 0 ? (
-              <p className={`text-xs italic ${muted}`} data-testid="do-tiles-empty">No DO meter configured.</p>
+              <p className={`text-xs italic ${muted}`} data-testid="do-tiles-empty">No DO analyzer configured.</p>
             ) : (
               <div className="space-y-4">
                 {doDevices.map((d) => {

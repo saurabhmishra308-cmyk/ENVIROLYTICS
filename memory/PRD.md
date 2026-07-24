@@ -65,6 +65,27 @@ DWLRs and Water Quality (STP + DO Meter).
   polls, `Poll now` + `Export CSV` buttons.
 - **"Where are my devices?" floating action button** on the dashboard map —
   one-click zoom-to-fit for every device the current user owns.
+- **STP SCADA — extended treatment train**: MBBR / Aeration Tank
+  (renamed + green media carrier dots), Sludge Dewatering belt-press below
+  the clarifier, UV Disinfection tube (violet) and Chlorine Dosing station
+  (yellow Cl₂ hexagon) inline on the treated-water rail. A stage strip
+  below the diagram shows the full sequence: Bar Screen → Equalization →
+  MBBR / Aeration → Clarifier → Sludge Dewatering → UV Disinfection →
+  Chlorine Dosing → Treated Outlet.
+- **STP Turbidity**: derived server-side as `TURBIDITY = TSS × k` when the
+  device doesn't send it directly. `turbidity_k` is admin-configurable per
+  device via `PUT /api/water-quality/{hw}/thresholds` (default k = 0.5).
+- **STP Chlorine parameter** + live alert banner. Below `chlorine_min` →
+  amber *"Increase dosing"*. Above `chlorine_max` → red *"Decrease dosing"*.
+  Between → green *"Optimal"*. Thresholds default 0.2 / 2.0 mg/L and are
+  admin-editable per device.
+- **Chlorine Analyzer tab** on the Water Quality page — mirrors the DO
+  Analyzer layout with live Free-Chlorine + Dose-Setpoint gauges, capacity
+  banner, history chart and CSV/PDF reports. New instrument type
+  `chlorine_analyzer` is registerable from the Instruments page.
+- **"DO METER" → "DO ANALYZER"** display-only rename across the Water
+  Quality page, Instruments dropdown, Dashboard DO tiles and the map
+  legend. Backend `instrument_type` key remains `do_meter` (no migration).
 - CSV/PDF report exports per device + date range
 
 ## Recent Changes (2026-07-11)
@@ -114,6 +135,7 @@ DWLRs and Water Quality (STP + DO Meter).
 - `GET  /api/http-traffic/espl`                  (admin — ESPL poll log)
 - `POST /api/http-traffic/espl/poll-now`         (admin — force poll all HTTP devices)
 - `GET  /api/http-traffic/espl/export.csv`       (admin — CSV of last 50 polls)
+- `PUT  /api/water-quality/{hw}/thresholds`      (admin — turbidity_k / chlorine_min / chlorine_max)
 
 ## Data Models
 - `instrument_registry`: hardware_id, imei, instrument_type,

@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/instrument-registry", tags=["instrument-registry
 db = None
 mqtt_service = None
 
-SUPPORTED_TYPES = {"flowmeter", "dwlr", "ph", "tds", "conductivity", "wq_stp", "do_meter"}
+SUPPORTED_TYPES = {"flowmeter", "dwlr", "ph", "tds", "conductivity", "wq_stp", "do_meter", "chlorine_analyzer"}
 FLOWMETER_CATEGORIES = {"groundwater_abstraction", "stp_inlet", "stp_outlet"}
 
 # Canonical demo device IDs (also defined in field_simulator.py)
@@ -222,8 +222,8 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
         "imei": imei,
         "manual_water_temp_c": req.manual_water_temp_c if itype == "dwlr" else None,
         # Capacity metadata — STP + DO meter only, ignored for other types.
-        "plant_capacity_kld": req.plant_capacity_kld if itype in ("wq_stp", "do_meter") else None,
-        "tank_capacity_kld": req.tank_capacity_kld if itype in ("wq_stp", "do_meter") else None,
+        "plant_capacity_kld": req.plant_capacity_kld if itype in ("wq_stp", "do_meter", "chlorine_analyzer") else None,
+        "tank_capacity_kld": req.tank_capacity_kld if itype in ("wq_stp", "do_meter", "chlorine_analyzer") else None,
         "source": (req.source or "mqtt").lower() if (req.source or "mqtt").lower() in ("mqtt", "http") else "mqtt",
         "device_key": secrets.token_urlsafe(24),  # for HTTPS ingestion auth
         "created_at": datetime.now(timezone.utc).isoformat(),

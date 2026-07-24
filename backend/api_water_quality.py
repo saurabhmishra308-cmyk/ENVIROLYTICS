@@ -65,15 +65,62 @@ def _convert(value: float, from_unit: str, to_unit: str) -> float:
 # STP water-quality parameter keys and their typical operating bands. Used
 # for the frontend gauge color-ranges when no admin-set limit is defined.
 STP_PARAMS = {
-    "COD": {"unit_default": "mg/L", "min": 0.0,  "max": 500.0, "safe_max": 250.0},
-    "BOD": {"unit_default": "mg/L", "min": 0.0,  "max": 300.0, "safe_max": 30.0},
-    "TSS": {"unit_default": "mg/L", "min": 0.0,  "max": 500.0, "safe_max": 100.0},
-    "PH":  {"unit_default": "pH",   "min": 0.0,  "max": 14.0,  "safe_min": 6.5, "safe_max": 8.5},
+    "COD":       {"unit_default": "mg/L", "min": 0.0,  "max": 500.0, "safe_max": 250.0},
+    "BOD":       {"unit_default": "mg/L", "min": 0.0,  "max": 300.0, "safe_max": 30.0},
+    "TSS":       {"unit_default": "mg/L", "min": 0.0,  "max": 500.0, "safe_max": 100.0},
+    "PH":        {"unit_default": "pH",   "min": 0.0,  "max": 14.0,  "safe_min": 6.5, "safe_max": 8.5},
+    # Turbidity is *derived* from TSS unless the device sends it directly.
+    # See `_derive_turbidity()` — the safe upper band mirrors CPCB norms.
+    "TURBIDITY": {"unit_default": "NTU",  "min": 0.0,  "max": 500.0, "safe_max": 10.0},
+    # Free residual chlorine on the STP effluent line.
+    "CHLORINE":  {"unit_default": "mg/L", "min": 0.0,  "max": 5.0,   "safe_min": 0.2, "safe_max": 2.0},
 }
 DO_PARAMS = {
     "DO_TANK_1": {"unit_default": "mg/L", "min": 0.0, "max": 20.0, "safe_min": 2.0, "safe_max": 8.0},
     "DO_TANK_2": {"unit_default": "mg/L", "min": 0.0, "max": 20.0, "safe_min": 2.0, "safe_max": 8.0},
 }
+# Dedicated chlorine-analyser device. Emits `CHLORINE` (free residual, mg/L)
+# and optionally `CHLORINE_DOSE` (setpoint the dosing pump is currently
+# holding). Alerts key off `CHLORINE` against the admin-configurable band
+# `chlorine_min` / `chlorine_max` on the registry doc (defaults 0.2 / 2.0).
+CHLORINE_PARAMS = {
+    "CHLORINE":      {"unit_default": "mg/L", "min": 0.0, "max": 5.0, "safe_min": 0.2, "safe_max": 2.0},
+    "CHLORINE_DOSE": {"unit_default": "mg/L", "min": 0.0, "max": 5.0, "safe_min": 0.5, "safe_max": 3.0},
+}
+
+# Default alert band for free residual chlorine (mg/L). Overridable per device.
+CHLORINE_MIN_DEFAULT = 0.2
+CHLORINE_MAX_DEFAULT = 2.0
+# Default TSS→Turbidity coefficient (0.5 ≈ TSS/2, standard for domestic sewage).
+TURBIDITY_K_DEFAULT = 0.5
+
+
+def _derive_turbidity(values: dict, k: float | None = None) -> None:
+    """In-place: fill `values['TURBIDITY']` from `values['TSS'] * k` when the
+    device didn't send turbidity directly. No-op if either TSS is missing or
+    TURBIDITY is already present with a numeric value."""
+    if not isinstance(values, dict):
+        return
+    if isinstance(values.get("TURBIDITY"), (int, float)):
+        return
+    tss = values.get("TSS")
+    if not isinstance(tss, (int, float)):
+        return
+    coef = float(k) if isinstance(k, (int, float)) else TURBIDITY_K_DEFAULT
+    values["TURBIDITY"] = round(tss * coef, 2)
+
+
+def _chlorine_status(value: float | None, cmin: float, cmax: float) -> dict:
+    """Return an alert descriptor for a single free-chlorine reading.
+    `status`: 'low' | 'ok' | 'high' | 'unknown'.
+    `action`: human-readable next step surfaced on the tile."""
+    if not isinstance(value, (int, float)):
+        return {"status": "unknown", "action": None, "min": cmin, "max": cmax}
+    if value < cmin:
+        return {"status": "low", "action": "Increase dosing", "min": cmin, "max": cmax}
+    if value > cmax:
+        return {"status": "high", "action": "Decrease dosing", "min": cmin, "max": cmax}
+    return {"status": "ok", "action": "Optimal", "min": cmin, "max": cmax}
 
 
 # --------------------------------------------------------------------------- helpers
@@ -167,12 +214,19 @@ async def latest_readings(
         r["values"] = vals
         do_items.append(r)
 
+    chlorine_items: List[dict] = []
+    async for r in db.instrument_latest.find({"instrument_type": "chlorine_analyzer"}, {"_id": 0}):
+        if not _in(r):
+            continue
+        r["values"] = dict(r.get("values") or {})
+        chlorine_items.append(r)
+
     # Include registered devices that have never reported live data yet — the
     # UI still needs to render them (with placeholder values) so admins can
     # configure cameras, download reports, or verify device provisioning.
-    seen_hw = {r.get("hardware_id") for r in stp_items + do_items}
+    seen_hw = {r.get("hardware_id") for r in stp_items + do_items + chlorine_items}
     async for reg in db.instrument_registry.find(
-        {"instrument_type": {"$in": ["wq_stp", "do_meter"]}},
+        {"instrument_type": {"$in": ["wq_stp", "do_meter", "chlorine_analyzer"]}},
         {"_id": 0},
     ):
         hw = reg.get("hardware_id")
@@ -188,12 +242,14 @@ async def latest_readings(
         }
         if reg.get("instrument_type") == "wq_stp":
             stp_items.append(placeholder)
-        else:
+        elif reg.get("instrument_type") == "do_meter":
             do_items.append(placeholder)
+        else:
+            chlorine_items.append(placeholder)
 
     # Enrich with registry meta so the UI can render a card even for devices
     # that never reported live yet.
-    hw_ids = [r["hardware_id"] for r in stp_items + do_items if r.get("hardware_id")]
+    hw_ids = [r["hardware_id"] for r in stp_items + do_items + chlorine_items if r.get("hardware_id")]
     regs = {}
     if hw_ids:
         async for reg in db.instrument_registry.find(
@@ -201,9 +257,22 @@ async def latest_readings(
             {"_id": 0, "hardware_id": 1, "label": 1, "location_name": 1,
              "instrument_type": 1, "owner_user_id": 1, "dummy_config": 1,
              "plant_capacity_kld": 1, "tank_capacity_kld": 1,
-             "stp_unit_config": 1, "aeration_videos": 1, "do_tank_config": 1},
+             "stp_unit_config": 1, "aeration_videos": 1, "do_tank_config": 1,
+             "turbidity_k": 1, "chlorine_min": 1, "chlorine_max": 1},
         ):
             regs[reg["hardware_id"]] = reg
+
+    # Derive turbidity for STP items now that we know each device's coefficient.
+    for it in stp_items:
+        reg = regs.get(it.get("hardware_id")) or {}
+        _derive_turbidity(it["values"], reg.get("turbidity_k"))
+
+    # Compute chlorine alerts for STP + chlorine_analyzer devices.
+    for it in stp_items + chlorine_items:
+        reg = regs.get(it.get("hardware_id")) or {}
+        cmin = reg.get("chlorine_min") if isinstance(reg.get("chlorine_min"), (int, float)) else CHLORINE_MIN_DEFAULT
+        cmax = reg.get("chlorine_max") if isinstance(reg.get("chlorine_max"), (int, float)) else CHLORINE_MAX_DEFAULT
+        it["chlorine_alert"] = _chlorine_status(it["values"].get("CHLORINE"), cmin, cmax)
 
     # Resolve derived gardening-flushing KLD (from linked flowmeter, if any)
     # and energy usage for each STP device before returning.
@@ -242,15 +311,17 @@ async def latest_readings(
                     "energy_kwh_per_day": d.get("energy_kwh_per_day"),
                 }
 
-    for r in stp_items + do_items:
+    for r in stp_items + do_items + chlorine_items:
         r["_registry"] = regs.get(r.get("hardware_id"), {})
 
     return {
         "unit": unit,
         "stp_params_meta": STP_PARAMS,
         "do_params_meta": DO_PARAMS,
+        "chlorine_params_meta": CHLORINE_PARAMS,
         "stp": stp_items,
         "do": do_items,
+        "chlorine": chlorine_items,
     }
 
 
@@ -293,7 +364,12 @@ async def history(
         {"hardware_id": hardware_id}, {"_id": 0, "instrument_type": 1, "label": 1}
     )
     itype = (reg or {}).get("instrument_type", "wq_stp")
-    param_keys = list(STP_PARAMS.keys()) if itype == "wq_stp" else list(DO_PARAMS.keys())
+    if itype == "wq_stp":
+        param_keys = list(STP_PARAMS.keys())
+    elif itype == "do_meter":
+        param_keys = list(DO_PARAMS.keys())
+    else:
+        param_keys = list(CHLORINE_PARAMS.keys())
 
     buckets: dict = {}
     async for row in cursor:
@@ -360,7 +436,12 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
     if not reg:
         raise HTTPException(status_code=404, detail="Instrument not found")
     itype = reg.get("instrument_type") or "wq_stp"
-    param_keys = list(STP_PARAMS.keys()) if itype == "wq_stp" else list(DO_PARAMS.keys())
+    if itype == "wq_stp":
+        param_keys = list(STP_PARAMS.keys())
+    elif itype == "do_meter":
+        param_keys = list(DO_PARAMS.keys())
+    else:
+        param_keys = list(CHLORINE_PARAMS.keys())
 
     # Narrow the DO param list when the caller asked for a specific tank.
     tank_choice = (req.tank or "both").lower() if itype == "do_meter" else "both"
@@ -925,3 +1006,56 @@ async def update_do_tank_config(hardware_id: str, cfg: DOTankConfig,
         "actor_email": admin.get("email"),
     })
     return {"success": True, "do_tank_config": doc}
+
+
+# ─────────── Turbidity coefficient + chlorine dosing band (admin-editable) ───────────
+
+class WQThresholdsConfig(BaseModel):
+    """Admin-editable per-device tuning:
+    * `turbidity_k` — coefficient applied to TSS when the device doesn't send
+      turbidity directly. Default 0.5 (TSS/2, domestic-sewage rule of thumb).
+    * `chlorine_min` / `chlorine_max` — free residual chlorine (mg/L). Any
+      reading below `min` triggers an *"Increase dosing"* alert; anything
+      above `max` triggers *"Decrease dosing"*.
+    """
+    turbidity_k: Optional[float] = Field(default=None, ge=0.0, le=5.0)
+    chlorine_min: Optional[float] = Field(default=None, ge=0.0, le=10.0)
+    chlorine_max: Optional[float] = Field(default=None, ge=0.0, le=10.0)
+
+
+@router.put("/{hardware_id}/thresholds")
+async def update_wq_thresholds(
+    hardware_id: str,
+    cfg: WQThresholdsConfig,
+    admin: dict = Depends(require_admin),
+):
+    reg = await db.instrument_registry.find_one({"hardware_id": hardware_id})
+    if not reg:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+    itype = reg.get("instrument_type")
+    if itype not in ("wq_stp", "chlorine_analyzer", "do_meter"):
+        raise HTTPException(status_code=400, detail="thresholds only apply to wq_stp / do_meter / chlorine_analyzer")
+
+    updates: dict = {}
+    if cfg.turbidity_k is not None:
+        updates["turbidity_k"] = float(cfg.turbidity_k)
+    if cfg.chlorine_min is not None:
+        updates["chlorine_min"] = float(cfg.chlorine_min)
+    if cfg.chlorine_max is not None:
+        updates["chlorine_max"] = float(cfg.chlorine_max)
+    if updates.get("chlorine_min") is not None and updates.get("chlorine_max") is not None:
+        if updates["chlorine_min"] >= updates["chlorine_max"]:
+            raise HTTPException(status_code=400, detail="chlorine_min must be less than chlorine_max")
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    await db.instrument_registry.update_one({"hardware_id": hardware_id}, {"$set": updates})
+    await db.audit_log.insert_one({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "entity_type": "wq_thresholds",
+        "entity_id": hardware_id,
+        "action": "update",
+        "actor_id": admin.get("id"),
+        "actor_email": admin.get("email"),
+        "changes": updates,
+    })
+    return {"success": True, **updates}

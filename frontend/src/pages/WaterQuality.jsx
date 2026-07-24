@@ -5,7 +5,7 @@ import { Label } from '../components/ui/label';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { Droplets, Gauge, FlaskConical, Wind, Download, FileText, Loader2, RefreshCw, Video } from 'lucide-react';
+import { Droplets, Gauge, FlaskConical, Wind, Download, FileText, Loader2, RefreshCw, Video, AlertCircle, ShieldCheck } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import api, { formatApiError, backendAssetUrl } from '../lib/api';
 import { isAdmin as _isAdmin } from '../mockData';
@@ -353,7 +353,7 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           <path d="M 330 355 L 330 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3"  fill="none" />
           <path d="M 400 355 L 400 300" stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 3"  fill="none" />
 
-          {/* ═════════════════ STAGE 4: Aeration Tank ═════════════════ */}
+          {/* ═════════════════ STAGE 4: MBBR / Aeration Tank ═════════════════ */}
           <g transform="translate(460, 280)">
             <rect x="0" y="0" width="130" height="110" fill="url(#tankBrown)" stroke="#78350f" strokeWidth="1.5" />
             {/* Water fill */}
@@ -367,7 +367,17 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
                 <circle cx={x + 5} cy={70 - (i % 4) * 10} r={2} fill="#7dd3fc" style={{ animation: `stpBubbles 2.${(i*3)%9}s ease-in ${(i*0.35)}s infinite` }} />
               </g>
             ))}
-            <text x="65" y="128" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600">Aeration Tank</text>
+            {/* MBBR floating media carriers — small green rings suspended in the middle of the tank */}
+            {[
+              [22, 55], [38, 70], [55, 55], [72, 65], [90, 55], [108, 68],
+              [30, 40], [50, 45], [70, 42], [92, 40], [110, 48],
+            ].map(([cx, cy], i) => (
+              <g key={`mbbr-${i}`} opacity="0.9">
+                <circle cx={cx} cy={cy} r="4" fill="none" stroke="#059669" strokeWidth="1.2" />
+                <circle cx={cx} cy={cy} r="1.5" fill="#10b981" />
+              </g>
+            ))}
+            <text x="65" y="128" textAnchor="middle" fontSize="10" fill="#1e293b" fontWeight="600">MBBR / Aeration Tank</text>
             {cfg.aeration_tank_kld != null && (
               <g>
                 <rect x="4" y="4" width="60" height="16" rx="2" fill="#78350f" stroke="#ffffff" strokeWidth="0.75" />
@@ -399,6 +409,52 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
 
           {/* Settling → Filter Feed */}
           <path d="M 735 335 L 785 335" stroke="#0284c7" strokeWidth="4" markerEnd="url(#arrBlue)"  fill="none" />
+
+          {/* Sludge Dewatering — draws sludge from the Settling Tank base and outputs a dried
+              cake. Placed below/beside the clarifier to show the sludge-line branch. */}
+          <g transform="translate(645, 415)">
+            {/* Sludge line from clarifier base */}
+            <path d="M 30 -20 L 30 5" stroke="#78350f" strokeWidth="2.5" strokeDasharray="4 3" fill="none" />
+            {/* Body */}
+            <rect x="0" y="5" width="88" height="42" rx="3" fill="#fef3c7" stroke="#a16207" strokeWidth="1.5" />
+            {/* Belt-press rollers */}
+            <circle cx="18" cy="26" r="7" fill="#e5d3b3" stroke="#78350f" strokeWidth="1.2" style={{ transformOrigin: '18px 26px', animation: 'stpRotate 6s linear infinite' }} />
+            <circle cx="42" cy="26" r="7" fill="#e5d3b3" stroke="#78350f" strokeWidth="1.2" style={{ transformOrigin: '42px 26px', animation: 'stpRotate 6s linear infinite' }} />
+            <rect x="9" y="19" width="42" height="14" fill="none" stroke="#78350f" strokeWidth="1" />
+            {/* Cake output arrow */}
+            <path d="M 70 26 L 96 26" stroke="#a16207" strokeWidth="3" markerEnd="url(#arrBlue)" fill="none" />
+            <text x="44" y="60" textAnchor="middle" fontSize="9" fill="#78350f" fontWeight="600">Sludge Dewatering</text>
+            <text x="102" y="24" fontSize="8" fill="#78350f" fontWeight="600">Cake</text>
+          </g>
+
+          {/* UV Disinfection — violet tube placed on the treated-water rail between
+              the Filter Feed Tank and PSF/ACF filter train. Displayed as a horizontal
+              cylinder with two glowing UV lamps inside. */}
+          <g transform="translate(895, 240)">
+            <rect x="0" y="0" width="72" height="20" rx="10" fill="#faf5ff" stroke="#7c3aed" strokeWidth="1.5" />
+            {/* UV lamps */}
+            <line x1="8" y1="10" x2="66" y2="10" stroke="#a855f7" strokeWidth="2.5" strokeDasharray="4 2" style={{ animation: 'stpBlink 1.8s ease-in-out infinite' }} />
+            <text x="36" y="35" textAnchor="middle" fontSize="9" fill="#6b21a8" fontWeight="700">UV Disinfection</text>
+            {/* Inflow / outflow arrows */}
+            <path d="M -12 10 L 0 10" stroke="#7c3aed" strokeWidth="2.5" markerEnd="url(#arrBlue)" fill="none" />
+            <path d="M 72 10 L 88 10" stroke="#7c3aed" strokeWidth="2.5" markerEnd="url(#arrBlue)" fill="none" />
+          </g>
+
+          {/* Chlorine Dosing — small yellow hexagon dosing station downstream of UV.
+              A vertical dosing line drips into the treated-water flow. */}
+          <g transform="translate(990, 220)">
+            {/* Chemical tank */}
+            <rect x="0" y="0" width="30" height="30" rx="2" fill="#fef08a" stroke="#a16207" strokeWidth="1.4" />
+            <rect x="3" y="8" width="24" height="20" fill="#fde047" opacity="0.7" />
+            <text x="15" y="22" textAnchor="middle" fontSize="9" fill="#78350f" fontWeight="800">Cl₂</text>
+            {/* Dosing pipe → flow rail */}
+            <path d="M 15 30 L 15 60" stroke="#a16207" strokeWidth="2" strokeDasharray="3 2" fill="none" />
+            <circle cx="15" cy="62" r="1.6" fill="#a16207">
+              <animate attributeName="cy" values="60;68;60" dur="1.4s" repeatCount="indefinite" />
+            </circle>
+            <text x="15" y="80" textAnchor="middle" fontSize="9" fill="#78350f" fontWeight="700">Chlorine</text>
+            <text x="15" y="90" textAnchor="middle" fontSize="8" fill="#78350f">Dosing</text>
+          </g>
 
           {/* ═════════════════ STAGE 6: Filter Feed Tank ═════════════════ */}
           <Tank x={790} y={280} w={100} h={110} name="Filter Feed Tank" fillLevel={0} capacityKld={cfg.filter_feed_tank_kld} />
@@ -458,6 +514,33 @@ const STPPlantDiagram = ({ values = {}, unit = 'mg/L', plantCapacityKld, deviceL
           {/* Bottom ground line */}
           <line x1="0" y1="470" x2="1440" y2="470" stroke="#cbd5e1" strokeWidth="1" />
         </svg>
+      </div>
+
+      {/* ─────────────── Treatment train stage strip ─────────────── */}
+      <div className="mt-3 flex items-center gap-1 overflow-x-auto py-2 border-t border-slate-100" data-testid="stp-stage-strip">
+        {[
+          { key: 'screen',       label: 'Bar Screen',        color: '#a16207' },
+          { key: 'equalization', label: 'Equalization',      color: '#0284c7' },
+          { key: 'mbbr',         label: 'MBBR / Aeration',   color: '#059669' },
+          { key: 'clarifier',    label: 'Clarifier',         color: '#1d4ed8' },
+          { key: 'sludge',       label: 'Sludge Dewatering', color: '#a16207' },
+          { key: 'uv',           label: 'UV Disinfection',   color: '#7c3aed' },
+          { key: 'chlorine',     label: 'Chlorine Dosing',   color: '#a16207' },
+          { key: 'outlet',       label: 'Treated Outlet',    color: '#16a34a' },
+        ].map((s, i, arr) => (
+          <React.Fragment key={s.key}>
+            <div
+              className="flex-shrink-0 rounded-full px-2.5 py-1 text-[10.5px] font-semibold text-white shadow-sm whitespace-nowrap"
+              style={{ background: s.color }}
+              data-testid={`stp-stage-${s.key}`}
+            >
+              {i + 1}. {s.label}
+            </div>
+            {i < arr.length - 1 && (
+              <svg width="14" height="10" className="flex-shrink-0"><path d="M 0 5 L 12 5" stroke="#94a3b8" strokeWidth="1.5" markerEnd="url(#arrBlue)" fill="none" /></svg>
+            )}
+          </React.Fragment>
+        ))}
       </div>
 
       {/* Energy breakdown table — visible when auto mode has data */}
@@ -758,7 +841,7 @@ const WaterQuality = () => {
       const { data } = await api.get(`/api/water-quality/latest?unit=${encodeURIComponent(unit)}`);
       setPayload(data);
       // Auto-select first device for the current tab
-      const list = tab === 'stp' ? data.stp : data.do;
+      const list = tab === 'stp' ? data.stp : (tab === 'do' ? data.do : (data.chlorine || []));
       if (list?.length && !selectedHw) setSelectedHw(list[0].hardware_id);
     } catch (e) {
       const msg = formatApiError(e?.response?.data?.detail);
@@ -780,7 +863,7 @@ const WaterQuality = () => {
   // When tab changes, pick a device of that type
   useEffect(() => {
     if (!payload) return;
-    const list = tab === 'stp' ? payload.stp : payload.do;
+    const list = tab === 'stp' ? payload.stp : (tab === 'do' ? payload.do : (payload.chlorine || []));
     if (list?.length) {
       const already = list.some((r) => r.hardware_id === selectedHw);
       if (!already) setSelectedHw(list[0].hardware_id);
@@ -810,7 +893,9 @@ const WaterQuality = () => {
     return () => { cancelled = true; };
   }, [selectedHw, range, unit]);
 
-  const currentList = tab === 'stp' ? (payload?.stp || []) : (payload?.do || []);
+  const currentList = tab === 'stp'
+    ? (payload?.stp || [])
+    : (tab === 'do' ? (payload?.do || []) : (payload?.chlorine || []));
   const currentDevice = currentList.find((r) => r.hardware_id === selectedHw);
   const currentValues = currentDevice?.values || {};
 
@@ -853,7 +938,7 @@ const WaterQuality = () => {
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             <Droplets className="h-8 w-8 text-sky-500" /> Water Quality
           </h1>
-          <p className="text-gray-600 text-sm">STP effluent + DO meter monitoring with live visualisation</p>
+          <p className="text-gray-600 text-sm">STP effluent + DO analyzer monitoring with live visualisation</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex bg-gray-100 rounded-lg p-1" data-testid="unit-toggle">
@@ -891,7 +976,16 @@ const WaterQuality = () => {
           className={`px-6 py-3 text-sm font-medium border-b-2 transition ${tab === 'do' ? 'border-sky-500 text-sky-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           data-testid="wq-tab-do"
         >
-          <Wind className="h-4 w-4 inline mr-1" /> DO Meter (Aeration Tanks)
+          <Wind className="h-4 w-4 inline mr-1" /> DO Analyzer (Aeration Tanks)
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'chlorine'}
+          onClick={() => setTab('chlorine')}
+          className={`px-6 py-3 text-sm font-medium border-b-2 transition ${tab === 'chlorine' ? 'border-sky-500 text-sky-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          data-testid="wq-tab-chlorine"
+        >
+          <Droplets className="h-4 w-4 inline mr-1" /> Chlorine Analyzer
         </button>
       </div>
 
@@ -920,33 +1014,50 @@ const WaterQuality = () => {
         <Card className="border-dashed">
           <CardContent className="py-12 text-center text-gray-500">
             <Droplets className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-            <p className="font-medium mb-1">No {tab === 'stp' ? 'STP water-quality' : 'DO meter'} devices found</p>
+            <p className="font-medium mb-1">No {tab === 'stp' ? 'STP water-quality' : (tab === 'do' ? 'DO analyzer' : 'chlorine analyzer')} devices found</p>
             <p className="text-xs">
               {isAdmin ? 'Register one from the Instruments page with type ' : 'Ask your administrator to register a '}
-              <code className="bg-gray-100 px-1 rounded">{tab === 'stp' ? 'wq_stp' : 'do_meter'}</code> to see live data.
+              <code className="bg-gray-100 px-1 rounded">{tab === 'stp' ? 'wq_stp' : (tab === 'do' ? 'do_meter' : 'chlorine_analyzer')}</code> to see live data.
             </p>
           </CardContent>
         </Card>
       ) : tab === 'stp' ? (
         <>
+          {/* Chlorine alert banner — only when we have a live chlorine reading
+              that is outside the admin-configured band. */}
+          {currentDevice?.chlorine_alert && currentDevice.chlorine_alert.status !== 'unknown' && currentDevice.chlorine_alert.status !== 'ok' && (
+            <div
+              className={`rounded-lg border p-3 text-sm flex items-center gap-3 ${currentDevice.chlorine_alert.status === 'low' ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-red-50 border-red-300 text-red-900'}`}
+              data-testid="stp-chlorine-alert"
+            >
+              <AlertCircle className={`h-5 w-5 ${currentDevice.chlorine_alert.status === 'low' ? 'text-amber-600' : 'text-red-600'}`} />
+              <div className="flex-1">
+                <strong>Chlorine {currentDevice.chlorine_alert.status === 'low' ? 'below' : 'above'} safe range —</strong>{' '}
+                {currentDevice.chlorine_alert.action}.
+                <span className="ml-2 font-mono text-xs opacity-80">
+                  reading {typeof currentValues.CHLORINE === 'number' ? currentValues.CHLORINE.toFixed(2) : '—'} mg/L · safe band {currentDevice.chlorine_alert.min}–{currentDevice.chlorine_alert.max} mg/L
+                </span>
+              </div>
+            </div>
+          )}
           {/* STP: gauges + realistic plant flow diagram */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Gauge className="h-5 w-5 text-sky-500" /> Live Parameters — {currentDevice?._registry?.label || selectedHw}
               </CardTitle>
-              <CardDescription>Real-time values from the STP water-quality analyser</CardDescription>
+              <CardDescription>Real-time values from the STP water-quality analyser. Turbidity is derived from TSS · k (k = {currentDevice?._registry?.turbidity_k ?? 0.5}); chlorine is monitored against the {currentDevice?.chlorine_alert?.min ?? 0.2}–{currentDevice?.chlorine_alert?.max ?? 2.0} mg/L residual band.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {['COD', 'BOD', 'TSS', 'PH'].map((k) => (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                {['COD', 'BOD', 'TSS', 'PH', 'TURBIDITY', 'CHLORINE'].map((k) => (
                   <Gauge2D
                     key={k}
                     value={currentValues[k]}
                     min={stpMeta[k]?.min ?? 0}
                     max={stpMeta[k]?.max ?? 100}
-                    unit={k === 'PH' ? 'pH' : unit}
-                    label={k === 'PH' ? 'pH' : k}
+                    unit={k === 'PH' ? 'pH' : (k === 'TURBIDITY' ? 'NTU' : (k === 'CHLORINE' ? 'mg/L' : unit))}
+                    label={k === 'PH' ? 'pH' : (k === 'TURBIDITY' ? 'Turbidity' : (k === 'CHLORINE' ? 'Chlorine' : k))}
                     safeMin={stpMeta[k]?.safe_min}
                     safeMax={stpMeta[k]?.safe_max}
                   />
@@ -1017,7 +1128,7 @@ const WaterQuality = () => {
             </CardContent>
           </Card>
         </>
-      ) : (
+      ) : tab === 'do' ? (
         <>
           {/* DO: two aeration tanks + live camera */}
           <Card>
@@ -1112,6 +1223,72 @@ const WaterQuality = () => {
             </CardContent>
           </Card>
         </>
+      ) : (
+        <>
+          {/* Chlorine Analyzer — mirrors DO layout: live tiles + alerts */}
+          {currentDevice?.chlorine_alert && currentDevice.chlorine_alert.status !== 'unknown' && (
+            <div
+              className={`rounded-lg border p-3 text-sm flex items-center gap-3 ${
+                currentDevice.chlorine_alert.status === 'low' ? 'bg-amber-50 border-amber-300 text-amber-900'
+                : currentDevice.chlorine_alert.status === 'high' ? 'bg-red-50 border-red-300 text-red-900'
+                : 'bg-emerald-50 border-emerald-300 text-emerald-900'
+              }`}
+              data-testid="chlorine-analyzer-alert"
+            >
+              {currentDevice.chlorine_alert.status === 'ok'
+                ? <ShieldCheck className="h-5 w-5 text-emerald-600" />
+                : <AlertCircle className={`h-5 w-5 ${currentDevice.chlorine_alert.status === 'low' ? 'text-amber-600' : 'text-red-600'}`} />}
+              <div className="flex-1">
+                <strong>
+                  {currentDevice.chlorine_alert.status === 'low' && 'Under-chlorination — '}
+                  {currentDevice.chlorine_alert.status === 'high' && 'Over-chlorination — '}
+                  {currentDevice.chlorine_alert.status === 'ok' && 'Residual chlorine is in the safe range — '}
+                </strong>
+                {currentDevice.chlorine_alert.action}.
+                <span className="ml-2 font-mono text-xs opacity-80">
+                  reading {typeof currentValues.CHLORINE === 'number' ? currentValues.CHLORINE.toFixed(2) : '—'} mg/L · safe band {currentDevice.chlorine_alert.min}–{currentDevice.chlorine_alert.max} mg/L
+                </span>
+              </div>
+            </div>
+          )}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Droplets className="h-5 w-5 text-sky-500" /> Chlorine Analyzer — {currentDevice?._registry?.label || selectedHw}
+              </CardTitle>
+              <CardDescription>
+                Free-residual chlorine (mg/L) with in-band alerting. Safe band <b>{currentDevice?.chlorine_alert?.min ?? 0.2}</b>–<b>{currentDevice?.chlorine_alert?.max ?? 2.0}</b> mg/L
+                {isAdmin && ' — configurable per device via /api/water-quality/{hw}/thresholds'}.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {['CHLORINE', 'CHLORINE_DOSE'].map((k) => {
+                  const meta = payload?.chlorine_params_meta?.[k] || {};
+                  const cmin = k === 'CHLORINE' ? (currentDevice?.chlorine_alert?.min ?? meta.safe_min) : meta.safe_min;
+                  const cmax = k === 'CHLORINE' ? (currentDevice?.chlorine_alert?.max ?? meta.safe_max) : meta.safe_max;
+                  return (
+                    <Gauge2D
+                      key={k}
+                      value={currentValues[k]}
+                      min={meta.min ?? 0}
+                      max={meta.max ?? 5}
+                      unit="mg/L"
+                      label={k === 'CHLORINE' ? 'Free Chlorine' : 'Dose Setpoint'}
+                      safeMin={cmin}
+                      safeMax={cmax}
+                    />
+                  );
+                })}
+              </div>
+              {currentDevice?._registry?.plant_capacity_kld != null && (
+                <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-mono" data-testid="chlorine-plant-capacity">
+                  Plant capacity: <b>{currentDevice._registry.plant_capacity_kld}</b> KLD
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
 
       {/* History + Reports */}
@@ -1184,7 +1361,7 @@ const WaterQuality = () => {
                   <option value="pdf">PDF</option>
                 </select>
               </div>
-              {/* DO tank picker — only for the DO Meter tab */}
+              {/* DO tank picker — only for the DO Analyzer tab */}
               {tab === 'do' && (
                 <div>
                   <Label className="text-xs">Tank</Label>

@@ -21,7 +21,8 @@ const TYPE_OPTIONS = [
   { value: 'tds', label: 'TDS Sensor' },
   { value: 'conductivity', label: 'Conductivity Sensor' },
   { value: 'wq_stp', label: 'STP Water Quality (COD/BOD/TSS/pH)' },
-  { value: 'do_meter', label: 'DO Meter (Aeration Tanks)' },
+  { value: 'do_meter', label: 'DO Analyzer (Aeration Tanks)' },
+  { value: 'chlorine_analyzer', label: 'Chlorine Analyzer (STP Effluent)' },
 ];
 
 const CATEGORY_OPTIONS = [
@@ -354,8 +355,8 @@ const Instruments = () => {
     } else {
       delete out.manual_water_temp_c;
     }
-    // Plant + tank capacity for water-quality / DO meter instruments
-    if (out.instrument_type === 'wq_stp' || out.instrument_type === 'do_meter') {
+    // Plant + tank capacity for water-quality / DO meter / chlorine-analyzer instruments
+    if (out.instrument_type === 'wq_stp' || out.instrument_type === 'do_meter' || out.instrument_type === 'chlorine_analyzer') {
       for (const k of ['plant_capacity_kld', 'tank_capacity_kld']) {
         const v = String(out[k] ?? '').trim();
         if (v === '') { delete out[k]; continue; }
@@ -969,7 +970,7 @@ const Instruments = () => {
                 <p className="text-xs text-gray-500 mt-1">DWLR does not transmit temperature. This value is shown to the client (admin-only editable).</p>
               </div>
             )}
-            {(form.instrument_type === 'wq_stp' || form.instrument_type === 'do_meter') && (
+            {(form.instrument_type === 'wq_stp' || form.instrument_type === 'do_meter' || form.instrument_type === 'chlorine_analyzer') && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Plant Capacity (KLD)</Label>
@@ -1057,7 +1058,7 @@ const Instruments = () => {
                 <p className="text-xs text-gray-500 mt-1">DWLR does not transmit temperature — admin-set value shown to the client.</p>
               </div>
             )}
-            {(form.instrument_type === 'wq_stp' || form.instrument_type === 'do_meter') && (
+            {(form.instrument_type === 'wq_stp' || form.instrument_type === 'do_meter' || form.instrument_type === 'chlorine_analyzer') && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Plant Capacity (KLD)</Label>
