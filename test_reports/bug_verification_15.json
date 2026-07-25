@@ -1,0 +1,45 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "For admin login page admin details should be filled by admin only like company name, upload Logo jpeg, Location, Address, Representative Name, Designation, Email, Contact number. No other details are required. The previous test run confirmed the Reports frequency fixes and the section-hiding are working, but the informational Note that mentions 'Groundwater NOC' was still shown on the admin's own profile.",
+  "summary": "No relevant testing skill found. Focused preview UI/API retest passed: logged in as admin, verified admin own /customer-profile read-only and edit variants no longer show the sky-blue Groundwater NOC note and read-only admin profile shows only Customer details + Representative; seeded water-quality-only and flowmeter clients to confirm the note still appears only for WQ-only clients and is hidden when groundwater sections apply.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/bug_verification/customer_profile_note_setup.py",
+    "/app/tests/bug_verification/customer_profile_note_cleanup.py",
+    "/app/test_reports/customer_profile_note_setup.log",
+    "/app/test_reports/customer_profile_note_cleanup.log",
+    "/app/test_reports/customer_profile_note_seed_state.json",
+    "/app/test_reports/customer_profile_note_cleanup_result.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CustomerProfile.jsx now guards both informational note blocks with !applicability.showGroundwater && !applicability.isAdminOwnProfile; runtime UI evidence confirmed the Groundwater NOC note is suppressed for the admin's own profile and still rendered for a water-quality-only client."
+  ],
+  "updated_files": [
+    "/app/tests/bug_verification/customer_profile_note_setup.py",
+    "/app/tests/bug_verification/customer_profile_note_cleanup.py",
+    "/app/test_reports/customer_profile_note_setup.log",
+    "/app/test_reports/customer_profile_note_cleanup.log",
+    "/app/test_reports/customer_profile_note_seed_state.json",
+    "/app/test_reports/customer_profile_note_cleanup_result.json",
+    "/app/test_reports/bug_verification_15.json",
+    "/app/test_reports/iteration_15.json"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "seed_data_creation": "Created two preview-only client users: one WQ-only client with a wq_stp instrument and one groundwater client with a flowmeter instrument. Cleaned up both instruments and both users; post-cleanup verification showed no residual seeded users or instruments.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Do not re-test Reports fixes unless changed. CustomerProfile note regression passed on preview: admin own profile selected by default, admin read-only headings were Customer details and Representative only, admin edit hid the Groundwater NOC informational note, WQ-only client showed the note, and flowmeter client hid the note while showing Groundwater NOC + Groundwater usage permissions.",
+  "rca_of_the_issue": "Previous guard rendered the generic non-applicable groundwater note whenever showGroundwater was false, which includes admin own profile. The current guard also excludes isAdminOwnProfile, fixing the visible admin-note symptom without regressing client applicability behavior."
+}

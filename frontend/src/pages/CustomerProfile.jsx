@@ -311,7 +311,7 @@ const CustomerProfile = () => {
 // -------------------- Read-only presentation --------------------------
 const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability }) => (
   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-    {!applicability.showGroundwater && (
+    {!applicability.showGroundwater && !applicability.isAdminOwnProfile && (
       <div className="xl:col-span-2 border border-sky-200 bg-sky-50 text-sky-900 text-sm rounded p-3">
         <strong>Note:</strong> No flowmeter or piezometer is linked to this customer, so Groundwater NOC and borewell permission sections are not applicable. Only water-quality / OCEMS compliance is tracked below.
       </div>
@@ -461,7 +461,7 @@ const EditForm = ({ form, setForm, borewellNocs, setBorewellNocs, profile, onNoc
 
   return (
   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-    {!applicability.showGroundwater && (
+    {!applicability.showGroundwater && !applicability.isAdminOwnProfile && (
       <div className="xl:col-span-2 border border-sky-200 bg-sky-50 text-sky-900 text-sm rounded p-3">
         <strong>Note:</strong> No flowmeter or piezometer is linked to this customer, so the Groundwater NOC and borewell permission sections below are hidden — they aren&apos;t required for water-quality-only installations.
       </div>

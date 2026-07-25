@@ -1,0 +1,53 @@
+{
+  "deleted_instruments": [
+    {
+      "hardware_id": "CP_NOTE_WQ_1784962783",
+      "status": 200,
+      "body": {
+        "success": true,
+        "hardware_id": "CP_NOTE_WQ_1784962783",
+        "removed": {
+          "flowmeter_readings": 0,
+          "flowmeter_latest": 0,
+          "flowmeter_categories": 0,
+          "instrument_readings": 0,
+          "instrument_latest": 0,
+          "limits": 0
+        }
+      }
+    },
+    {
+      "hardware_id": "CP_NOTE_FM_1784962783",
+      "status": 200,
+      "body": {
+        "success": true,
+        "hardware_id": "CP_NOTE_FM_1784962783",
+        "removed": {
+          "flowmeter_readings": 0,
+          "flowmeter_latest": 0,
+          "flowmeter_categories": 1,
+          "instrument_readings": 0,
+          "instrument_latest": 0,
+          "limits": 0
+        }
+      }
+    }
+  ],
+  "deleted_users": [
+    {
+      "user_id": "user_f9a0a5db6033",
+      "status": 200,
+      "body": {
+        "success": true
+      }
+    },
+    {
+      "user_id": "user_a33d00ba68c8",
+      "status": 200,
+      "body": {
+        "success": true
+      }
+    }
+  ],
+  "errors": []
+}
