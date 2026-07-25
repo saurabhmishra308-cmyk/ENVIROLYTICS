@@ -1,0 +1,15 @@
+{
+  "hardware_id": "QA_CLEAR_Z_BOUND_fbb96405",
+  "status": 200,
+  "body": "{\"success\":true,\"hardware_id\":\"QA_CLEAR_Z_BOUND_fbb96405\",\"from_ts\":null,\"to_ts\":\"2026-07-24T18:34:17+00:00\",\"affected_rows\":{\"flowmeter_readings\":0,\"instrument_readings\":0,\"flowmeter_latest\":0,\"instrument_latest\":0},\"total_rows_deleted\":0}",
+  "before_count": 1,
+  "after_count": 1,
+  "deleted_by_endpoint": 0,
+  "direct_cleanup_deleted": {
+    "instrument_readings": 1,
+    "instrument_latest": 0,
+    "instrument_registry": 1,
+    "flowmeter_readings": 0,
+    "flowmeter_latest": 0
+  }
+}

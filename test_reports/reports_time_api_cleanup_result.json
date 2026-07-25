@@ -1,0 +1,15 @@
+{
+  "non_admin_clear_history_status": 403,
+  "non_admin_clear_history_body": "{\"detail\":\"Admin access required\"}",
+  "admin_clear_history_status": 200,
+  "admin_clear_history_body": "{\"success\":true,\"hardware_id\":\"QA_DWLR_TIME_BUG_b16ff8d9\",\"from_ts\":null,\"to_ts\":\"2026-07-24T18:34:17+00:00\",\"affected_rows\":{\"flowmeter_readings\":0,\"instrument_readings\":1,\"flowmeter_latest\":0,\"instrument_latest\":0},\"total_rows_deleted\":1}",
+  "history_count_before_admin_clear": 5,
+  "history_count_after_admin_clear": 4,
+  "direct_cleanup_deleted": {
+    "instrument_readings": 4,
+    "instrument_latest": 1,
+    "instrument_registry": 1,
+    "flowmeter_readings": 0,
+    "flowmeter_latest": 0
+  }
+}

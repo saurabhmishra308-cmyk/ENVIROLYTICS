@@ -1,0 +1,57 @@
+{
+  "verdict": "not_fixed",
+  "user_reported_bug": "Live MQTT traffic is punching data with correct time but in historical report and report section data is punching wrong time. Remove any earlier data of Piezometer (Basement 2) of date 24 July 2026 Time 18:34:17 level 8.21 and temperature 24.5 keep only data after this.",
+  "summary": "No relevant testing skill found. Focused verification shows the Reports/Historical Time-column fix works: seeded DWLR rows with naive timestamp strings render from received_at in IST, and a simulated MQTT reading matched Live MQTT Traffic to the second. However, the clear-history cleanup path is not fully reliable for the user's exact data-removal request: rows stored with received_at ending in 'Z' at the cutoff timestamp are not deleted because the endpoint normalizes bounds to '+00:00' and compares timestamp strings lexicographically.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/instrument-registry/{hardware_id}/clear-history",
+        "issue": "Admin/non-admin auth behavior is correct (200/403), but deletion misses rows whose stored received_at uses a 'Z' suffix when the cutoff is normalized to '+00:00'. Preview repro: row received_at='2026-07-24T18:34:17Z', request to_ts='2026-07-24T18:34:17Z' returned 200 with total_rows_deleted=0 and row remained.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/bug_verification_reports_time_setup.py",
+    "/app/tests/bug_verification_reports_time_mqtt_compare.py",
+    "/app/tests/bug_verification_clear_history_z_bound.py",
+    "/app/test_reports/reports_time_seed_info.json",
+    "/app/test_reports/reports_time_mqtt_compare_result.json",
+    "/app/test_reports/reports_time_api_cleanup_result.json",
+    "/app/test_reports/reports_time_clear_history_z_bound_result.json"
+  ],
+  "action_items": [
+    "Fix clear-history date filtering so it deletes matching rows regardless of whether stored received_at uses 'Z' or '+00:00' timezone format; avoid pure string comparison or include both normalized formats for exact-bound cases.",
+    "Add a regression test for deleting a DWLR reading at cutoff received_at='2026-07-24T18:34:17Z' with to_ts='2026-07-24T18:34:17Z'."
+  ],
+  "critical_code_review_comments": [
+    "Reports.jsx parseReadingDate correctly prefers received_at before timestamp and appends Z for naive strings before parsing.",
+    "api_instrument_registry.py clear_history parses request bounds to '+00:00' ISO strings, but instrument_readings can contain 'Z' ISO strings; Mongo string range comparisons then miss exact timestamp matches such as '...17Z' <= '...17+00:00'."
+  ],
+  "updated_files": [
+    "/app/tests/bug_verification_reports_time_setup.py",
+    "/app/tests/bug_verification_reports_time_mqtt_compare.py",
+    "/app/tests/bug_verification_clear_history_z_bound.py",
+    "/app/test_reports/reports_time_seed_info.json",
+    "/app/test_reports/reports_time_mqtt_compare_result.json",
+    "/app/test_reports/reports_time_api_cleanup_result.json",
+    "/app/test_reports/reports_time_clear_history_z_bound_result.json",
+    "/app/test_reports/bug_verification_16.json",
+    "/app/test_reports/iteration_16.json"
+  ],
+  "success_rate": {
+    "backend": "80%",
+    "frontend": "100%"
+  },
+  "seed_data_creation": "Created QA_DWLR_TIME_BUG_b16ff8d9 DWLR registry/readings (including requested naive timestamp row and conflicting timestamp row), simulated one MQTT reading, and created QA_CLEAR_Z_BOUND_fbb96405 for clear-history Z-bound edge. All QA registry/readings/latest data were cleaned up after testing; no MOCKED APIs used.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Retest Reports Time with Asia/Kolkata browser timezone and a naive timestamp/received_at pair; then verify clear-history deletes exact cutoff rows stored with received_at in both '+00:00' and 'Z' formats. Browser automation evidence: Reports raw 8.21/8.22 rows both displayed 18:34:17; simulated MQTT row displayed 13:35:16 in both traffic-derived expected time and Reports.",
+  "rca_of_the_issue": "Frontend RCA fixed: Reports previously preferred device timestamp, so naive firmware timestamps could be interpreted as local and shift the displayed report time. Remaining backend cleanup RCA: clear-history builds received_at range bounds as UTC '+00:00' strings, while stored rows may use 'Z'; lexicographic string comparison in Mongo does not treat these as equivalent at the same instant."
+}

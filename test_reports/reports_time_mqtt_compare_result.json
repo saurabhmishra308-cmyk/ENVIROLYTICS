@@ -1,0 +1,41 @@
+{
+  "simulate_status": 200,
+  "simulate_response": {
+    "dispatched": true,
+    "topic": "PQA/0",
+    "topic_inferred_type": "dwlr",
+    "hardware_id": "QA_DWLR_TIME_BUG_b16ff8d9",
+    "instrument_type": "dwlr",
+    "owner_user_id": "user_d95ea29a3671",
+    "label": "QA Piezometer Basement 2 Time Bug",
+    "imei": "990b16ff82026"
+  },
+  "traffic_match": {
+    "seq": 2,
+    "ts": "2026-07-25T08:05:16.419816+00:00",
+    "source": "simulate",
+    "topic": "PQA/0",
+    "bytes": 114,
+    "imei": "990b16ff82026",
+    "dispatched": true,
+    "hardware_id": "QA_DWLR_TIME_BUG_b16ff8d9",
+    "instrument_type": "dwlr",
+    "reason": null,
+    "preview": "{\"IMEI\": \"990b16ff82026\", \"TIME\": \"260725183417\", \"LEVEL\": \"8.33\", \"LVL\": \"8.33\", \"WTEMP\": \"24.7\", \"SIGNAL\": \"99\"}"
+  },
+  "history_match": {
+    "hardware_id": "QA_DWLR_TIME_BUG_b16ff8d9",
+    "timestamp": "2026-07-25T18:34:17+00:00",
+    "received_at": "2026-07-25T08:05:16.418146+00:00",
+    "values": {
+      "IMEI": "990b16ff82026",
+      "TIME": "260725183417",
+      "LEVEL": 8.33,
+      "LVL": 8.33,
+      "WTEMP": 24.7,
+      "SIGNAL": 99
+    }
+  },
+  "traffic_vs_history_received_at_seconds_diff": 0.00167,
+  "matches_to_second": true
+}

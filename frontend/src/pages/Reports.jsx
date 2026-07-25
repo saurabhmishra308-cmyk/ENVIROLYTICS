@@ -18,10 +18,14 @@ const formatDate = (d) => (d ? d.toISOString().split('T')[0] : '');
 const fmt = (n, d = 2) => (n == null || isNaN(n) ? '—' : Number(n).toFixed(d));
 
 // Parse the many timestamp shapes we see from MQTT payloads / vendor uploads.
-// Falls back to `received_at`. Returns null when nothing usable is found —
-// callers render "—" instead of the buggy "Invalid Date" string.
+// `received_at` (server ingestion time, always UTC ISO with a `Z`) is
+// preferred over the device's own `timestamp` string because some device
+// firmwares emit naive datetimes without a timezone, which the browser then
+// mis-interprets and displays 5-6 hours off from what the Live MQTT Traffic
+// panel shows. Preferring `received_at` keeps the Reports column consistent
+// with the traffic view.
 const parseReadingDate = (r) => {
-  const cands = [r?.timestamp, r?.received_at, r?.values?.timestamp, r?.values?.DATE_TIME, r?.values?.datetime];
+  const cands = [r?.received_at, r?.timestamp, r?.values?.timestamp, r?.values?.DATE_TIME, r?.values?.datetime];
   for (const raw of cands) {
     if (!raw) continue;
     // number in seconds or milliseconds
@@ -31,8 +35,12 @@ const parseReadingDate = (r) => {
       if (!isNaN(d)) return d;
     }
     if (typeof raw === 'string') {
-      // Naive "YYYY-MM-DD HH:MM:SS" → treat as UTC-ish by swapping space.
-      const s = raw.trim().includes('T') ? raw.trim() : raw.trim().replace(' ', 'T');
+      let s = raw.trim();
+      if (!s.includes('T')) s = s.replace(' ', 'T');
+      // If the string carries no explicit timezone marker, assume UTC — this
+      // matches how the backend actually stored it (raw MQTT `TIME` frames
+      // are UTC on the ingestion side).
+      if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) s = s + 'Z';
       const d = new Date(s);
       if (!isNaN(d)) return d;
     }

@@ -1,0 +1,25 @@
+{
+  "base_url": "https://envirolytics-hub.preview.emergentagent.com",
+  "hardware_id": "QA_DWLR_TIME_BUG_b16ff8d9",
+  "imei": "990b16ff82026",
+  "admin_user_id": "user_0a5d61d8e342",
+  "owner_user_id": "user_d95ea29a3671",
+  "seeded_readings": 4,
+  "removed_before_seed": {
+    "instrument_readings": 0,
+    "instrument_latest": 0,
+    "instrument_registry": 0,
+    "flowmeter_readings": 0,
+    "flowmeter_latest": 0
+  },
+  "expected_raw_times_ist_by_level": {
+    "8.21": "18:34:17",
+    "8.22": "18:34:17",
+    "7.91": "23:30:00",
+    "7.92": "00:30:00"
+  },
+  "expected_daily_local_dates": [
+    "24 July 2026",
+    "25 July 2026"
+  ]
+}
