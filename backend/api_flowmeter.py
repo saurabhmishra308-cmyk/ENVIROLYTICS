@@ -77,11 +77,12 @@ async def get_all_latest_readings(user: dict = Depends(get_current_user)):
     return {"flowmeters": readings, "count": len(readings)}
 
 @router.get("/history/{hardware_id}")
-async def get_flowmeter_history(hardware_id: str, limit: int = 100):
-    """Get historical readings for a flowmeter."""
+async def get_flowmeter_history(hardware_id: str, limit: int = 5000):
+    """Get historical readings for a flowmeter, newest first."""
     if not mqtt_service:
         raise HTTPException(status_code=503, detail="MQTT service not available")
-    
+    if limit < 1 or limit > 20000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 20000")
     readings = await mqtt_service.get_readings_history(hardware_id, limit)
     return {"readings": readings, "count": len(readings)}
 

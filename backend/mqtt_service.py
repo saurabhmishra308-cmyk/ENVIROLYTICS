@@ -613,7 +613,7 @@ class MQTTFlowmeterService:
         cursor = self.db.flowmeter_readings.find(
             {"hardware_id": hardware_id, "_dummy": {"$ne": True}}
         ).sort(
-            "timestamp", -1
+            "received_at", -1
         ).limit(limit)
         readings = await cursor.to_list(length=limit)
         for r in readings:

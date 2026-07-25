@@ -161,16 +161,16 @@ async def latest_for_device(instrument_type: str, hardware_id: str):
 
 
 @router.get("/{instrument_type}/{hardware_id}/history")
-async def history_for_device(instrument_type: str, hardware_id: str, limit: int = 100):
+async def history_for_device(instrument_type: str, hardware_id: str, limit: int = 5000):
     t = _validate_type(instrument_type)
-    if limit < 1 or limit > 1000:
-        raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+    if limit < 1 or limit > 20000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 20000")
     cursor = (
         db.instrument_readings.find(
             {"instrument_type": t, "hardware_id": hardware_id,
              "_dummy": {"$ne": True}}
         )
-        .sort("timestamp", -1)
+        .sort("received_at", -1)
         .limit(limit)
     )
     items = await cursor.to_list(length=limit)

@@ -139,9 +139,12 @@ const Reports = () => {
     }
     setLoading(true);
     try {
+      // Pull up to 20k rows (~200 days of 15-min DWLR data). Sort is
+      // handled server-side by `received_at DESC` so newest ingestion
+      // always wins, even if a device's own clock has drifted.
       const url = section === 'flowmeter'
-        ? `/api/flowmeter/history/${hardwareId}?limit=1000`
-        : `/api/instruments/${section}/${hardwareId}/history?limit=1000`;
+        ? `/api/flowmeter/history/${hardwareId}?limit=20000`
+        : `/api/instruments/${section}/${hardwareId}/history?limit=20000`;
       const { data } = await api.get(url);
       setReadings(data.readings || []);
       toast.success(`${(data.readings || []).length} reading${(data.readings || []).length === 1 ? '' : 's'} loaded`);
@@ -235,18 +238,18 @@ const Reports = () => {
     }
 
     // Non-flowmeter (DWLR / pH / TDS / Conductivity):
-    // • "Daily" = show every raw reading in the range (each 15-min sample is
-    //   a data-point the operator wants to see — bucketing to one/day hides
-    //   them).
-    // • Weekly / Monthly / Quarterly / Yearly = latest reading per bucket
-    //   (period snapshot).
-    if (frequency === 'daily') {
+    // "raw"      → every reading, newest first (no bucketing)
+    // "daily"    → latest reading per day
+    // "weekly"   → latest reading per ISO week
+    // "monthly"  → latest reading per month
+    // "quarterly" and "yearly" behave the same way.
+    if (frequency === 'raw') {
       return withDate.map(({ r }) => r).reverse(); // newest first
     }
     const byBucket = new Map();
     for (const { r, d } of withDate) {
       const key = bucketKey(d, frequency);
-      byBucket.set(key, r); // ascending order → last write wins = latest reading
+      byBucket.set(key, r); // ascending order → last write wins = latest reading of that bucket
     }
     return Array.from(byBucket.values()).sort((a, b) => (parseReadingDate(b)?.getTime() || 0) - (parseReadingDate(a)?.getTime() || 0));
   }, [readings, startDate, endDate, frequency, section]);
@@ -560,11 +563,12 @@ const Reports = () => {
                     onChange={(e) => setFrequency(e.target.value)}
                     data-testid="filter-frequency-select"
                   >
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                    <option value="quarterly">Quarterly</option>
-                    <option value="yearly">Yearly</option>
+                    <option value="raw">All raw readings</option>
+                    <option value="daily">Daily (1 row / day)</option>
+                    <option value="weekly">Weekly (1 row / week)</option>
+                    <option value="monthly">Monthly (1 row / month)</option>
+                    <option value="quarterly">Quarterly (1 row / quarter)</option>
+                    <option value="yearly">Yearly (1 row / year)</option>
                   </select>
                 </div>
                 <div className="flex items-end">
