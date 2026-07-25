@@ -254,11 +254,11 @@ const CustomerProfile = () => {
           </div>
           <div className="flex-1 min-w-[240px]">
             <h1 className="text-2xl font-bold text-gray-900">{profile.customer_name || profile.full_name || profile.email}</h1>
-            <p className="text-sm text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+            <div className="text-sm text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
               {profile.site_name && <span>{profile.site_name}</span>}
               {profile.unit_name && <><span className="text-gray-300">·</span><span>{profile.unit_name}</span></>}
               {profile.role && <><span className="text-gray-300">·</span><Badge variant="outline" className="capitalize">{profile.role}</Badge></>}
-            </p>
+            </div>
             {profile.address && <p className="text-xs text-gray-500 mt-1 flex items-start gap-1"><MapPin className="h-3 w-3 mt-0.5 shrink-0" /> {profile.address}</p>}
           </div>
           {admin && (
