@@ -1,0 +1,60 @@
+{
+  "verdict": "not_fixed",
+  "user_reported_bug": "Mark coordinates on map more accurately. Currently coordinate marked of client location is wrongly marked. Latitude and longitude details should be more précised to mark exact location on map.",
+  "summary": "No relevant testing skill found. Focused UI/API verification showed coordinate storage, 6-decimal list display, edit persistence, dashboard LocationMap marker placement, and clear-history Z/+00:00 deletion work. However the requested Google Maps-style comma-separated paste into the Latitude field does not work in the real browser, so the fix is partial.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Instruments Create/Edit dialogs",
+        "issue": "Pasting `28.6448723, 77.2166534` into the Latitude field does not auto-populate Latitude/Longitude. In Chromium the `type=number` input rejects/sanitizes the comma-separated value before the React `onChange` split logic receives it; tested paste left both fields blank.",
+        "selector": "[data-testid=\"input-latitude\"] / [data-testid=\"edit-input-latitude\"]",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Site map route verification",
+        "issue": "Code inspection shows `/site` renders Site Activation and does not import/render LocationMap. The marker was verified on `/dashboard` where `LocationMap` is actually used; if `/site` is the intended user-facing site map, that flow is still missing/misrouted.",
+        "affected_selectors": ["[data-testid=\"site-management-page\"]", "[data-testid=\"dashboard-map-card\"]", "[data-testid=\"location-map\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/bug_verification/test_coordinate_precision_clear_history.py",
+    "/app/tests/bug_verification/seed_coordinate_ui_device.py",
+    "/app/tests/bug_verification/ui_coordinate_precision_playwright_steps.py",
+    "/app/test_reports/coordinate_precision_clear_history_backend.json"
+  ],
+  "action_items": [
+    "Implement an explicit `onPaste` handler for Latitude fields that reads clipboard text and splits `lat, lng` before the browser number input sanitizes it; apply to both Create and Edit dialogs.",
+    "Clarify/fix the intended map route: if `/site` should show the site/instrument map, render LocationMap there or update navigation/spec to use `/dashboard`.",
+    "Retest create/edit paste split, precision round-trip, and map marker after the paste fix."
+  ],
+  "critical_code_review_comments": [
+    "In `frontend/src/pages/Instruments.jsx`, the paste-split logic is attached to `onChange` on `Input type=\"number\"`; this is not sufficient for comma-separated Google Maps coordinates because invalid comma text is not accepted as the number input value.",
+    "Create/Edit latitude and longitude inputs do have `type=number` and `step=0.000001`; list display uses `toFixed(6)` and backend models store floats without observed precision loss.",
+    "`frontend/src/pages/Site.jsx` is a Site Activation page, not a map page; `LocationMap` is rendered in `EnhancedDashboard.jsx`."
+  ],
+  "updated_files": [
+    "/app/tests/bug_verification/test_coordinate_precision_clear_history.py",
+    "/app/tests/bug_verification/seed_coordinate_ui_device.py",
+    "/app/tests/bug_verification/ui_coordinate_precision_playwright_steps.py",
+    "/app/test_reports/coordinate_precision_clear_history_backend.json",
+    "/app/test_reports/bug_verification_17.json",
+    "/app/test_reports/iteration_17.json"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "75%"
+  },
+  "seed_data_creation": "Seeded temporary instruments `QA_COORD_1784967337` and `QA_UI_COORD_MARKER`, plus four temporary readings for clear-history regression. All seeded registry rows/readings/categories were deleted after testing.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use admin credentials from /app/memory/test_credentials.md. Backend API precision and clear-history passed. UI failures to retest: real browser paste of comma-separated coordinates into Latitude, and whether the intended map route is `/site` or `/dashboard`. Dashboard map screenshot was captured at /app/test_reports/screenshots_coord/dashboard_map_marker.png but is not included in report links per format rules.",
+  "rca_of_the_issue": "Repro: login as admin, open Instruments > Add Instrument, focus Latitude, paste `28.6448723, 77.2166534`. Expected Latitude=`28.6448723` and Longitude=`77.2166534`; actual both fields remained blank in real browser paste test. Root cause is likely relying on `onChange` for a `type=number` input, while comma-separated text is invalid for number inputs and is sanitized/rejected before React state sees it. Backend precision itself is OK: creating/listing/editing preserved 7/6-decimal values, and dashboard LocationMap popup showed `28.644872, 77.216653` at the marker. Clear-history deleted both `2026-07-24T18:34:17Z` and `2026-07-24T18:34:17+00:00` variants from both reading collections."
+}

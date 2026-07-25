@@ -586,6 +586,20 @@ def _parse_iso_bound(s: Optional[str], field: str) -> Optional[str]:
     return dt.astimezone(timezone.utc).isoformat()
 
 
+def _iso_variants(iso: Optional[str]) -> Optional[list]:
+    """Return both `+00:00` and `Z` string forms of a UTC ISO timestamp so
+    a Mongo range query catches rows stored in either format. Older
+    ingestion paths wrote `...Z` while newer ones write `...+00:00`."""
+    if not iso:
+        return None
+    variants = {iso}
+    if iso.endswith("+00:00"):
+        variants.add(iso[:-6] + "Z")
+    elif iso.endswith("Z"):
+        variants.add(iso[:-1] + "+00:00")
+    return sorted(variants)
+
+
 @router.post("/{hardware_id}/clear-history")
 async def clear_history(
     hardware_id: str,
@@ -609,13 +623,34 @@ async def clear_history(
     from_iso = _parse_iso_bound(req.from_ts, "from_ts")
     to_iso = _parse_iso_bound(req.to_ts, "to_ts")
 
-    match_range: Dict = {}
-    if from_iso: match_range["$gte"] = from_iso
-    if to_iso:   match_range["$lte"] = to_iso
+    # Build a Mongo filter that catches rows stored with EITHER `+00:00` or
+    # `Z` as the trailing UTC marker — historically both formats have been
+    # written to disk by different ingestion paths (raw MQTT wrote `Z`, the
+    # HTTPS poller wrote `+00:00`). A plain string range on one variant
+    # would miss the other.
+    def _range_filter(field: str) -> dict:
+        f_variants = _iso_variants(from_iso)
+        t_variants = _iso_variants(to_iso)
+        # Build one $or clause per (from-variant, to-variant) combination so
+        # each individual comparison is a pure string range on Mongo's side
+        # (indexable). At most 2×2 = 4 clauses.
+        clauses: list = []
+        f_opts = f_variants if f_variants else [None]
+        t_opts = t_variants if t_variants else [None]
+        for f in f_opts:
+            for t in t_opts:
+                inner: dict = {}
+                if f: inner["$gte"] = f
+                if t: inner["$lte"] = t
+                if inner:
+                    clauses.append({field: inner})
+        return {"$or": clauses} if clauses else {}
+
+    range_clause = _range_filter("received_at")
 
     reading_query: Dict = {"hardware_id": hardware_id}
-    if match_range:
-        reading_query["received_at"] = match_range
+    if range_clause:
+        reading_query.update(range_clause)
 
     fm_res = await db.flowmeter_readings.delete_many(reading_query)
     inst_res = await db.instrument_readings.delete_many(reading_query)
@@ -624,12 +659,13 @@ async def clear_history(
     # was given at all (i.e. full wipe). Prevents a stale tile from surviving
     # after a full historic purge.
     latest_res_fm = latest_res_inst = None
-    if not match_range:
+    if not range_clause:
         latest_res_fm = await db.flowmeter_latest.delete_many({"hardware_id": hardware_id})
         latest_res_inst = await db.instrument_latest.delete_many({"hardware_id": hardware_id})
     else:
-        latest_res_fm = await db.flowmeter_latest.delete_many({"hardware_id": hardware_id, "received_at": match_range})
-        latest_res_inst = await db.instrument_latest.delete_many({"hardware_id": hardware_id, "received_at": match_range})
+        latest_range = _range_filter("received_at")
+        latest_res_fm = await db.flowmeter_latest.delete_many({"hardware_id": hardware_id, **latest_range})
+        latest_res_inst = await db.instrument_latest.delete_many({"hardware_id": hardware_id, **latest_range})
 
     counts = {
         "flowmeter_readings": fm_res.deleted_count,

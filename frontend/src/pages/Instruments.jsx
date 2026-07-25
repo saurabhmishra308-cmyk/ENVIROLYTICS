@@ -1012,7 +1012,7 @@ const Instruments = () => {
                       <td className="p-3 text-sm text-gray-600">
                         {it.location_name || '—'}
                         {it.latitude != null && it.longitude != null && (
-                          <div className="text-gray-400 text-xs mt-0.5">{Number(it.latitude).toFixed(4)}, {Number(it.longitude).toFixed(4)}</div>
+                          <div className="text-gray-400 text-xs mt-0.5 font-mono">{Number(it.latitude).toFixed(6)}, {Number(it.longitude).toFixed(6)}</div>
                         )}
                       </td>
                       <td className="p-3">
@@ -1115,8 +1115,39 @@ const Instruments = () => {
               <Input value={form.location_name} onChange={(e) => setForm({ ...form, location_name: e.target.value })} placeholder="e.g. Borewell #3" />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Latitude</Label><Input value={form.latitude} onChange={(e) => setForm({ ...form, latitude: e.target.value })} placeholder="26.8467" /></div>
-              <div><Label>Longitude</Label><Input value={form.longitude} onChange={(e) => setForm({ ...form, longitude: e.target.value })} placeholder="80.9462" /></div>
+              <div>
+                <Label>Latitude</Label>
+                <Input
+                  type="number"
+                  step="0.000001"
+                  value={form.latitude}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    // Support pasting "lat, lng" — split it and populate both.
+                    if (typeof v === 'string' && v.includes(',')) {
+                      const parts = v.split(',').map((s) => s.trim());
+                      if (parts.length === 2 && parts.every((p) => p && !Number.isNaN(Number(p)))) {
+                        setForm({ ...form, latitude: parts[0], longitude: parts[1] });
+                        return;
+                      }
+                    }
+                    setForm({ ...form, latitude: v });
+                  }}
+                  placeholder="26.846743 (up to 6 decimals for ~11 cm accuracy)"
+                  data-testid="input-latitude"
+                />
+              </div>
+              <div>
+                <Label>Longitude</Label>
+                <Input
+                  type="number"
+                  step="0.000001"
+                  value={form.longitude}
+                  onChange={(e) => setForm({ ...form, longitude: e.target.value })}
+                  placeholder="80.946159"
+                  data-testid="input-longitude"
+                />
+              </div>
             </div>
             <div>
               <Label>IMEI *</Label>
@@ -1203,8 +1234,36 @@ const Instruments = () => {
             <div><Label>Display Label</Label><Input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} /></div>
             <div><Label>Location Name</Label><Input value={form.location_name} onChange={(e) => setForm({ ...form, location_name: e.target.value })} /></div>
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Latitude</Label><Input value={form.latitude} onChange={(e) => setForm({ ...form, latitude: e.target.value })} /></div>
-              <div><Label>Longitude</Label><Input value={form.longitude} onChange={(e) => setForm({ ...form, longitude: e.target.value })} /></div>
+              <div>
+                <Label>Latitude</Label>
+                <Input
+                  type="number"
+                  step="0.000001"
+                  value={form.latitude}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (typeof v === 'string' && v.includes(',')) {
+                      const parts = v.split(',').map((s) => s.trim());
+                      if (parts.length === 2 && parts.every((p) => p && !Number.isNaN(Number(p)))) {
+                        setForm({ ...form, latitude: parts[0], longitude: parts[1] });
+                        return;
+                      }
+                    }
+                    setForm({ ...form, latitude: v });
+                  }}
+                  data-testid="edit-input-latitude"
+                />
+              </div>
+              <div>
+                <Label>Longitude</Label>
+                <Input
+                  type="number"
+                  step="0.000001"
+                  value={form.longitude}
+                  onChange={(e) => setForm({ ...form, longitude: e.target.value })}
+                  data-testid="edit-input-longitude"
+                />
+              </div>
             </div>
             <div>
               <Label>IMEI *</Label>

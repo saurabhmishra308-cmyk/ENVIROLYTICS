@@ -1,0 +1,156 @@
+{
+  "backend": "https://envirolytics-hub.preview.emergentagent.com",
+  "hardware_id": "QA_COORD_1784967337",
+  "client_email": "qa-coord-1784967337@example.com",
+  "steps": [
+    {
+      "name": "admin login",
+      "ok": true,
+      "detail": {
+        "status": 200,
+        "body": "{\"access_token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzBhNWQ2MWQ4ZTM0MiIsImVtYWlsIjoiYWRtaW5AZW52aXJvbHl0aWNzLmNvbSIsInJvbGUiOiJhZG1pbiIsImV4cCI6MTc4NTA1MzczNywidHlwZSI6ImFjY2VzcyJ9.d"
+      }
+    },
+    {
+      "name": "list users",
+      "ok": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "name": "client owner selected",
+      "ok": true,
+      "detail": {
+        "client_id": "user_d95ea29a3671"
+      }
+    },
+    {
+      "name": "create instrument with 7 decimal coordinates",
+      "ok": true,
+      "detail": {
+        "status": 200,
+        "body": "{\"success\":true,\"instrument\":{\"hardware_id\":\"QA_COORD_1784967337\",\"instrument_type\":\"flowmeter\",\"owner_user_id\":\"user_d95ea29a3671\",\"label\":\"QA Precision Flowmeter\",\"location_name\":\"QA GPS Precision Point\",\"latitude\":28.6448723,\"longitude\":77.2166534,\"category\":\"groundwater_abstraction\",\"imei\":\"9900"
+      }
+    },
+    {
+      "name": "create response preserves coordinate precision",
+      "ok": true,
+      "detail": {
+        "latitude": 28.6448723,
+        "longitude": 77.2166534
+      }
+    },
+    {
+      "name": "list instruments after create",
+      "ok": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "name": "created instrument appears in list",
+      "ok": true,
+      "detail": {
+        "hardware_id": "QA_COORD_1784967337",
+        "instrument_type": "flowmeter",
+        "owner_user_id": "user_d95ea29a3671",
+        "label": "QA Precision Flowmeter",
+        "location_name": "QA GPS Precision Point",
+        "latitude": 28.6448723,
+        "longitude": 77.2166534,
+        "category": "groundwater_abstraction",
+        "imei": "990000000067337",
+        "manual_water_temp_c": null,
+        "plant_capacity_kld": null,
+        "tank_capacity_kld": null,
+        "source": "mqtt",
+        "device_key": "-lalFZI7V4GiOkCz8lwxs2O4viHwGUQR",
+        "created_at": "2026-07-25T08:15:37.808269+00:00",
+        "created_by": "user_0a5d61d8e342",
+        "owner_email": "testclient@envirolytics.com",
+        "owner_name": "Test Client",
+        "owner_location_name": null,
+        "retention_purge_count": 0
+      }
+    },
+    {
+      "name": "list round-trips >=6 decimal precision",
+      "ok": true,
+      "detail": {
+        "latitude": 28.6448723,
+        "longitude": 77.2166534
+      }
+    },
+    {
+      "name": "edit instrument coordinates to 6 decimals",
+      "ok": true,
+      "detail": {
+        "status": 200,
+        "body": "{\"success\":true,\"updated_fields\":[\"location_name\",\"latitude\",\"longitude\",\"updated_at\",\"updated_by\"]}"
+      }
+    },
+    {
+      "name": "edited coordinates persist to 6 decimals",
+      "ok": true,
+      "detail": {
+        "latitude": 28.644999,
+        "longitude": 77.216999
+      }
+    },
+    {
+      "name": "seeded Z and +00:00 readings",
+      "ok": true,
+      "detail": {
+        "flowmeter_readings": 2,
+        "instrument_readings": 2
+      }
+    },
+    {
+      "name": "clear-history API returns success",
+      "ok": true,
+      "detail": {
+        "status": 200,
+        "body": "{\"success\":true,\"hardware_id\":\"QA_COORD_1784967337\",\"from_ts\":null,\"to_ts\":\"2026-07-24T18:34:17+00:00\",\"affected_rows\":{\"flowmeter_readings\":2,\"instrument_readings\":2,\"flowmeter_latest\":0,\"instrument_latest\":0},\"total_rows_deleted\":4}"
+      }
+    },
+    {
+      "name": "clear-history deleted both ISO variants from both reading collections",
+      "ok": true,
+      "detail": {
+        "before": {
+          "flowmeter_readings": 2,
+          "instrument_readings": 2
+        },
+        "after": {
+          "flowmeter_readings": 0,
+          "instrument_readings": 0
+        },
+        "api": {
+          "success": true,
+          "hardware_id": "QA_COORD_1784967337",
+          "from_ts": null,
+          "to_ts": "2026-07-24T18:34:17+00:00",
+          "affected_rows": {
+            "flowmeter_readings": 2,
+            "instrument_readings": 2,
+            "flowmeter_latest": 0,
+            "instrument_latest": 0
+          },
+          "total_rows_deleted": 4
+        }
+      }
+    }
+  ],
+  "owner_source": "existing_client",
+  "verdict": "passed",
+  "cleanup": {
+    "delete_instrument_status": 200,
+    "delete_instrument_body": "{\"success\":true,\"hardware_id\":\"QA_COORD_1784967337\",\"removed\":{\"flowmeter_readings\":0,\"flowmeter_latest\":0,\"flowmeter_categories\":1,\"instrument_readings\":0,\"instrument_latest\":0,\"limits\":0}}",
+    "flowmeter_readings": 0,
+    "instrument_readings": 0,
+    "flowmeter_latest": 0,
+    "instrument_latest": 0,
+    "flowmeter_categories": 0
+  }
+}
