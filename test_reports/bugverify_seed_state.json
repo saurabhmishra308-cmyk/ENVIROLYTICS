@@ -1,0 +1,56 @@
+{
+  "base_url": "https://envirolytics-hub.preview.emergentagent.com",
+  "hardware_ids": [
+    "BUGVERIFY_20260725_FM",
+    "BUGVERIFY_20260725_DWLR"
+  ],
+  "created": [
+    "BUGVERIFY_20260725_FM",
+    "BUGVERIFY_20260725_DWLR"
+  ],
+  "errors": [],
+  "admin_user": {
+    "id": "user_0a5d61d8e342",
+    "email": "admin@envirolytics.com",
+    "full_name": "Envirolytics Admin",
+    "role": "admin",
+    "permissions": {
+      "dashboard": true,
+      "reports": true,
+      "analysis": true,
+      "certificates": true,
+      "audit": true,
+      "limits": true
+    }
+  },
+  "profile_list_first": {
+    "id": "user_0a5d61d8e342",
+    "email": "admin@envirolytics.com",
+    "full_name": "Envirolytics Admin",
+    "customer_name": "Envirolytics Test Corp",
+    "site_name": "HQ",
+    "unit_name": "Bangalore",
+    "role": "admin",
+    "instruments_installed_count": 0,
+    "noc_expiry_date": "2027-04-15",
+    "cto_expiry_date": null,
+    "logo_path": null
+  },
+  "client_user": {
+    "id": "user_d95ea29a3671",
+    "email": "testclient@envirolytics.com",
+    "full_name": "Test Client",
+    "customer_name": null,
+    "site_name": null,
+    "unit_name": null,
+    "role": "client",
+    "instruments_installed_count": 0,
+    "noc_expiry_date": null,
+    "cto_expiry_date": null,
+    "logo_path": null
+  },
+  "api_counts": {
+    "flowmeter_history": 4,
+    "dwlr_history": 2
+  }
+}

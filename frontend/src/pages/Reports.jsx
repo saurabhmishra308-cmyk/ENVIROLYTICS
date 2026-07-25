@@ -66,19 +66,22 @@ const pickNum = (obj, keys, { skipZero = false } = {}) => {
 };
 
 // Aggregate readings into fixed-frequency buckets (daily / weekly / monthly / quarterly / yearly).
-// Keeps the *latest* reading per bucket — closest to what an operator expects on a period report.
+// Bucket keys are computed in LOCAL time so that a reading which arrives at
+// 05:30 IST on 25-Jul is bucketed as 25-Jul (not 24-Jul UTC). This matches
+// what operators see on the timestamp column and what CGWA/CPCB reports
+// expect (calendar days in the plant's own timezone).
 const bucketKey = (d, freq) => {
   if (!d) return null;
-  const y = d.getUTCFullYear();
-  const m = d.getUTCMonth();
-  const day = d.getUTCDate();
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const day = d.getDate();
   switch (freq) {
     case 'weekly': {
-      // ISO-ish week: Monday-start. Cheap approximation via Thursday shift.
-      const tmp = new Date(Date.UTC(y, m, day));
-      const dayNum = (tmp.getUTCDay() + 6) % 7;
-      tmp.setUTCDate(tmp.getUTCDate() - dayNum);
-      return tmp.toISOString().slice(0, 10);
+      // ISO-ish week: Monday-start. Snap to the Monday of that local week.
+      const tmp = new Date(y, m, day);
+      const dayNum = (tmp.getDay() + 6) % 7; // 0 = Monday
+      tmp.setDate(tmp.getDate() - dayNum);
+      return `${tmp.getFullYear()}-${String(tmp.getMonth() + 1).padStart(2, '0')}-${String(tmp.getDate()).padStart(2, '0')}`;
     }
     case 'monthly':   return `${y}-${String(m + 1).padStart(2, '0')}`;
     case 'quarterly': return `${y}-Q${Math.floor(m / 3) + 1}`;
@@ -197,16 +200,26 @@ const Reports = () => {
       .sort((a, b) => a.d.getTime() - b.d.getTime()); // ascending for correct initial/final assignment
 
     if (section === 'flowmeter') {
-      // Group by bucket, then emit one synthetic row per bucket with
-      // initial_forward_totalizer + final_forward_totalizer.
+      // Group by bucket then compute period consumption as the delta between
+      // consecutive buckets' final totaliser values. Falls back to
+      // (final − initial) within the bucket when there's no previous bucket
+      // to compare against. That way a daily report shows the *change* in
+      // totaliser from yesterday to today, a weekly report shows the change
+      // week-over-week, etc.
       const groups = new Map();
       for (const { r, d } of withDate) {
         const key = bucketKey(d, frequency);
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push({ r, d });
       }
+      // Ordered ascending by bucket key so we can look back one bucket for
+      // the delta.
+      const ordered = Array.from(groups.entries()).sort((a, b) => (a[0] > b[0] ? 1 : -1));
       const summaries = [];
-      for (const [key, arr] of groups.entries()) {
+      let prevFinalFwd = null;
+      let prevFinalRev = null;
+      for (let idx = 0; idx < ordered.length; idx++) {
+        const [key, arr] = ordered[idx];
         const first = arr[0];
         const last = arr[arr.length - 1];
         const flows = arr.map(({ r }) => pickNum(r, ['flow_rate_lph']) ?? pickNum(r.values || {}, ['FLOW'])).filter((n) => n != null);
@@ -215,6 +228,18 @@ const Reports = () => {
         const finalFwd = fwdTotaliser(last.r);
         const initRev = revTotaliser(first.r);
         const finalRev = revTotaliser(last.r);
+        // Preferred: last-of-current − last-of-previous (spans the *whole*
+        // bucket even if there's only one reading in it). Fallback: within-
+        // bucket delta on the very first bucket (nothing to compare to).
+        const forwardConsumption =
+          finalFwd != null && prevFinalFwd != null
+            ? Math.max(0, finalFwd - prevFinalFwd)
+            : (initFwd != null && finalFwd != null ? Math.max(0, finalFwd - initFwd) : null);
+        const reverseConsumption =
+          finalRev != null && prevFinalRev != null
+            ? Math.max(0, finalRev - prevFinalRev)
+            : (initRev != null && finalRev != null ? Math.max(0, finalRev - initRev) : null);
+
         summaries.push({
           _bucket_key: key,
           _bucket_size: arr.length,
@@ -225,14 +250,16 @@ const Reports = () => {
           _bucket_end: last.d.toISOString(),
           flow_rate_lph_avg: avgFlow,
           flow_rate_lph_last: pickNum(last.r, ['flow_rate_lph']) ?? pickNum(last.r.values || {}, ['FLOW']),
-          initial_forward_totalizer: initFwd,
+          initial_forward_totalizer: prevFinalFwd != null ? prevFinalFwd : initFwd,
           final_forward_totalizer: finalFwd,
-          forward_consumption: (initFwd != null && finalFwd != null) ? Math.max(0, finalFwd - initFwd) : null,
-          initial_reverse_totalizer: initRev,
+          forward_consumption: forwardConsumption,
+          initial_reverse_totalizer: prevFinalRev != null ? prevFinalRev : initRev,
           final_reverse_totalizer: finalRev,
-          reverse_consumption: (initRev != null && finalRev != null) ? Math.max(0, finalRev - initRev) : null,
+          reverse_consumption: reverseConsumption,
           _raw: last.r,
         });
+        if (finalFwd != null) prevFinalFwd = finalFwd;
+        if (finalRev != null) prevFinalRev = finalRev;
       }
       return summaries.sort((a, b) => new Date(b._bucket_end) - new Date(a._bucket_end));
     }
@@ -573,7 +600,16 @@ const Reports = () => {
                 </div>
                 <div className="flex items-end">
                   <Button
-                    onClick={fetchReadings}
+                    onClick={() => {
+                      // Enforce mandatory date bounds for period reports so the
+                      // aggregate is unambiguous.
+                      const needsBounds = ['weekly', 'monthly', 'quarterly', 'yearly'].includes(frequency);
+                      if (needsBounds && (!startDate || !endDate)) {
+                        toast.error(`${frequency.charAt(0).toUpperCase() + frequency.slice(1)} reports require both a start date and an end date`);
+                        return;
+                      }
+                      fetchReadings();
+                    }}
                     className="w-full"
                     disabled={!hardwareId || loading}
                     data-testid="apply-filters-btn"

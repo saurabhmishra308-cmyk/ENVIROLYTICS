@@ -1,0 +1,20 @@
+{
+  "deleted_via_api": {
+    "BUGVERIFY_20260725_FM": {
+      "status": 200,
+      "body": "{\"success\":true,\"hardware_id\":\"BUGVERIFY_20260725_FM\",\"removed\":{\"flowmeter_readings\":4,\"flowmeter_latest\":1,\"flowmeter_categories\":1,\"instrument_readings\":0,\"instrument_latest\":0,\"limits\":0}}"
+    },
+    "BUGVERIFY_20260725_DWLR": {
+      "status": 200,
+      "body": "{\"success\":true,\"hardware_id\":\"BUGVERIFY_20260725_DWLR\",\"removed\":{\"flowmeter_readings\":0,\"flowmeter_latest\":0,\"flowmeter_categories\":0,\"instrument_readings\":2,\"instrument_latest\":1,\"limits\":0}}"
+    }
+  },
+  "db_cleanup": {
+    "instrument_registry": 0,
+    "flowmeter_readings": 0,
+    "flowmeter_latest": 0,
+    "flowmeter_categories": 0,
+    "instrument_readings": 0,
+    "instrument_latest": 0
+  }
+}

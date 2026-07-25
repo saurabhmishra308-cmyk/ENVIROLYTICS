@@ -1,0 +1,53 @@
+{
+  "verdict": "not_fixed",
+  "user_reported_bug": "In Reports & Historical Data i have selected device and start and end date and frequency daily 1 row per day but only 25 july 2026 date is visible why is not showing data of 24 july 2026. Weekly/monthly should be bound to start and end date mandatory. For flowmeter, frequency=daily should show total consumption of day; weekly should show 1 row per week with total consumption; monthly should show total consumption per month; same for quarterly and yearly. Also for admin login the admin profile should only allow: company name, upload Logo jpeg, Location, Address, Representative Name, Designation, Email, Contact number \u2014 no NOC / borewell / CTO / RWH sections on the admin's own profile.",
+  "summary": "No relevant testing skill found. Focused UI/API verification in preview: Reports fixes passed with seeded flowmeter/DWLR readings, weekly/monthly/quarterly/yearly missing-date toasts passed, flowmeter daily/weekly/monthly consumption aggregation passed, DWLR adjacent local-day daily rows passed, and /api/customer-profile/list returned admin first. However admin's own Customer Profile still shows a visible informational note containing 'Groundwater NOC', so the admin profile is not limited to only Customer details + Representative as requested.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "CustomerProfile / ReadOnlyView and EditForm applicability note",
+        "issue": "Admin own profile still displays a blue note mentioning 'Groundwater NOC' because the generic !showGroundwater note renders even when profile.role === 'admin'. User requested no NOC/borewell/CTO/RWH content on admin's own profile and only Customer details + Representative.",
+        "selector": "[data-testid='customer-profile-page']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/bug_verification/reports_profile_bug_setup.py",
+    "/app/tests/bug_verification/reports_profile_bug_ui_playwright.py",
+    "/app/tests/bug_verification/reports_profile_bug_cleanup.py",
+    "/app/test_reports/bugverify_seed_state.json",
+    "/app/test_reports/bugverify_cleanup_result.json"
+  ],
+  "action_items": [
+    "In CustomerProfile.jsx, suppress the non-applicable Groundwater NOC/borewell note when applicability.isAdminOwnProfile is true in both ReadOnlyView and EditForm.",
+    "Re-test admin own profile in read-only and edit modes to ensure only Customer details, Representative, logo upload/edit controls, and allowed admin/company fields are visible."
+  ],
+  "critical_code_review_comments": [
+    "CustomerProfile.jsx lines 314-317 and 464-467 render a Groundwater NOC note whenever showGroundwater is false; for admin own profile, showGroundwater is false, causing NOC text to remain visible despite hidden sections."
+  ],
+  "updated_files": [
+    "/app/tests/bug_verification/reports_profile_bug_setup.py",
+    "/app/tests/bug_verification/reports_profile_bug_ui_playwright.py",
+    "/app/tests/bug_verification/reports_profile_bug_cleanup.py",
+    "/app/test_reports/bugverify_seed_state.json",
+    "/app/test_reports/bugverify_cleanup_result.json",
+    "/app/test_reports/bug_verification_14.json",
+    "/app/test_reports/iteration_14.json"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "85%"
+  },
+  "seed_data_creation": "Created preview-only instruments BUGVERIFY_20260725_FM and BUGVERIFY_20260725_DWLR assigned to test client; inserted 4 flowmeter readings and 2 DWLR readings directly into MongoDB for deterministic UI verification; cleaned them up via DELETE /api/instrument-registry and verified zero residual records in relevant collections.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run focused retest of /customer-profile after hiding the admin-own non-applicable note. Reports evidence from this run: weekly/monthly/quarterly/yearly missing-date toasts pass; seeded flowmeter daily rows include 24 July and 25 July with consumption 500.00 and 250.00; weekly/monthly bounded rows show 750.00 and 500.00; DWLR daily shows separate 24 July and 25 July in Asia/Kolkata timezone. No MOCKED APIs used.",
+  "rca_of_the_issue": "The section hiding logic works for actual compliance cards and edit fields, but the generic informational note is keyed only on !applicability.showGroundwater. Since admin own profile sets showGroundwater=false, that note still appears and contains user-forbidden NOC wording."
+}

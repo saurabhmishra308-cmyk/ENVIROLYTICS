@@ -230,13 +230,16 @@ const CustomerProfile = () => {
   const hasDwlr  = !!instrumentsByType.dwlr;
   const hasWQ    = !!(instrumentsByType.wq_stp || instrumentsByType.do_meter || instrumentsByType.chlorine_analyzer || instrumentsByType.ph || instrumentsByType.tds || instrumentsByType.conductivity);
   const hasOcems = !!instrumentsByType.ocems;
-  // Borewell / NOC / groundwater sections are visible only when the
-  // customer has a flowmeter or a DWLR (piezometer) linked.
-  const showGroundwater = hasFlow || hasDwlr;
+  // Admin's own record only needs company + representative details — never
+  // Groundwater NOC, CTO, borewells or RWH (those belong to real customers).
+  const isAdminOwnProfile = profile.role === 'admin';
+  const showGroundwater = !isAdminOwnProfile && (hasFlow || hasDwlr);
   const applicability = {
     showGroundwater,
-    showCTO: hasWQ || hasOcems || hasFlow || hasDwlr, // effectively always
-    showRWH: true,                                     // never tied to instruments
+    showCTO: !isAdminOwnProfile && (hasWQ || hasOcems || hasFlow || hasDwlr),
+    showRWH: !isAdminOwnProfile,
+    showInstruments: !isAdminOwnProfile,
+    isAdminOwnProfile,
     hasFlow, hasDwlr, hasWQ, hasOcems,
   };
 
@@ -372,7 +375,7 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability 
       )}
     </Section>
 
-    <Section title="Consent to Operate (CTO)" icon={FileBadge}>
+    <Section title="Consent to Operate (CTO)" icon={FileBadge} hidden={!applicability.showCTO}>
       <Field label="CTO number" value={profile.cto_number} />
       <Field label="Issue date" value={profile.cto_issue_date ? fmtDate(profile.cto_issue_date) : null} />
       <Field label="Expiry date" value={profile.cto_expiry_date ? fmtDate(profile.cto_expiry_date) : null} />
@@ -387,12 +390,12 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability 
       <Field label="Piezometers installed" value={profile.piezometers_count} />
     </Section>
 
-    <Section title="Rainwater harvesting" icon={CalendarClock}>
+    <Section title="Rainwater harvesting" icon={CalendarClock} hidden={!applicability.showRWH}>
       <Field label="Number of structures" value={profile.rwh_structure_count} />
       <Field label="Total catchment area" value={profile.rwh_catchment_area_sqm} unit="m²" />
     </Section>
 
-    <Section title="Instruments installed" icon={Cpu}>
+    <Section title="Instruments installed" icon={Cpu} hidden={!applicability.showInstruments}>
       <p className="text-sm text-gray-700 mb-2">
         Total installed: <span className="font-semibold">{profile.instruments_installed_count || 0}</span>
       </p>
@@ -541,7 +544,7 @@ const EditForm = ({ form, setForm, borewellNocs, setBorewellNocs, profile, onNoc
       )}
     </Section>
 
-    <Section title="Consent to Operate (CTO)" icon={FileBadge}>
+    <Section title="Consent to Operate (CTO)" icon={FileBadge} hidden={!applicability.showCTO}>
       <div className="grid grid-cols-2 gap-3">
         <Row label="CTO number" k="cto_number" form={form} setForm={setForm} />
         <Row label="" k="_spacer" form={form} setForm={setForm} disabled className="invisible" />
@@ -577,7 +580,7 @@ const EditForm = ({ form, setForm, borewellNocs, setBorewellNocs, profile, onNoc
       </div>
     </Section>
 
-    <Section title="Rainwater harvesting" icon={CalendarClock}>
+    <Section title="Rainwater harvesting" icon={CalendarClock} hidden={!applicability.showRWH}>
       <div className="grid grid-cols-2 gap-3">
         <Row label="Number of structures" k="rwh_structure_count" type="number" form={form} setForm={setForm} min={0} />
         <Row label="Total catchment area (m²)" k="rwh_catchment_area_sqm" type="number" form={form} setForm={setForm} min={0} step="0.01" />
