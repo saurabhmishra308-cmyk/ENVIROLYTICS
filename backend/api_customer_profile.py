@@ -146,14 +146,15 @@ async def my_profile(user: dict = Depends(get_current_user)):
 
 @router.get("/list")
 async def list_all_profiles(admin: dict = Depends(require_admin)):
-    """Compact list of every non-admin user + summary — feeds the admin
-    picker on the Customer Profile page."""
-    rows = []
+    """Compact list of every user + summary — feeds the admin picker on the
+    Customer Profile page. The admin themselves is always returned first so
+    they land on their own profile by default and can fill in the company
+    details if required."""
+    admin_row = None
+    client_rows: list = []
     async for u in db.users.find({}, {"_id": 0, "password_hash": 0}):
-        if u.get("role") == "admin":
-            continue
         installed = await db.instrument_registry.count_documents({"owner_user_id": u.get("id")})
-        rows.append({
+        row = {
             "id": u.get("id"),
             "email": u.get("email"),
             "full_name": u.get("full_name") or u.get("company_name"),
@@ -165,9 +166,14 @@ async def list_all_profiles(admin: dict = Depends(require_admin)):
             "noc_expiry_date": u.get("noc_expiry_date"),
             "cto_expiry_date": u.get("cto_expiry_date"),
             "logo_path": u.get("logo_path"),
-        })
-    rows.sort(key=lambda r: (r.get("customer_name") or r.get("full_name") or r.get("email") or ""))
-    return {"users": rows, "count": len(rows)}
+        }
+        if u.get("role") == "admin" and u.get("id") == admin.get("id"):
+            admin_row = row
+        else:
+            client_rows.append(row)
+    client_rows.sort(key=lambda r: (r.get("customer_name") or r.get("full_name") or r.get("email") or ""))
+    users = ([admin_row] if admin_row else []) + client_rows
+    return {"users": users, "count": len(users)}
 
 
 @router.get("/{user_id}")

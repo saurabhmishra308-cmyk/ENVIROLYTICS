@@ -9,7 +9,7 @@ import {
   Building2, Upload, Save, RefreshCw, Loader2, ShieldCheck, CalendarClock, MapPin, Users, Droplets, Cpu, FileBadge, Mail, Phone, User,
 } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
-import { isAdmin } from '../mockData';
+import { isAdmin, getCurrentUser } from '../mockData';
 import { toast } from 'sonner';
 
 const emptyForm = {
@@ -78,8 +78,9 @@ const NocDownloadLink = ({ filename, label = 'Download', small = false }) => {
 
 const CustomerProfile = () => {
   const admin = isAdmin();
+  const me = getCurrentUser();
   const [users, setUsers] = useState([]);   // admin picker options
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(admin ? (me?.id || null) : null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -95,11 +96,18 @@ const CustomerProfile = () => {
     try {
       const { data } = await api.get('/api/customer-profile/list');
       setUsers(data.users || []);
-      if ((data.users || []).length && !selectedId) setSelectedId(data.users[0].id);
+      // Only auto-pick from the list if nothing is selected yet AND the
+      // current logged-in user isn't in the list (edge case). Otherwise
+      // keep the initial selection (the admin's own id) so admins land on
+      // their own profile — not the first client alphabetically.
+      if ((data.users || []).length && !selectedId) {
+        const preferred = data.users.find((u) => u.id === me?.id) || data.users[0];
+        setSelectedId(preferred.id);
+      }
     } catch (e) {
       toast.error(formatApiError(e?.response?.data?.detail) || 'Failed to load users');
     }
-  }, [admin, selectedId]);
+  }, [admin, selectedId, me?.id]);
 
   const loadProfile = useCallback(async (uid) => {
     setLoading(true);
@@ -263,7 +271,9 @@ const CustomerProfile = () => {
               >
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
+                    {u.role === 'admin' && u.id === me?.id ? '⚙️ My profile — ' : ''}
                     {u.customer_name || u.full_name || u.email}{u.unit_name ? ` — ${u.unit_name}` : ''}
+                    {u.role === 'admin' && u.id === me?.id ? ' (Admin)' : ''}
                   </option>
                 ))}
               </select>
