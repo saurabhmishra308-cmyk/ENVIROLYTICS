@@ -14,6 +14,7 @@ import Site from "./pages/Site";
 import User from "./pages/User";
 import Certificates from "./pages/Certificates";
 import AuditLog from "./pages/AuditLog";
+import CustomerProfile from "./pages/CustomerProfile";
 import Instruments from "./pages/Instruments";
 import WaterQuality from "./pages/WaterQuality";
 import Sidebar from "./components/Sidebar";
@@ -69,6 +70,7 @@ function App() {
                 <Route path="/certificates" element={<PermissionRoute permission="certificates"><DashboardLayout><Certificates /></DashboardLayout></PermissionRoute>} />
                 <Route path="/maintenance" element={<PermissionRoute permission="certificates"><DashboardLayout><Certificates /></DashboardLayout></PermissionRoute>} />
                 <Route path="/audit-log" element={<PermissionRoute permission="audit"><DashboardLayout><AuditLog /></DashboardLayout></PermissionRoute>} />
+                <Route path="/customer-profile" element={<RequireAuth><DashboardLayout><CustomerProfile /></DashboardLayout></RequireAuth>} />
                 <Route path="/instruments" element={<RequireAuth><DashboardLayout><Instruments /></DashboardLayout></RequireAuth>} />
                 <Route path="/water-quality" element={<RequireAuth><DashboardLayout><WaterQuality /></DashboardLayout></RequireAuth>} />
 
