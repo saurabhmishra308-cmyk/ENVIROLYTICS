@@ -58,6 +58,7 @@ const CustomerProfile = () => {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [borewellNocs, setBorewellNocs] = useState([]);   // per-borewell NOC rows
   const [logoTs, setLogoTs] = useState(Date.now()); // cache-buster
   const logoFileRef = useRef(null);
 
@@ -82,6 +83,7 @@ const CustomerProfile = () => {
         ...emptyForm,
         ...Object.fromEntries(Object.keys(emptyForm).map((k) => [k, data?.[k] ?? ''])),
       });
+      setBorewellNocs(Array.isArray(data?.borewell_nocs) ? data.borewell_nocs : []);
     } catch (e) {
       toast.error(formatApiError(e?.response?.data?.detail) || 'Failed to load profile');
     } finally { setLoading(false); }
@@ -116,7 +118,10 @@ const CustomerProfile = () => {
           payload[k] = v;
         }
       }
-      const { data } = await api.put(`/api/customer-profile/${profile.id}`, payload);
+      const { data } = await api.put(`/api/customer-profile/${profile.id}`, {
+        ...payload,
+        borewell_nocs: borewellNocs,
+      });
       setProfile(data);
       toast.success('Profile updated');
       setEditing(false);
@@ -238,16 +243,16 @@ const CustomerProfile = () => {
       </Card>
 
       {!editing ? (
-        <ReadOnlyView profile={profile} instrumentsByType={instrumentsByType} />
+        <ReadOnlyView profile={profile} instrumentsByType={instrumentsByType} borewellNocs={borewellNocs} />
       ) : (
-        <EditForm form={form} setForm={setForm} />
+        <EditForm form={form} setForm={setForm} borewellNocs={borewellNocs} setBorewellNocs={setBorewellNocs} />
       )}
     </div>
   );
 };
 
 // -------------------- Read-only presentation --------------------------
-const ReadOnlyView = ({ profile, instrumentsByType }) => (
+const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs }) => (
   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
     <Section title="Customer details" icon={Building2}>
       <Field label="Customer name (per CTO / NOC)" value={profile.customer_name} />
@@ -264,10 +269,45 @@ const ReadOnlyView = ({ profile, instrumentsByType }) => (
     </Section>
 
     <Section title="Groundwater NOC" icon={ShieldCheck}>
-      <Field label="NOC number" value={profile.noc_number} />
-      <Field label="Issue date" value={profile.noc_issue_date ? fmtDate(profile.noc_issue_date) : null} />
-      <Field label="Validity (years)" value={profile.noc_validity_years} />
-      <Field label="Expiry date" value={profile.noc_expiry_date ? fmtDate(profile.noc_expiry_date) : null} />
+      <Field label="NOC mode" value={profile.noc_mode === 'per_borewell' ? 'One NOC per borewell' : 'Single NOC covers all borewells'} />
+      {profile.noc_mode !== 'per_borewell' && (
+        <>
+          <Field label="NOC number" value={profile.noc_number} />
+          <Field label="Issue date" value={profile.noc_issue_date ? fmtDate(profile.noc_issue_date) : null} />
+          <Field label="Validity (years)" value={profile.noc_validity_years} />
+          <Field label="Expiry date" value={profile.noc_expiry_date ? fmtDate(profile.noc_expiry_date) : null} />
+        </>
+      )}
+      {profile.noc_mode === 'per_borewell' && (
+        <div className="mt-2">
+          {(!borewellNocs || borewellNocs.length === 0) ? (
+            <p className="italic text-xs text-gray-500">No per-borewell NOCs recorded yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b bg-gray-50">
+                    <th className="text-left p-2">Borewell</th>
+                    <th className="text-left p-2">NOC number</th>
+                    <th className="text-left p-2">Issue date</th>
+                    <th className="text-left p-2">Expiry date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {borewellNocs.map((r, i) => (
+                    <tr key={i} className="border-b">
+                      <td className="p-2 font-medium">{r.borewell_name || r.borewell_id || `#${i + 1}`}</td>
+                      <td className="p-2 font-mono">{r.noc_number || '—'}</td>
+                      <td className="p-2">{r.issue_date ? fmtDate(r.issue_date) : '—'}</td>
+                      <td className="p-2">{r.expiry_date ? fmtDate(r.expiry_date) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </Section>
 
     <Section title="Consent to Operate (CTO)" icon={FileBadge}>
@@ -330,7 +370,12 @@ const Row = ({ label, k, form, setForm, type = 'text', ...rest }) => (
   </div>
 );
 
-const EditForm = ({ form, setForm }) => (
+const EditForm = ({ form, setForm, borewellNocs, setBorewellNocs }) => {
+  const addBorewellNoc = () => setBorewellNocs([...(borewellNocs || []), { borewell_name: '', noc_number: '', issue_date: '', expiry_date: '' }]);
+  const updateBorewellNoc = (i, patch) => setBorewellNocs(borewellNocs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const removeBorewellNoc = (i) => setBorewellNocs(borewellNocs.filter((_, idx) => idx !== i));
+  const isPerBorewell = (form.noc_mode || 'single') === 'per_borewell';
+  return (
   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
     <Section title="Customer details" icon={Building2}>
       <div className="space-y-3">
@@ -351,12 +396,45 @@ const EditForm = ({ form, setForm }) => (
     </Section>
 
     <Section title="Groundwater NOC" icon={ShieldCheck}>
-      <div className="grid grid-cols-2 gap-3">
-        <Row label="NOC number" k="noc_number" form={form} setForm={setForm} />
-        <Row label="Validity (years)" k="noc_validity_years" type="number" form={form} setForm={setForm} min={0} />
-        <Row label="Issue date" k="noc_issue_date" type="date" form={form} setForm={setForm} />
-        <Row label="Expiry date" k="noc_expiry_date" type="date" form={form} setForm={setForm} />
-      </div>
+      {!isPerBorewell ? (
+        <div className="grid grid-cols-2 gap-3">
+          <Row label="NOC number" k="noc_number" form={form} setForm={setForm} />
+          <Row label="Validity (years)" k="noc_validity_years" type="number" form={form} setForm={setForm} min={0} />
+          <Row label="Issue date" k="noc_issue_date" type="date" form={form} setForm={setForm} />
+          <Row label="Expiry date" k="noc_expiry_date" type="date" form={form} setForm={setForm} />
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-600">
+            In <strong>per-borewell</strong> mode each borewell carries its own NOC. Reminders (3-month, 1-month, 11-month self-compliance) fire independently for every row below.
+          </p>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b bg-gray-50">
+                <th className="text-left p-2">Borewell name</th>
+                <th className="text-left p-2">NOC number</th>
+                <th className="text-left p-2">Issue date</th>
+                <th className="text-left p-2">Expiry date</th>
+                <th className="p-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {(borewellNocs || []).map((r, i) => (
+                <tr key={i} className="border-b" data-testid={`cp-bw-row-${i}`}>
+                  <td className="p-1"><Input value={r.borewell_name || ''} onChange={(e) => updateBorewellNoc(i, { borewell_name: e.target.value })} placeholder={`BW-${i + 1}`} /></td>
+                  <td className="p-1"><Input value={r.noc_number || ''} onChange={(e) => updateBorewellNoc(i, { noc_number: e.target.value })} /></td>
+                  <td className="p-1"><Input type="date" value={r.issue_date || ''} onChange={(e) => updateBorewellNoc(i, { issue_date: e.target.value })} /></td>
+                  <td className="p-1"><Input type="date" value={r.expiry_date || ''} onChange={(e) => updateBorewellNoc(i, { expiry_date: e.target.value })} /></td>
+                  <td className="p-1 text-center">
+                    <Button type="button" variant="ghost" size="sm" onClick={() => removeBorewellNoc(i)} className="text-red-600" data-testid={`cp-bw-remove-${i}`}>×</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Button type="button" variant="outline" size="sm" onClick={addBorewellNoc} data-testid="cp-bw-add">+ Add borewell NOC</Button>
+        </div>
+      )}
     </Section>
 
     <Section title="Consent to Operate (CTO)" icon={FileBadge}>
@@ -406,6 +484,7 @@ const EditForm = ({ form, setForm }) => (
       <Row label="Any additional details" k="notes" type="textarea" form={form} setForm={setForm} rows={4} />
     </Section>
   </div>
-);
+  );
+};
 
 export default CustomerProfile;

@@ -88,6 +88,16 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
     # 365-day service term is a CLIENT concept — admins are "god mode" and
     # never expire. We only stamp expiry for non-admin roles.
     role = req.role if req.role in ("admin", "client") else "client"
+    # Single-admin policy: an admin is seeded at boot; no additional admins
+    # may ever be created. Attempts to escalate a new user to admin are
+    # silently downgraded to `client` so the requester gets a working
+    # account without accidentally spawning a second super-admin.
+    if role == "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only one admin account is permitted. Create a client instead and grant per-page permissions.",
+        )
+    # Only apply service-term expiry to non-admin (i.e. clients) — same as before.
     term_years = None
     service_expiry = None
     if role != "admin":

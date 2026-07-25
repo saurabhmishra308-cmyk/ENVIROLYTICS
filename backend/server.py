@@ -43,6 +43,8 @@ from api_instrument_report import router as instrument_report_router
 import api_instrument_report
 from api_customer_profile import router as customer_profile_router
 import api_customer_profile
+from api_instrument_photos import router as instrument_photos_router
+import api_instrument_photos
 from api_subusers import router as subusers_router
 import api_subusers
 from api_weather import router as weather_router
@@ -81,6 +83,7 @@ api_notifications.set_db(db)
 api_reports.set_db(db)
 api_instrument_report.set_db(db)
 api_customer_profile.set_db(db)
+api_instrument_photos.set_db(db)
 api_subusers.set_db(db)
 api_limits.set_db(db)
 api_renewals.set_db(db)
@@ -147,6 +150,7 @@ app.include_router(notifications_router)
 app.include_router(reports_router)
 app.include_router(instrument_report_router)
 app.include_router(customer_profile_router)
+app.include_router(instrument_photos_router)
 app.include_router(subusers_router)
 app.include_router(weather_router)
 app.include_router(limits_router)

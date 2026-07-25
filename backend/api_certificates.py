@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/certificates", tags=["certificates"])
 db = None
 
 ALLOWED_TYPES = {"installation", "calibration", "water_pre", "water_post"}
-ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
+ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 STORAGE_ROOT = Path(os.environ.get("CERT_STORAGE_DIR", "/app/backend/certificate_files"))
@@ -53,7 +53,7 @@ def _validate_extension(filename: str) -> str:
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"File extension '{ext}' not allowed. Use PDF/JPG/PNG.",
+            detail=f"File extension '{ext}' not allowed. Use PDF or JPEG.",
         )
     return ext
 

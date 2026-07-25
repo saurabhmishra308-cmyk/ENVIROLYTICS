@@ -126,8 +126,8 @@ const Certificates = () => {
     <div className="p-6 space-y-6" data-testid="certificates-page">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Certificates</h1>
-          <p className="text-gray-600 mt-1">Installation, calibration, and water-quality (pre/post monsoon) documents</p>
+          <h1 className="text-3xl font-bold text-gray-900">Certificate &amp; Instrument Photos</h1>
+          <p className="text-gray-600 mt-1">Installation / calibration / water-quality documents (PDF or JPEG) + on-site photos of every installed instrument</p>
         </div>
         {admin && (
           <Button style={{ backgroundColor: '#4a9fd8' }} onClick={openUpload} data-testid="cert-upload-btn">
@@ -228,6 +228,8 @@ const Certificates = () => {
         ))}
       </Tabs>
 
+      {/* Instrument Photos gallery — JPEG-only per installed instrument */}
+      <InstrumentPhotosSection admin={admin} />
       {/* Upload Dialog */}
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
         <DialogContent>
@@ -236,8 +238,8 @@ const Certificates = () => {
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>File (PDF / JPG / PNG, max 10 MB)</Label>
-              <Input type="file" ref={fileRef} accept=".pdf,.jpg,.jpeg,.png" data-testid="cert-upload-file" />
+              <Label>File (PDF or JPEG, max 10 MB)</Label>
+              <Input type="file" ref={fileRef} accept=".pdf,.jpg,.jpeg" data-testid="cert-upload-file" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -305,3 +307,221 @@ const Certificates = () => {
 };
 
 export default Certificates;
+
+// ============================================================================
+// Instrument Photos — per-instrument JPEG gallery with location / GPS / landmark.
+// Admins can upload / delete; clients see photos for their own instruments only.
+// ============================================================================
+const PHOTO_INSTRUMENT_TYPES = [
+  { value: 'flowmeter', label: 'Flowmeter' },
+  { value: 'dwlr', label: 'DWLR / Piezometer' },
+  { value: 'ocems', label: 'OCEMS' },
+  { value: 'do_meter', label: 'DO Analyzer' },
+  { value: 'chlorine_analyzer', label: 'Chlorine Analyzer' },
+  { value: 'wq_stp', label: 'STP water quality' },
+  { value: 'rwh', label: 'Rainwater harvesting structure' },
+  { value: 'other', label: 'Other' },
+];
+
+const InstrumentPhotosSection = ({ admin }) => {
+  const [instruments, setInstruments] = React.useState([]);
+  const [photos, setPhotos] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [filter, setFilter] = React.useState('');
+  const [uploadOpen, setUploadOpen] = React.useState(false);
+  const [uploading, setUploading] = React.useState(false);
+  const [uForm, setUForm] = React.useState({
+    hardware_id: '', location_name: '', latitude: '', longitude: '', landmark: '', caption: '',
+  });
+  const uFileRef = React.useRef(null);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const [regRes, photoRes] = await Promise.all([
+        api.get('/api/instrument-registry'),
+        api.get('/api/instrument-photos'),
+      ]);
+      setInstruments(regRes.data?.instruments || []);
+      setPhotos(photoRes.data?.photos || []);
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Failed to load photos');
+    } finally { setLoading(false); }
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const grouped = React.useMemo(() => {
+    const map = {};
+    for (const p of photos) {
+      const hw = p.hardware_id;
+      if (!map[hw]) map[hw] = [];
+      map[hw].push(p);
+    }
+    return map;
+  }, [photos]);
+
+  const filteredInstruments = React.useMemo(() => (
+    filter ? instruments.filter((i) => (i.instrument_type || '').toLowerCase() === filter) : instruments
+  ), [instruments, filter]);
+
+  const openUpload = (inst) => {
+    setUForm({ hardware_id: inst.hardware_id, location_name: inst.location_name || '', latitude: inst.latitude ?? '', longitude: inst.longitude ?? '', landmark: '', caption: '' });
+    setUploadOpen(true);
+  };
+
+  const submitUpload = async () => {
+    const file = uFileRef.current?.files?.[0];
+    if (!file) { toast.error('Choose a JPEG image'); return; }
+    if (!/image\/jpe?g/i.test(file.type)) { toast.error('JPEG only'); return; }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      Object.entries(uForm).forEach(([k, v]) => { if (v !== '' && v !== null) fd.append(k, String(v)); });
+      await api.post('/api/instrument-photos', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      toast.success('Photo uploaded');
+      setUploadOpen(false);
+      load();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Upload failed');
+    } finally { setUploading(false); }
+  };
+
+  const deletePhoto = async (photo) => {
+    if (!window.confirm('Delete this photo?')) return;
+    try {
+      await api.delete(`/api/instrument-photos/${photo.id}`);
+      toast.success('Deleted');
+      load();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Delete failed');
+    }
+  };
+
+  return (
+    <div className="pt-4 border-t space-y-4" data-testid="instrument-photos-section">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Instrument Photographs</h2>
+          <p className="text-sm text-gray-600">Site photos of every installed instrument with location and GPS coordinates. JPEG only, ≤ 8 MB.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs uppercase tracking-wide text-gray-500">Type</Label>
+          <select className="border rounded px-3 py-2 text-sm" value={filter} onChange={(e) => setFilter(e.target.value)} data-testid="iph-type-filter">
+            <option value="">All types</option>
+            {PHOTO_INSTRUMENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-center py-10 text-gray-500"><Loader2 className="h-5 w-5 animate-spin inline mr-2" /> Loading photos…</p>
+      ) : filteredInstruments.length === 0 ? (
+        <p className="text-sm italic text-gray-500 text-center py-6">No installed instruments yet — register a device first.</p>
+      ) : (
+        <div className="space-y-4">
+          {filteredInstruments.map((inst) => {
+            const arr = grouped[inst.hardware_id] || [];
+            return (
+              <Card key={inst.hardware_id} data-testid={`iph-inst-${inst.hardware_id}`}>
+                <CardHeader className="pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        {inst.label || inst.hardware_id}
+                        <Badge variant="outline" className="capitalize">{inst.instrument_type}</Badge>
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        <span className="font-mono">{inst.hardware_id}</span>
+                        {inst.location_name ? ` · ${inst.location_name}` : ''}
+                        {arr.length ? ` · ${arr.length} photo${arr.length === 1 ? '' : 's'}` : ' · no photos yet'}
+                      </CardDescription>
+                    </div>
+                    {admin && (
+                      <Button size="sm" variant="outline" onClick={() => openUpload(inst)} data-testid={`iph-upload-${inst.hardware_id}`}>
+                        <Upload className="h-3 w-3 mr-1" /> Add photo
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {arr.length === 0 ? (
+                    <p className="text-xs italic text-gray-500">No site photos captured yet.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                      {arr.map((p) => <PhotoTile key={p.id} photo={p} admin={admin} onDelete={deletePhoto} />)}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add instrument photograph</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div><Label>JPEG file (≤ 8 MB)</Label><Input type="file" ref={uFileRef} accept="image/jpeg,.jpg,.jpeg" data-testid="iph-file" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Location name</Label><Input value={uForm.location_name} onChange={(e) => setUForm({ ...uForm, location_name: e.target.value })} placeholder="e.g. Block A rooftop" data-testid="iph-loc" /></div>
+              <div><Label>Landmark</Label><Input value={uForm.landmark} onChange={(e) => setUForm({ ...uForm, landmark: e.target.value })} placeholder="Nearby reference" data-testid="iph-landmark" /></div>
+              <div><Label>Latitude</Label><Input type="number" step="0.000001" value={uForm.latitude} onChange={(e) => setUForm({ ...uForm, latitude: e.target.value })} data-testid="iph-lat" /></div>
+              <div><Label>Longitude</Label><Input type="number" step="0.000001" value={uForm.longitude} onChange={(e) => setUForm({ ...uForm, longitude: e.target.value })} data-testid="iph-lng" /></div>
+            </div>
+            <div><Label>Caption (optional)</Label><Input value={uForm.caption} onChange={(e) => setUForm({ ...uForm, caption: e.target.value })} data-testid="iph-caption" /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUploadOpen(false)} disabled={uploading}>Cancel</Button>
+            <Button onClick={submitUpload} disabled={uploading} data-testid="iph-submit">
+              {uploading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4 mr-2" /> Upload</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+const PhotoTile = ({ photo, admin, onDelete }) => {
+  const [blobUrl, setBlobUrl] = React.useState(null);
+  React.useEffect(() => {
+    let revoke = null;
+    (async () => {
+      try {
+        const res = await api.get(`/api/instrument-photos/file/${photo.id}`, { responseType: 'blob' });
+        const url = URL.createObjectURL(res.data);
+        revoke = url;
+        setBlobUrl(url);
+      } catch { setBlobUrl(null); }
+    })();
+    return () => { if (revoke) URL.revokeObjectURL(revoke); };
+  }, [photo.id]);
+  return (
+    <div className="border rounded-lg overflow-hidden bg-white flex flex-col">
+      <div className="bg-gray-100 h-40 flex items-center justify-center overflow-hidden">
+        {blobUrl ? <img src={blobUrl} alt={photo.caption || 'Instrument'} className="h-full w-full object-cover" /> : <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+      </div>
+      <div className="p-2 text-xs text-gray-700 space-y-0.5">
+        {photo.caption && <p className="font-medium truncate" title={photo.caption}>{photo.caption}</p>}
+        {photo.location_name && <p><span className="text-gray-500">Location:</span> {photo.location_name}</p>}
+        {photo.landmark && <p><span className="text-gray-500">Landmark:</span> {photo.landmark}</p>}
+        {(photo.latitude != null || photo.longitude != null) && (
+          <p><span className="text-gray-500">GPS:</span> <span className="font-mono">{photo.latitude ?? '—'}, {photo.longitude ?? '—'}</span></p>
+        )}
+        <p className="text-[10px] text-gray-400 pt-1">{new Date(photo.created_at).toLocaleString('en-GB', { hour12: false })}</p>
+      </div>
+      {admin && (
+        <div className="p-2 border-t bg-gray-50 flex justify-end">
+          <Button size="sm" variant="ghost" className="text-red-600" onClick={() => onDelete(photo)} data-testid={`iph-delete-${photo.id}`}>
+            <Trash2 className="h-3 w-3 mr-1" /> Delete
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+};

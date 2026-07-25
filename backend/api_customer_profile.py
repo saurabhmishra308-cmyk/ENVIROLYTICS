@@ -64,6 +64,7 @@ _PROFILE_FIELDS = {
     "piezometers_count",
     "rwh_structure_count",
     "rwh_catchment_area_sqm",
+    "borewell_nocs",           # per-borewell NOC list when noc_mode == 'per_borewell'
     "notes",
 }
 
@@ -97,6 +98,10 @@ class ProfileUpdate(BaseModel):
     piezometers_count: Optional[int] = Field(None, ge=0)
     rwh_structure_count: Optional[int] = Field(None, ge=0)
     rwh_catchment_area_sqm: Optional[float] = Field(None, ge=0)
+    # List of {borewell_name, noc_number, issue_date, expiry_date} entries.
+    # Used when `noc_mode == 'per_borewell'` (e.g. Uttar Pradesh) so each
+    # borewell can carry its own NOC dates and reminders.
+    borewell_nocs: Optional[list] = None
     notes: Optional[str] = None
 
 

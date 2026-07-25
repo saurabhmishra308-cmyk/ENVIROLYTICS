@@ -15,7 +15,7 @@ Side-effects on create: auto-subscribes the MQTT client to the correct topic so
 real data starts flowing immediately when the field instrument publishes.
 """
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Set, Dict
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
@@ -184,6 +184,26 @@ async def list_instruments(
     cursor = db.instrument_registry.find(query, {"_id": 0}).sort("created_at", -1)
     items = await cursor.to_list(length=2000)
     items = await _enrich_with_owner(items)
+    # Retention preview — attach `retention_purge_count` = number of stored
+    # readings older than the device's `data_retention_days` window. Admins
+    # see this at a glance so they know how much the next daily purge will
+    # drop.
+    now = datetime.now(timezone.utc)
+    for it in items:
+        days = it.get("data_retention_days")
+        try:
+            days = int(days) if days is not None else 0
+        except (TypeError, ValueError):
+            days = 0
+        if days <= 0:
+            it["retention_purge_count"] = 0
+            continue
+        cutoff = (now - timedelta(days=days)).isoformat()
+        coll = db.flowmeter_readings if (it.get("instrument_type") or "").lower() == "flowmeter" else db.instrument_readings
+        it["retention_purge_count"] = await coll.count_documents({
+            "hardware_id": it.get("hardware_id"),
+            "received_at": {"$lt": cutoff},
+        })
     return {"instruments": items, "count": len(items)}
 
 

@@ -108,48 +108,78 @@ async def _tick(db) -> dict:
         cto_exp = _parse_date(u.get("cto_expiry_date"))
         noc_issue = _parse_date(u.get("noc_issue_date"))
 
-        # ---- NOC 3-month reminder ---------------------------------------
-        if noc_exp:
-            three_month = noc_exp - timedelta(days=90)
-            one_month   = noc_exp - timedelta(days=30)
-            if three_month <= now <= noc_exp - timedelta(days=30):
-                key = _window_key(uid, "noc_3m", noc_exp.date().isoformat())
+        # Build the list of NOC expiries to check. In `single` mode the
+        # profile carries one top-level expiry; in `per_borewell` mode
+        # each borewell has its own {borewell_name, noc_number, expiry_date}.
+        noc_checks = []
+        mode = (u.get("noc_mode") or "single").lower()
+        if mode == "per_borewell" and isinstance(u.get("borewell_nocs"), list):
+            for row in u["borewell_nocs"]:
+                if not isinstance(row, dict):
+                    continue
+                exp = _parse_date(row.get("expiry_date"))
+                if exp:
+                    noc_checks.append({
+                        "expiry": exp,
+                        "noc_number": row.get("noc_number") or "—",
+                        "borewell": row.get("borewell_name") or row.get("borewell_id") or "",
+                        "issue": _parse_date(row.get("issue_date")),
+                    })
+        elif noc_exp:
+            noc_checks.append({
+                "expiry": noc_exp,
+                "noc_number": u.get("noc_number") or "—",
+                "borewell": "",
+                "issue": noc_issue,
+            })
+
+        # ---- NOC 3-month + 1-month reminders (per-borewell aware) --------
+        for chk in noc_checks:
+            exp = chk["expiry"]
+            noc_num = chk["noc_number"]
+            bw_label = f" (Borewell: {chk['borewell']})" if chk["borewell"] else ""
+            three_month = exp - timedelta(days=90)
+            one_month   = exp - timedelta(days=30)
+            key_suffix = chk["borewell"] or "single"
+
+            if three_month <= now <= exp - timedelta(days=30):
+                key = _window_key(uid, f"noc_3m:{key_suffix}", exp.date().isoformat())
                 if not await _already_sent(db, key):
                     html = _wrap_html(
                         title="Groundwater NOC — expiring in ~3 months",
                         body_html=(
                             f"<p>Dear {u.get('representative_name') or 'Representative'},</p>"
                             f"<p><strong>{label}</strong>'s Groundwater NOC "
-                            f"(No. <strong>{u.get('noc_number') or '—'}</strong>) expires on "
-                            f"<strong>{_fmt(noc_exp)}</strong>.</p>"
+                            f"(No. <strong>{noc_num}</strong>){bw_label} expires on "
+                            f"<strong>{_fmt(exp)}</strong>.</p>"
                             f"<p>Please initiate the renewal application with the local groundwater authority to avoid a lapse.</p>"
                         ),
                         cta_line="Reply to this email if you need any documents from us in support of the renewal.",
                     )
-                    res = await _send([rep], f"[Envirolytics] NOC expiring in ~3 months — {label}", html)
+                    res = await _send([rep], f"[Envirolytics] NOC expiring in ~3 months — {label}{bw_label}", html)
                     if res.get("sent"):
-                        await _mark_sent(db, key, {"user_id": uid, "recipient": rep, "kind": "noc_3m", "expiry": noc_exp.isoformat()})
+                        await _mark_sent(db, key, {"user_id": uid, "recipient": rep, "kind": "noc_3m", "expiry": exp.isoformat(), "borewell": chk["borewell"]})
                         stats["noc_3m"] += 1
 
-            # ---- NOC 1-month reminder (inside the 30-day window) --------
-            if one_month <= now <= noc_exp:
-                key = _window_key(uid, "noc_1m", noc_exp.date().isoformat())
+            if one_month <= now <= exp:
+                key = _window_key(uid, f"noc_1m:{key_suffix}", exp.date().isoformat())
                 if not await _already_sent(db, key):
                     html = _wrap_html(
                         title="Groundwater NOC — expiring in ~1 month",
                         body_html=(
                             f"<p>Dear {u.get('representative_name') or 'Representative'},</p>"
                             f"<p><strong>Urgent:</strong> {label}'s Groundwater NOC "
-                            f"(No. <strong>{u.get('noc_number') or '—'}</strong>) expires on "
-                            f"<strong>{_fmt(noc_exp)}</strong> — less than 30 days away.</p>"
+                            f"(No. <strong>{noc_num}</strong>){bw_label} expires on "
+                            f"<strong>{_fmt(exp)}</strong> — less than 30 days away.</p>"
                             f"<p>If the renewal is not yet in progress, please initiate it immediately to avoid enforcement action.</p>"
                         ),
                         cta_line="If the renewal is already filed, please update the Customer Profile with the new expiry date.",
                     )
-                    res = await _send([rep], f"[Envirolytics] URGENT: NOC expires in ~30 days — {label}", html)
+                    res = await _send([rep], f"[Envirolytics] URGENT: NOC expires in ~30 days — {label}{bw_label}", html)
                     if res.get("sent"):
-                        await _mark_sent(db, key, {"user_id": uid, "recipient": rep, "kind": "noc_1m", "expiry": noc_exp.isoformat()})
+                        await _mark_sent(db, key, {"user_id": uid, "recipient": rep, "kind": "noc_1m", "expiry": exp.isoformat(), "borewell": chk["borewell"]})
                         stats["noc_1m"] += 1
+
 
         # ---- CTO 2-month reminder ---------------------------------------
         if cto_exp:

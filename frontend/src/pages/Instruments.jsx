@@ -1035,6 +1035,11 @@ const Instruments = () => {
                           <Button size="sm" variant="outline" onClick={() => setFreqTarget({ device: it, minutes: it.data_frequency_minutes || 0, retention_days: it.data_retention_days || 0 })} data-testid={`freq-instrument-${it.hardware_id}`} title="How often incoming readings should be stored + auto-purge retention">
                             <Clock className="h-3 w-3 mr-1" /> Data freq{it.data_frequency_minutes ? ` (${it.data_frequency_minutes}m)` : ''}{it.data_retention_days ? ` · ${it.data_retention_days}d` : ''}
                           </Button>
+                          {it.retention_purge_count > 0 && (
+                            <Badge variant="outline" className="text-amber-700 border-amber-300" title={`${it.retention_purge_count} readings older than ${it.data_retention_days} days — will be purged on the next daily tick`}>
+                              <Eraser className="h-3 w-3 mr-1" /> {it.retention_purge_count.toLocaleString()} will be purged today
+                            </Badge>
+                          )}
                           <Button size="sm" variant="outline" className="text-red-600" onClick={() => setClearTarget({ device: it, from: '', to: '' })} data-testid={`clear-history-${it.hardware_id}`} title="Delete historical readings for this device">
                             <Eraser className="h-3 w-3 mr-1" /> Clear history
                           </Button>
