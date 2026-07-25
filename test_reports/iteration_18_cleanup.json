@@ -1,0 +1,42 @@
+{
+  "ok": true,
+  "actions": [
+    {
+      "type": "certificate",
+      "id": "cert_9eb2ffe3d6f7",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "type": "photo",
+      "id": "iph_45f7e3fa7419",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "type": "instrument",
+      "id": "QAIPHIT181784985596",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "type": "instrument",
+      "id": "QABULK1IT181784985596",
+      "status_code": 404,
+      "ok": true
+    },
+    {
+      "type": "instrument",
+      "id": "QABULK2IT181784985596",
+      "status_code": 404,
+      "ok": true
+    },
+    {
+      "type": "user",
+      "id": "user_e275f608ad0a",
+      "status_code": 200,
+      "ok": true
+    }
+  ],
+  "remaining_seed_instruments": []
+}

@@ -1,0 +1,102 @@
+{
+  "ok": true,
+  "results": [
+    {
+      "name": "admin_upload_certificate_for_client",
+      "status_code": 200,
+      "ok": true,
+      "body": {
+        "success": true,
+        "certificate": {
+          "id": "cert_9eb2ffe3d6f7",
+          "cert_type": "installation",
+          "year": 2026,
+          "month": null,
+          "instrument_id": "QAIPHIT181784985596",
+          "instrument_type": "flowmeter",
+          "client_id": "user_e275f608ad0a",
+          "notes": "iteration18 certificate owner proof it181784985596",
+          "original_filename": "iteration18-cert-it181784985596.pdf",
+          "stored_filename": "cert_9eb2ffe3d6f7_iteration18-cert-it181784985596.pdf",
+          "stored_path": "/app/backend/certificate_files/installation/2026/cert_9eb2ffe3d6f7_iteration18-cert-it181784985596.pdf",
+          "size_bytes": 45,
+          "content_type": "application/pdf",
+          "uploaded_by": "user_0a5d61d8e342",
+          "uploaded_at": "2026-07-25T13:20:02.516605+00:00"
+        }
+      }
+    },
+    {
+      "name": "client_can_list_attached_certificate",
+      "status_code": 200,
+      "ok": true,
+      "matching_ids": [
+        "cert_9eb2ffe3d6f7"
+      ]
+    },
+    {
+      "name": "admin_can_list_attached_certificate",
+      "status_code": 200,
+      "ok": true,
+      "matching_ids": [
+        "cert_9eb2ffe3d6f7"
+      ]
+    },
+    {
+      "name": "client_registry_contains_seeded_owned_instruments",
+      "status_code": 200,
+      "ok": true,
+      "seeded": {
+        "photo": "QAIPHIT181784985596",
+        "bulk1": "QABULK1IT181784985596",
+        "bulk2": "QABULK2IT181784985596"
+      }
+    },
+    {
+      "name": "client_can_list_owned_instrument_photo",
+      "status_code": 200,
+      "ok": true,
+      "matching_ids": [
+        "iph_45f7e3fa7419"
+      ]
+    }
+  ],
+  "fixture": {
+    "base_url": "https://envirolytics-hub.preview.emergentagent.com",
+    "run_id": "it181784985596",
+    "admin": {
+      "email": "admin@envirolytics.com",
+      "password": "Admin@Envirolytics2026",
+      "id": "user_0a5d61d8e342"
+    },
+    "client": {
+      "id": "user_e275f608ad0a",
+      "email": "it181784985596@qa.envirolytics.com",
+      "password": "Client@Test2026"
+    },
+    "hardware_ids": {
+      "photo": "QAIPHIT181784985596",
+      "bulk1": "QABULK1IT181784985596",
+      "bulk2": "QABULK2IT181784985596"
+    },
+    "photo_id": "iph_45f7e3fa7419",
+    "certificate_note": "iteration18 certificate owner proof it181784985596",
+    "certificate_filename": "iteration18-cert-it181784985596.pdf",
+    "created": {
+      "user_ids": [
+        "user_e275f608ad0a"
+      ],
+      "instrument_ids": [
+        "QAIPHIT181784985596",
+        "QABULK1IT181784985596",
+        "QABULK2IT181784985596"
+      ],
+      "photo_ids": [
+        "iph_45f7e3fa7419"
+      ],
+      "certificate_ids": [
+        "cert_9eb2ffe3d6f7"
+      ]
+    }
+  }
+}

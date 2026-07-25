@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "bulk_ids_absent_after_ui_delete": {
+    "QABULK1IT181784985596": true,
+    "QABULK2IT181784985596": true
+  },
+  "photo_fixture_still_present_for_cleanup": true
+}

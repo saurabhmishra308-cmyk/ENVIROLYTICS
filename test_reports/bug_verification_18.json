@@ -1,0 +1,47 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "In Certificate & Photos tab and in Certificate & Instrument Photos there should be an option to select for which user or client certificates and photograph is to be uploaded by admin only. The image uploaded should also be zoomed to full in one click on the image and click outside the image it should get to it original place. In Instruments tab and in All Registered Instruments there should be option to select and delete multiple data into edit.",
+  "summary": "No relevant testing skill found. Focused admin UI/API verification passed: certificate upload dialog exposes Attach to client and persisted uploaded PDF to selected client; Instrument Photographs client filter scoped to the seeded client's instruments and thumbnail lightbox opened/closed by backdrop and \u00d7; All Registered Instruments row checkboxes highlighted selections and bulk-deleted two seeded instruments, with backend confirming absence.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/bug_verification/cert_photo_instrument_bug_setup.py",
+    "/app/tests/bug_verification/cert_photo_instrument_api_verify.py",
+    "/app/tests/bug_verification/cert_photo_instrument_post_ui_verify.py",
+    "/app/tests/bug_verification/cert_photo_instrument_cleanup.py",
+    "/app/test_reports/iteration_18_setup.json",
+    "/app/test_reports/iteration_18_api_verify.json",
+    "/app/test_reports/iteration_18_post_ui_verify.json",
+    "/app/test_reports/iteration_18_cleanup.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Certificates.jsx uses shared upload dialog for all certificate tabs; admin-only cert-upload-client select defaults to empty 'My own account' and includes non-admin users from /api/customer-profile/list.",
+    "InstrumentPhotosSection filters instrument cards by owner_user_id and renders photo thumbnails as data-testid iph-zoom-{photo_id} buttons with a fixed iph-lightbox overlay.",
+    "Instruments.jsx maintains selected Set, select-all and per-row checkbox testids, blue selected row class, and serial DELETE /api/instrument-registry/{hw} bulk deletion."
+  ],
+  "updated_files": [
+    "/app/tests/bug_verification/cert_photo_instrument_bug_setup.py",
+    "/app/tests/bug_verification/cert_photo_instrument_api_verify.py",
+    "/app/tests/bug_verification/cert_photo_instrument_post_ui_verify.py",
+    "/app/tests/bug_verification/cert_photo_instrument_cleanup.py",
+    "/app/test_reports/bug_verification_18.json",
+    "/app/test_reports/iteration_18.json"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "seed_data_creation": "Created one disposable client (it181784985596@qa.envirolytics.com), three instruments, one JPEG instrument photo, and one certificate upload. Bulk-delete UI removed two instruments; cleanup removed the certificate, photo, remaining instrument, and disposable client. No seeded instruments remained.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 18 fixtures were cleaned up. API proof files show certificate owner visibility and post-UI deletion state. Browser run used admin@envirolytics.com / Admin@Envirolytics2026 against https://envirolytics-hub.preview.emergentagent.com.",
+  "rca_of_the_issue": "Regression verification only: the implemented UX now provides admin target-client selection for certificates, admin client scoping for instrument photo galleries, one-click photo lightbox zoom/restore, and multi-select bulk deletion for registered instruments."
+}

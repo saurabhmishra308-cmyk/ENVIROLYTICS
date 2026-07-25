@@ -92,6 +92,9 @@ const Instruments = () => {
   // Data-frequency dialog
   const [freqTarget, setFreqTarget] = useState(null);   // { device, minutes, retention_days }
   const [savingFreq, setSavingFreq] = useState(false);
+  // Bulk selection on the All Registered Instruments table
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   // MQTT simulate dialog (admin-only end-to-end verification)
   const [simOpen, setSimOpen] = useState(false);
   const [simSubmitting, setSimSubmitting] = useState(false);
@@ -519,6 +522,40 @@ const Instruments = () => {
     } catch (e) {
       toast.error(formatApiError(e?.response?.data?.detail));
     }
+  };
+
+  const toggleSelect = (hw) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(hw)) next.delete(hw); else next.add(hw);
+      return next;
+    });
+  };
+  const toggleSelectAll = (visible) => {
+    setSelected((prev) => {
+      if (visible.every((h) => prev.has(h))) return new Set();
+      const next = new Set(prev);
+      visible.forEach((h) => next.add(h));
+      return next;
+    });
+  };
+  const bulkDeleteSelected = async () => {
+    if (selected.size === 0) return;
+    if (!window.confirm(`Delete ${selected.size} instrument${selected.size === 1 ? '' : 's'} and ALL their readings? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    let ok = 0;
+    let failed = 0;
+    for (const hw of Array.from(selected)) {
+      try {
+        await api.delete(`/api/instrument-registry/${encodeURIComponent(hw)}`);
+        ok += 1;
+      } catch { failed += 1; }
+    }
+    setBulkDeleting(false);
+    setSelected(new Set());
+    if (failed) toast.error(`Deleted ${ok}, failed ${failed}`);
+    else toast.success(`Deleted ${ok} instrument${ok === 1 ? '' : 's'}`);
+    refresh();
   };
 
   const doRename = async () => {
@@ -960,7 +997,20 @@ const Instruments = () => {
 
 
       <Card>
-        <CardHeader><CardTitle>All Registered Instruments</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle>All Registered Instruments</CardTitle>
+          {selected.size > 0 && (
+            <Button
+              variant="destructive"
+              onClick={bulkDeleteSelected}
+              disabled={bulkDeleting}
+              data-testid="bulk-delete-btn"
+            >
+              {bulkDeleting ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Delete {selected.size} selected
+            </Button>
+          )}
+        </CardHeader>
         <CardContent>
           {loading ? (
             <p className="text-center py-8 text-gray-500">Loading…</p>
@@ -975,6 +1025,15 @@ const Instruments = () => {
               <table className="w-full" data-testid="instruments-table">
                 <thead>
                   <tr className="border-b">
+                    <th className="p-3 w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all"
+                        checked={items.length > 0 && items.every((it) => selected.has(it.hardware_id))}
+                        onChange={() => toggleSelectAll(items.map((it) => it.hardware_id))}
+                        data-testid="instruments-select-all"
+                      />
+                    </th>
                     <th className="text-left p-3">Hardware ID</th>
                     <th className="text-left p-3">Type</th>
                     <th className="text-left p-3">Label</th>
@@ -986,7 +1045,15 @@ const Instruments = () => {
                 </thead>
                 <tbody>
                   {items.map((it) => (
-                    <tr key={it.hardware_id} className="border-b hover:bg-gray-50">
+                    <tr key={it.hardware_id} className={`border-b hover:bg-gray-50 ${selected.has(it.hardware_id) ? 'bg-blue-50' : ''}`}>
+                      <td className="p-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(it.hardware_id)}
+                          onChange={() => toggleSelect(it.hardware_id)}
+                          data-testid={`instruments-select-${it.hardware_id}`}
+                        />
+                      </td>
                       <td className="p-3 font-mono text-sm">{cleanLabel(it.hardware_id)}</td>
                       <td className="p-3">
                         <Badge className="bg-blue-500 capitalize">{it.instrument_type}</Badge>
@@ -1121,19 +1188,18 @@ const Instruments = () => {
                   type="number"
                   step="0.000001"
                   value={form.latitude}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    // Support pasting "lat, lng" — split it and populate both.
-                    if (typeof v === 'string' && v.includes(',')) {
-                      const parts = v.split(',').map((s) => s.trim());
+                  onPaste={(e) => {
+                    const txt = e.clipboardData.getData('text');
+                    if (txt && txt.includes(',')) {
+                      const parts = txt.split(',').map((s) => s.trim());
                       if (parts.length === 2 && parts.every((p) => p && !Number.isNaN(Number(p)))) {
+                        e.preventDefault();
                         setForm({ ...form, latitude: parts[0], longitude: parts[1] });
-                        return;
                       }
                     }
-                    setForm({ ...form, latitude: v });
                   }}
-                  placeholder="26.846743 (up to 6 decimals for ~11 cm accuracy)"
+                  onChange={(e) => setForm({ ...form, latitude: e.target.value })}
+                  placeholder="26.846743 (paste 'lat,lng' from Google Maps to fill both)"
                   data-testid="input-latitude"
                 />
               </div>
@@ -1240,17 +1306,17 @@ const Instruments = () => {
                   type="number"
                   step="0.000001"
                   value={form.latitude}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (typeof v === 'string' && v.includes(',')) {
-                      const parts = v.split(',').map((s) => s.trim());
+                  onPaste={(e) => {
+                    const txt = e.clipboardData.getData('text');
+                    if (txt && txt.includes(',')) {
+                      const parts = txt.split(',').map((s) => s.trim());
                       if (parts.length === 2 && parts.every((p) => p && !Number.isNaN(Number(p)))) {
+                        e.preventDefault();
                         setForm({ ...form, latitude: parts[0], longitude: parts[1] });
-                        return;
                       }
                     }
-                    setForm({ ...form, latitude: v });
                   }}
+                  onChange={(e) => setForm({ ...form, latitude: e.target.value })}
                   data-testid="edit-input-latitude"
                 />
               </div>

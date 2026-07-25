@@ -35,13 +35,24 @@ const Certificates = () => {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
-  const [form, setForm] = useState({
-    year: currentYear,
+  const [form, setForm] = useState({    year: currentYear,
     month: '',
     instrument_id: '',
     instrument_type: '',
     notes: '',
+    client_id: '',      // admin picks the target client; empty = attach to self
   });
+  // Client list for the admin picker on both upload dialogs.
+  const [clientList, setClientList] = useState([]);
+  useEffect(() => {
+    if (!admin) return;
+    (async () => {
+      try {
+        const { data } = await api.get('/api/customer-profile/list');
+        setClientList((data.users || []).filter((u) => u.role !== 'admin'));
+      } catch { /* silent */ }
+    })();
+  }, [admin]);
 
   const fetchCerts = useCallback(async () => {
     setLoading(true);
@@ -60,7 +71,7 @@ const Certificates = () => {
   useEffect(() => { fetchCerts(); }, [fetchCerts]);
 
   const openUpload = () => {
-    setForm({ year: currentYear, month: '', instrument_id: '', instrument_type: '', notes: '' });
+    setForm({ year: currentYear, month: '', instrument_id: '', instrument_type: '', notes: '', client_id: '' });
     if (fileRef.current) fileRef.current.value = '';
     setUploadOpen(true);
   };
@@ -79,6 +90,7 @@ const Certificates = () => {
       if (form.instrument_id) fd.append('instrument_id', form.instrument_id);
       if (form.instrument_type) fd.append('instrument_type', form.instrument_type);
       if (form.notes) fd.append('notes', form.notes);
+      if (admin && form.client_id) fd.append('client_id', form.client_id);
       await api.post('/api/certificates/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -241,6 +253,22 @@ const Certificates = () => {
               <Label>File (PDF or JPEG, max 10 MB)</Label>
               <Input type="file" ref={fileRef} accept=".pdf,.jpg,.jpeg" data-testid="cert-upload-file" />
             </div>
+            {admin && (
+              <div>
+                <Label>Attach to client (optional — leave empty to attach to your own account)</Label>
+                <select
+                  className="w-full border rounded px-3 py-2"
+                  value={form.client_id}
+                  onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+                  data-testid="cert-upload-client"
+                >
+                  <option value="">— My own account —</option>
+                  {clientList.map((c) => (
+                    <option key={c.id} value={c.id}>{c.customer_name || c.full_name || c.email}{c.unit_name ? ` — ${c.unit_name}` : ''}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Year</Label>
@@ -328,12 +356,15 @@ const InstrumentPhotosSection = ({ admin }) => {
   const [photos, setPhotos] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = React.useState('');
+  const [clientFilter, setClientFilter] = React.useState('');   // admin scoping
+  const [clients, setClients] = React.useState([]);
   const [uploadOpen, setUploadOpen] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
   const [uForm, setUForm] = React.useState({
     hardware_id: '', location_name: '', latitude: '', longitude: '', landmark: '', caption: '',
   });
   const uFileRef = React.useRef(null);
+  const [lightbox, setLightbox] = React.useState(null); // { url }
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -344,10 +375,16 @@ const InstrumentPhotosSection = ({ admin }) => {
       ]);
       setInstruments(regRes.data?.instruments || []);
       setPhotos(photoRes.data?.photos || []);
+      if (admin) {
+        try {
+          const { data } = await api.get('/api/customer-profile/list');
+          setClients((data.users || []).filter((u) => u.role !== 'admin'));
+        } catch { /* silent */ }
+      }
     } catch (e) {
       toast.error(formatApiError(e?.response?.data?.detail) || 'Failed to load photos');
     } finally { setLoading(false); }
-  }, []);
+  }, [admin]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -361,9 +398,12 @@ const InstrumentPhotosSection = ({ admin }) => {
     return map;
   }, [photos]);
 
-  const filteredInstruments = React.useMemo(() => (
-    filter ? instruments.filter((i) => (i.instrument_type || '').toLowerCase() === filter) : instruments
-  ), [instruments, filter]);
+  const filteredInstruments = React.useMemo(() => {
+    let arr = instruments;
+    if (clientFilter) arr = arr.filter((i) => i.owner_user_id === clientFilter);
+    if (filter) arr = arr.filter((i) => (i.instrument_type || '').toLowerCase() === filter);
+    return arr;
+  }, [instruments, filter, clientFilter]);
 
   const openUpload = (inst) => {
     setUForm({ hardware_id: inst.hardware_id, location_name: inst.location_name || '', latitude: inst.latitude ?? '', longitude: inst.longitude ?? '', landmark: '', caption: '' });
@@ -406,7 +446,18 @@ const InstrumentPhotosSection = ({ admin }) => {
           <h2 className="text-xl font-semibold text-gray-900">Instrument Photographs</h2>
           <p className="text-sm text-gray-600">Site photos of every installed instrument with location and GPS coordinates. JPEG only, ≤ 8 MB.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {admin && clients.length > 0 && (
+            <>
+              <Label className="text-xs uppercase tracking-wide text-gray-500">Client</Label>
+              <select className="border rounded px-3 py-2 text-sm" value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} data-testid="iph-client-filter">
+                <option value="">All clients</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>{c.customer_name || c.full_name || c.email}{c.unit_name ? ` — ${c.unit_name}` : ''}</option>
+                ))}
+              </select>
+            </>
+          )}
           <Label className="text-xs uppercase tracking-wide text-gray-500">Type</Label>
           <select className="border rounded px-3 py-2 text-sm" value={filter} onChange={(e) => setFilter(e.target.value)} data-testid="iph-type-filter">
             <option value="">All types</option>
@@ -450,7 +501,7 @@ const InstrumentPhotosSection = ({ admin }) => {
                     <p className="text-xs italic text-gray-500">No site photos captured yet.</p>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                      {arr.map((p) => <PhotoTile key={p.id} photo={p} admin={admin} onDelete={deletePhoto} />)}
+                      {arr.map((p) => <PhotoTile key={p.id} photo={p} admin={admin} onDelete={deletePhoto} onZoom={setLightbox} />)}
                     </div>
                   )}
                 </CardContent>
@@ -483,11 +534,34 @@ const InstrumentPhotosSection = ({ admin }) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Lightbox — click a thumbnail to zoom; click backdrop or × to close */}
+      {lightbox && (
+        <div
+          role="dialog"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 cursor-zoom-out"
+          onClick={() => { if (lightbox.revoke) URL.revokeObjectURL(lightbox.revoke); setLightbox(null); }}
+          data-testid="iph-lightbox"
+        >
+          <img
+            src={lightbox.url}
+            alt={lightbox.caption || 'Instrument photograph'}
+            className="max-h-[90vh] max-w-[90vw] rounded-lg shadow-2xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            aria-label="Close"
+            className="absolute top-6 right-6 h-10 w-10 rounded-full bg-white/90 hover:bg-white text-black text-xl font-bold shadow-lg"
+            onClick={() => { if (lightbox.revoke) URL.revokeObjectURL(lightbox.revoke); setLightbox(null); }}
+          >×</button>
+        </div>
+      )}
     </div>
   );
 };
 
-const PhotoTile = ({ photo, admin, onDelete }) => {
+const PhotoTile = ({ photo, admin, onDelete, onZoom }) => {
   const [blobUrl, setBlobUrl] = React.useState(null);
   React.useEffect(() => {
     let revoke = null;
@@ -501,11 +575,25 @@ const PhotoTile = ({ photo, admin, onDelete }) => {
     })();
     return () => { if (revoke) URL.revokeObjectURL(revoke); };
   }, [photo.id]);
+  const openZoom = async () => {
+    if (!onZoom) return;
+    try {
+      const res = await api.get(`/api/instrument-photos/file/${photo.id}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      onZoom({ url, revoke: url, caption: photo.caption });
+    } catch { /* silent */ }
+  };
   return (
     <div className="border rounded-lg overflow-hidden bg-white flex flex-col">
-      <div className="bg-gray-100 h-40 flex items-center justify-center overflow-hidden">
+      <button
+        type="button"
+        onClick={openZoom}
+        className="bg-gray-100 h-40 flex items-center justify-center overflow-hidden cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-blue-500"
+        data-testid={`iph-zoom-${photo.id}`}
+        aria-label="Zoom photograph"
+      >
         {blobUrl ? <img src={blobUrl} alt={photo.caption || 'Instrument'} className="h-full w-full object-cover" /> : <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
-      </div>
+      </button>
       <div className="p-2 text-xs text-gray-700 space-y-0.5">
         {photo.caption && <p className="font-medium truncate" title={photo.caption}>{photo.caption}</p>}
         {photo.location_name && <p><span className="text-gray-500">Location:</span> {photo.location_name}</p>}

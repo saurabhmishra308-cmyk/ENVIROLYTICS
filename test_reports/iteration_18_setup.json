@@ -1,0 +1,38 @@
+{
+  "base_url": "https://envirolytics-hub.preview.emergentagent.com",
+  "run_id": "it181784985596",
+  "admin": {
+    "email": "admin@envirolytics.com",
+    "password": "Admin@Envirolytics2026",
+    "id": "user_0a5d61d8e342"
+  },
+  "client": {
+    "id": "user_e275f608ad0a",
+    "email": "it181784985596@qa.envirolytics.com",
+    "password": "Client@Test2026"
+  },
+  "hardware_ids": {
+    "photo": "QAIPHIT181784985596",
+    "bulk1": "QABULK1IT181784985596",
+    "bulk2": "QABULK2IT181784985596"
+  },
+  "photo_id": "iph_45f7e3fa7419",
+  "certificate_note": "iteration18 certificate owner proof it181784985596",
+  "certificate_filename": "iteration18-cert-it181784985596.pdf",
+  "created": {
+    "user_ids": [
+      "user_e275f608ad0a"
+    ],
+    "instrument_ids": [
+      "QAIPHIT181784985596",
+      "QABULK1IT181784985596",
+      "QABULK2IT181784985596"
+    ],
+    "photo_ids": [
+      "iph_45f7e3fa7419"
+    ],
+    "certificate_ids": [
+      "cert_9eb2ffe3d6f7"
+    ]
+  }
+}
