@@ -65,6 +65,7 @@ _PROFILE_FIELDS = {
     "rwh_structure_count",
     "rwh_catchment_area_sqm",
     "borewell_nocs",           # per-borewell NOC list when noc_mode == 'per_borewell'
+    "noc_file_name",           # single-mode NOC certificate file name (uploaded via /noc-certificate)
     "notes",
 }
 
@@ -250,3 +251,110 @@ async def serve_logo(filename: str, user: dict = Depends(get_current_user)):
         if not owner or owner.get("id") != user.get("id"):
             raise HTTPException(status_code=403, detail="Not permitted to view this logo")
     return FileResponse(path, media_type="image/jpeg")
+
+
+# --------------------------------------------------------------------------- NOC certificate files
+NOC_DIR = os.path.join(os.path.dirname(__file__), "uploads", "noc_certs")
+os.makedirs(NOC_DIR, exist_ok=True)
+_NOC_EXT = re.compile(r"^[A-Za-z0-9_.\-]+\.(pdf|jpe?g)$", re.IGNORECASE)
+
+
+def _ext_for(content_type: str, filename: str) -> Optional[str]:
+    ct = (content_type or "").lower()
+    name = (filename or "").lower()
+    if ct == "application/pdf" or name.endswith(".pdf"):
+        return "pdf"
+    if ct in ("image/jpeg", "image/jpg", "image/pjpeg") or name.endswith((".jpg", ".jpeg")):
+        return "jpg"
+    return None
+
+
+@router.post("/{user_id}/noc-certificate")
+async def upload_noc_certificate(
+    user_id: str,
+    file: UploadFile = File(...),
+    borewell_index: Optional[int] = None,
+    admin: dict = Depends(require_admin),
+):
+    """Attach a PDF or JPEG NOC certificate to the profile.
+
+    * `borewell_index` omitted → attaches to the profile's single top-level
+      NOC (`noc_file_name`).
+    * `borewell_index=N` → attaches to the Nth row of `borewell_nocs`
+      (used when `noc_mode == 'per_borewell'`).
+    """
+    profile = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "borewell_nocs": 1, "noc_file_name": 1})
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    ext = _ext_for(file.content_type, file.filename or "")
+    if not ext:
+        raise HTTPException(status_code=400, detail="Only PDF or JPEG files are accepted")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File must be ≤ 15 MB")
+
+    safe_name = f"{user_id}_{uuid.uuid4().hex[:12]}.{ext}"
+    dest = os.path.join(NOC_DIR, safe_name)
+    with open(dest, "wb") as f:
+        f.write(content)
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    if borewell_index is None:
+        # Delete previous single-NOC file if any.
+        prev = profile.get("noc_file_name")
+        if prev and _NOC_EXT.match(prev):
+            prev_path = os.path.join(NOC_DIR, prev)
+            if os.path.exists(prev_path):
+                try: os.remove(prev_path)
+                except OSError: pass
+        await db.users.update_one({"id": user_id}, {"$set": {
+            "noc_file_name": safe_name,
+            "noc_file_uploaded_at": now,
+            "noc_file_uploaded_by": admin.get("id"),
+        }})
+        return {"success": True, "scope": "single", "file_name": safe_name}
+
+    # Per-borewell mode — patch the array element.
+    rows = list(profile.get("borewell_nocs") or [])
+    if borewell_index < 0 or borewell_index >= len(rows):
+        # Clean up the file we just wrote so we don't leave orphans.
+        try: os.remove(dest)
+        except OSError: pass
+        raise HTTPException(status_code=400, detail=f"borewell_index {borewell_index} out of range (have {len(rows)} rows)")
+    prev = rows[borewell_index].get("noc_file_name")
+    if prev and _NOC_EXT.match(prev):
+        prev_path = os.path.join(NOC_DIR, prev)
+        if os.path.exists(prev_path):
+            try: os.remove(prev_path)
+            except OSError: pass
+    rows[borewell_index] = {**rows[borewell_index], "noc_file_name": safe_name, "noc_file_uploaded_at": now}
+    await db.users.update_one({"id": user_id}, {"$set": {"borewell_nocs": rows}})
+    return {"success": True, "scope": "per_borewell", "borewell_index": borewell_index, "file_name": safe_name}
+
+
+@router.get("/noc-file/{filename}")
+async def serve_noc_certificate(filename: str, user: dict = Depends(get_current_user)):
+    if not _NOC_EXT.match(filename):
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    path = os.path.join(NOC_DIR, filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Ownership check — admin unrestricted, everyone else must own this NOC.
+    if user.get("role") != "admin":
+        owner = await db.users.find_one(
+            {"$or": [
+                {"noc_file_name": filename},
+                {"borewell_nocs.noc_file_name": filename},
+            ]},
+            {"_id": 0, "id": 1},
+        )
+        if not owner or owner.get("id") != user.get("id"):
+            raise HTTPException(status_code=403, detail="Not permitted")
+
+    media = "application/pdf" if filename.lower().endswith(".pdf") else "image/jpeg"
+    return FileResponse(path, media_type=media, filename=filename)

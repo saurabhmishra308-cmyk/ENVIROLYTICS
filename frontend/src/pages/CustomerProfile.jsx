@@ -27,7 +27,8 @@ const emptyForm = {
 
 const fmtDate = (s) => (s ? new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
-const Section = ({ title, icon: Icon, children }) => (
+const Section = ({ title, icon: Icon, children, hidden }) => (
+  hidden ? null : (
   <Card>
     <CardHeader className="pb-3">
       <CardTitle className="flex items-center gap-2 text-base">
@@ -36,6 +37,7 @@ const Section = ({ title, icon: Icon, children }) => (
     </CardHeader>
     <CardContent>{children}</CardContent>
   </Card>
+  )
 );
 
 const Field = ({ label, value, unit }) => (
@@ -47,6 +49,32 @@ const Field = ({ label, value, unit }) => (
     </span>
   </div>
 );
+
+// Streams the NOC certificate PDF/JPEG through the authenticated api client
+// and offers it as a download link. We can't put a plain <a> pointing at the
+// backend URL because the API requires the Bearer token in the header.
+const NocDownloadLink = ({ filename, label = 'Download', small = false }) => {
+  const [busy, setBusy] = useState(false);
+  const handleClick = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const res = await api.get(`/api/customer-profile/noc-file/${encodeURIComponent(filename)}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      // Best-effort revoke a minute later — enough for the browser to fetch.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e2) {
+      toast.error(formatApiError(e2?.response?.data?.detail) || 'Could not open certificate');
+    } finally { setBusy(false); }
+  };
+  const ext = filename.toLowerCase().endsWith('.pdf') ? 'PDF' : 'JPEG';
+  return (
+    <button type="button" onClick={handleClick} disabled={busy} className={`text-blue-600 underline ${small ? 'text-[10px]' : 'text-xs'}`} data-testid={`cp-noc-download-${filename}`}>
+      {busy ? 'Opening…' : `${label} (${ext})`}
+    </button>
+  );
+};
 
 const CustomerProfile = () => {
   const admin = isAdmin();
@@ -187,6 +215,22 @@ const CustomerProfile = () => {
   if (!profile) return <div className="p-6 text-center text-gray-500">No profile available.</div>;
 
   const instrumentsByType = profile.instruments_by_type || {};
+  // Which sections apply for THIS customer is driven by what they've had
+  // installed. Water-quality-only customers should not be asked for
+  // borewell / groundwater NOC details.
+  const hasFlow  = !!instrumentsByType.flowmeter;
+  const hasDwlr  = !!instrumentsByType.dwlr;
+  const hasWQ    = !!(instrumentsByType.wq_stp || instrumentsByType.do_meter || instrumentsByType.chlorine_analyzer || instrumentsByType.ph || instrumentsByType.tds || instrumentsByType.conductivity);
+  const hasOcems = !!instrumentsByType.ocems;
+  // Borewell / NOC / groundwater sections are visible only when the
+  // customer has a flowmeter or a DWLR (piezometer) linked.
+  const showGroundwater = hasFlow || hasDwlr;
+  const applicability = {
+    showGroundwater,
+    showCTO: hasWQ || hasOcems || hasFlow || hasDwlr, // effectively always
+    showRWH: true,                                     // never tied to instruments
+    hasFlow, hasDwlr, hasWQ, hasOcems,
+  };
 
   return (
     <div className="p-6 space-y-6" data-testid="customer-profile-page">
@@ -243,17 +287,22 @@ const CustomerProfile = () => {
       </Card>
 
       {!editing ? (
-        <ReadOnlyView profile={profile} instrumentsByType={instrumentsByType} borewellNocs={borewellNocs} />
+        <ReadOnlyView profile={profile} instrumentsByType={instrumentsByType} borewellNocs={borewellNocs} applicability={applicability} />
       ) : (
-        <EditForm form={form} setForm={setForm} borewellNocs={borewellNocs} setBorewellNocs={setBorewellNocs} />
+        <EditForm form={form} setForm={setForm} borewellNocs={borewellNocs} setBorewellNocs={setBorewellNocs} profile={profile} onNocUploaded={() => loadProfile(profile.id)} applicability={applicability} />
       )}
     </div>
   );
 };
 
 // -------------------- Read-only presentation --------------------------
-const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs }) => (
+const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability }) => (
   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+    {!applicability.showGroundwater && (
+      <div className="xl:col-span-2 border border-sky-200 bg-sky-50 text-sky-900 text-sm rounded p-3">
+        <strong>Note:</strong> No flowmeter or piezometer is linked to this customer, so Groundwater NOC and borewell permission sections are not applicable. Only water-quality / OCEMS compliance is tracked below.
+      </div>
+    )}
     <Section title="Customer details" icon={Building2}>
       <Field label="Customer name (per CTO / NOC)" value={profile.customer_name} />
       <Field label="Site name" value={profile.site_name} />
@@ -268,7 +317,7 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs }) => (
       <Field label="Contact number" value={profile.representative_phone ? <a className="text-blue-600 underline" href={`tel:${profile.representative_phone}`}><Phone className="h-3 w-3 inline mr-1" />{profile.representative_phone}</a> : null} />
     </Section>
 
-    <Section title="Groundwater NOC" icon={ShieldCheck}>
+    <Section title="Groundwater NOC" icon={ShieldCheck} hidden={!applicability.showGroundwater}>
       <Field label="NOC mode" value={profile.noc_mode === 'per_borewell' ? 'One NOC per borewell' : 'Single NOC covers all borewells'} />
       {profile.noc_mode !== 'per_borewell' && (
         <>
@@ -276,6 +325,7 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs }) => (
           <Field label="Issue date" value={profile.noc_issue_date ? fmtDate(profile.noc_issue_date) : null} />
           <Field label="Validity (years)" value={profile.noc_validity_years} />
           <Field label="Expiry date" value={profile.noc_expiry_date ? fmtDate(profile.noc_expiry_date) : null} />
+          <Field label="Certificate" value={profile.noc_file_name ? <NocDownloadLink filename={profile.noc_file_name} label="Download" /> : null} />
         </>
       )}
       {profile.noc_mode === 'per_borewell' && (
@@ -291,6 +341,7 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs }) => (
                     <th className="text-left p-2">NOC number</th>
                     <th className="text-left p-2">Issue date</th>
                     <th className="text-left p-2">Expiry date</th>
+                    <th className="text-left p-2">Certificate</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -300,6 +351,7 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs }) => (
                       <td className="p-2 font-mono">{r.noc_number || '—'}</td>
                       <td className="p-2">{r.issue_date ? fmtDate(r.issue_date) : '—'}</td>
                       <td className="p-2">{r.expiry_date ? fmtDate(r.expiry_date) : '—'}</td>
+                      <td className="p-2">{r.noc_file_name ? <NocDownloadLink filename={r.noc_file_name} label="Download" small /> : <span className="italic text-gray-400">—</span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -316,7 +368,7 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs }) => (
       <Field label="Expiry date" value={profile.cto_expiry_date ? fmtDate(profile.cto_expiry_date) : null} />
     </Section>
 
-    <Section title="Groundwater usage permissions" icon={Droplets}>
+    <Section title="Groundwater usage permissions" icon={Droplets} hidden={!applicability.showGroundwater}>
       <Field label="NOC mode" value={profile.noc_mode === 'per_borewell' ? 'One NOC per borewell (e.g. Uttar Pradesh)' : 'Single NOC covers all borewells (e.g. Rajasthan)'} />
       <Field label="Borewell permitted" value={profile.boreholes_permitted} />
       <Field label="Abstraction borewells" value={profile.abstraction_borewells_count} />
@@ -370,13 +422,37 @@ const Row = ({ label, k, form, setForm, type = 'text', ...rest }) => (
   </div>
 );
 
-const EditForm = ({ form, setForm, borewellNocs, setBorewellNocs }) => {
+const EditForm = ({ form, setForm, borewellNocs, setBorewellNocs, profile, onNocUploaded, applicability }) => {
   const addBorewellNoc = () => setBorewellNocs([...(borewellNocs || []), { borewell_name: '', noc_number: '', issue_date: '', expiry_date: '' }]);
   const updateBorewellNoc = (i, patch) => setBorewellNocs(borewellNocs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
   const removeBorewellNoc = (i) => setBorewellNocs(borewellNocs.filter((_, idx) => idx !== i));
   const isPerBorewell = (form.noc_mode || 'single') === 'per_borewell';
+
+  const uploadNocFile = async (borewellIndex, file) => {
+    if (!file) return;
+    const okType = /application\/pdf/i.test(file.type) || /image\/jpe?g/i.test(file.type);
+    if (!okType) { toast.error('PDF or JPEG only'); return; }
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const qs = borewellIndex != null ? `?borewell_index=${borewellIndex}` : '';
+      await api.post(`/api/customer-profile/${profile.id}/noc-certificate${qs}`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      toast.success('NOC certificate uploaded');
+      onNocUploaded && onNocUploaded();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Upload failed');
+    }
+  };
+
   return (
   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+    {!applicability.showGroundwater && (
+      <div className="xl:col-span-2 border border-sky-200 bg-sky-50 text-sky-900 text-sm rounded p-3">
+        <strong>Note:</strong> No flowmeter or piezometer is linked to this customer, so the Groundwater NOC and borewell permission sections below are hidden — they aren&apos;t required for water-quality-only installations.
+      </div>
+    )}
     <Section title="Customer details" icon={Building2}>
       <div className="space-y-3">
         <Row label="Customer name (as per CTO / NOC)" k="customer_name" form={form} setForm={setForm} />
@@ -395,43 +471,61 @@ const EditForm = ({ form, setForm, borewellNocs, setBorewellNocs }) => {
       </div>
     </Section>
 
-    <Section title="Groundwater NOC" icon={ShieldCheck}>
+    <Section title="Groundwater NOC" icon={ShieldCheck} hidden={!applicability.showGroundwater}>
       {!isPerBorewell ? (
-        <div className="grid grid-cols-2 gap-3">
-          <Row label="NOC number" k="noc_number" form={form} setForm={setForm} />
-          <Row label="Validity (years)" k="noc_validity_years" type="number" form={form} setForm={setForm} min={0} />
-          <Row label="Issue date" k="noc_issue_date" type="date" form={form} setForm={setForm} />
-          <Row label="Expiry date" k="noc_expiry_date" type="date" form={form} setForm={setForm} />
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Row label="NOC number" k="noc_number" form={form} setForm={setForm} />
+            <Row label="Validity (years)" k="noc_validity_years" type="number" form={form} setForm={setForm} min={0} />
+            <Row label="Issue date" k="noc_issue_date" type="date" form={form} setForm={setForm} />
+            <Row label="Expiry date" k="noc_expiry_date" type="date" form={form} setForm={setForm} />
+          </div>
+          <div className="border-t pt-3">
+            <Label>NOC certificate (PDF or JPEG)</Label>
+            <div className="flex items-center gap-2 mt-1">
+              <Input type="file" accept="application/pdf,image/jpeg,.jpg,.jpeg,.pdf" onChange={(e) => uploadNocFile(null, e.target.files?.[0])} data-testid="cp-noc-file-upload" />
+              {profile?.noc_file_name && <NocDownloadLink filename={profile.noc_file_name} label="View current" />}
+            </div>
+          </div>
         </div>
       ) : (
         <div className="space-y-2">
           <p className="text-xs text-gray-600">
-            In <strong>per-borewell</strong> mode each borewell carries its own NOC. Reminders (3-month, 1-month, 11-month self-compliance) fire independently for every row below.
+            In <strong>per-borewell</strong> mode each borewell carries its own NOC. Attach the PDF/JPEG certificate per row. Reminders (3-month, 1-month, 11-month self-compliance) fire independently for every row.
           </p>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b bg-gray-50">
-                <th className="text-left p-2">Borewell name</th>
-                <th className="text-left p-2">NOC number</th>
-                <th className="text-left p-2">Issue date</th>
-                <th className="text-left p-2">Expiry date</th>
-                <th className="p-2 w-8"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {(borewellNocs || []).map((r, i) => (
-                <tr key={i} className="border-b" data-testid={`cp-bw-row-${i}`}>
-                  <td className="p-1"><Input value={r.borewell_name || ''} onChange={(e) => updateBorewellNoc(i, { borewell_name: e.target.value })} placeholder={`BW-${i + 1}`} /></td>
-                  <td className="p-1"><Input value={r.noc_number || ''} onChange={(e) => updateBorewellNoc(i, { noc_number: e.target.value })} /></td>
-                  <td className="p-1"><Input type="date" value={r.issue_date || ''} onChange={(e) => updateBorewellNoc(i, { issue_date: e.target.value })} /></td>
-                  <td className="p-1"><Input type="date" value={r.expiry_date || ''} onChange={(e) => updateBorewellNoc(i, { expiry_date: e.target.value })} /></td>
-                  <td className="p-1 text-center">
-                    <Button type="button" variant="ghost" size="sm" onClick={() => removeBorewellNoc(i)} className="text-red-600" data-testid={`cp-bw-remove-${i}`}>×</Button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left p-2">Borewell name</th>
+                  <th className="text-left p-2">NOC number</th>
+                  <th className="text-left p-2">Issue date</th>
+                  <th className="text-left p-2">Expiry date</th>
+                  <th className="text-left p-2">Certificate</th>
+                  <th className="p-2 w-8"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(borewellNocs || []).map((r, i) => (
+                  <tr key={i} className="border-b" data-testid={`cp-bw-row-${i}`}>
+                    <td className="p-1"><Input value={r.borewell_name || ''} onChange={(e) => updateBorewellNoc(i, { borewell_name: e.target.value })} placeholder={`BW-${i + 1}`} /></td>
+                    <td className="p-1"><Input value={r.noc_number || ''} onChange={(e) => updateBorewellNoc(i, { noc_number: e.target.value })} /></td>
+                    <td className="p-1"><Input type="date" value={r.issue_date || ''} onChange={(e) => updateBorewellNoc(i, { issue_date: e.target.value })} /></td>
+                    <td className="p-1"><Input type="date" value={r.expiry_date || ''} onChange={(e) => updateBorewellNoc(i, { expiry_date: e.target.value })} /></td>
+                    <td className="p-1">
+                      <div className="flex flex-col gap-1">
+                        <Input type="file" accept="application/pdf,image/jpeg,.jpg,.jpeg,.pdf" onChange={(e) => uploadNocFile(i, e.target.files?.[0])} data-testid={`cp-bw-file-${i}`} className="text-[10px]" />
+                        {r.noc_file_name && <NocDownloadLink filename={r.noc_file_name} label="View" small />}
+                      </div>
+                    </td>
+                    <td className="p-1 text-center">
+                      <Button type="button" variant="ghost" size="sm" onClick={() => removeBorewellNoc(i)} className="text-red-600" data-testid={`cp-bw-remove-${i}`}>×</Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <Button type="button" variant="outline" size="sm" onClick={addBorewellNoc} data-testid="cp-bw-add">+ Add borewell NOC</Button>
         </div>
       )}
@@ -446,7 +540,7 @@ const EditForm = ({ form, setForm, borewellNocs, setBorewellNocs }) => {
       </div>
     </Section>
 
-    <Section title="Groundwater usage permissions" icon={Droplets}>
+    <Section title="Groundwater usage permissions" icon={Droplets} hidden={!applicability.showGroundwater}>
       <div className="space-y-3">
         <div>
           <Label>NOC mode</Label>
