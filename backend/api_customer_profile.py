@@ -49,6 +49,7 @@ _PROFILE_FIELDS = {
     "representative_designation",
     "representative_email",
     "representative_phone",
+    "noc_mode",               # "single" | "per_borewell" — governs how NOCs are reminded
     "noc_number",
     "noc_issue_date",
     "noc_validity_years",     # duration of validity
@@ -56,10 +57,10 @@ _PROFILE_FIELDS = {
     "cto_number",
     "cto_issue_date",
     "cto_expiry_date",
-    "boreholes_permitted",
+    "boreholes_permitted",    # renamed in UI to "Borewell permitted"
     "abstraction_borewells_count",
-    "permitted_daily_kl",
-    "permitted_yearly_kl",
+    "permitted_daily_kl",     # KLD (kilolitres per day)
+    "permitted_yearly_kl",    # KL per year
     "piezometers_count",
     "rwh_structure_count",
     "rwh_catchment_area_sqm",
@@ -81,6 +82,7 @@ class ProfileUpdate(BaseModel):
     representative_designation: Optional[str] = None
     representative_email: Optional[str] = None
     representative_phone: Optional[str] = None
+    noc_mode: Optional[str] = None
     noc_number: Optional[str] = None
     noc_issue_date: Optional[str] = None
     noc_validity_years: Optional[int] = Field(None, ge=0, le=50)

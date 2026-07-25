@@ -90,7 +90,7 @@ const Instruments = () => {
   const [clearTarget, setClearTarget] = useState(null); // { device, from, to }
   const [clearing, setClearing] = useState(false);
   // Data-frequency dialog
-  const [freqTarget, setFreqTarget] = useState(null);   // { device, minutes }
+  const [freqTarget, setFreqTarget] = useState(null);   // { device, minutes, retention_days }
   const [savingFreq, setSavingFreq] = useState(false);
   // MQTT simulate dialog (admin-only end-to-end verification)
   const [simOpen, setSimOpen] = useState(false);
@@ -564,13 +564,17 @@ const Instruments = () => {
   const doSaveFrequency = async () => {
     if (!freqTarget?.device) return;
     const minutes = parseInt(freqTarget.minutes, 10) || 0;
+    const retention_days = parseInt(freqTarget.retention_days, 10) || 0;
     setSavingFreq(true);
     try {
       await api.put(
         `/api/instrument-registry/${encodeURIComponent(freqTarget.device.hardware_id)}/data-frequency`,
-        { minutes },
+        { minutes, retention_days },
       );
-      toast.success(minutes ? `Frequency set to ${minutes} min` : 'Throttling disabled');
+      const bits = [];
+      if (minutes) bits.push(`freq ${minutes} min`);
+      if (retention_days) bits.push(`retention ${retention_days} d`);
+      toast.success(bits.length ? `Saved — ${bits.join(', ')}` : 'Throttling & retention disabled');
       setFreqTarget(null);
       refresh();
     } catch (e) {
@@ -1028,8 +1032,8 @@ const Instruments = () => {
                           <Button size="sm" variant="outline" onClick={() => setRenameTarget({ device: it, new_id: '' })} data-testid={`rename-instrument-${it.hardware_id}`} title="Rename this device's hardware ID across every collection">
                             <Hash className="h-3 w-3 mr-1" /> Rename ID
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => setFreqTarget({ device: it, minutes: it.data_frequency_minutes || 0 })} data-testid={`freq-instrument-${it.hardware_id}`} title="How often incoming readings should be stored">
-                            <Clock className="h-3 w-3 mr-1" /> Data freq{it.data_frequency_minutes ? ` (${it.data_frequency_minutes}m)` : ''}
+                          <Button size="sm" variant="outline" onClick={() => setFreqTarget({ device: it, minutes: it.data_frequency_minutes || 0, retention_days: it.data_retention_days || 0 })} data-testid={`freq-instrument-${it.hardware_id}`} title="How often incoming readings should be stored + auto-purge retention">
+                            <Clock className="h-3 w-3 mr-1" /> Data freq{it.data_frequency_minutes ? ` (${it.data_frequency_minutes}m)` : ''}{it.data_retention_days ? ` · ${it.data_retention_days}d` : ''}
                           </Button>
                           <Button size="sm" variant="outline" className="text-red-600" onClick={() => setClearTarget({ device: it, from: '', to: '' })} data-testid={`clear-history-${it.hardware_id}`} title="Delete historical readings for this device">
                             <Eraser className="h-3 w-3 mr-1" /> Clear history
@@ -1505,6 +1509,25 @@ const Instruments = () => {
                 </select>
                 <p className="text-[11px] text-gray-500 mt-1">
                   Any reading arriving within this window of the last stored one will be dropped from history.
+                </p>
+              </div>
+              <div>
+                <Label>Auto-purge readings older than</Label>
+                <select
+                  className="w-full border rounded px-3 py-2"
+                  value={freqTarget.retention_days}
+                  onChange={(e) => setFreqTarget({ ...freqTarget, retention_days: parseInt(e.target.value, 10) })}
+                  data-testid="retention-select"
+                >
+                  <option value={0}>Keep forever</option>
+                  {[7, 30, 60, 90, 180, 365, 730, 1095, 1825, 3650].map((d) => (
+                    <option key={d} value={d}>
+                      {d < 30 ? `${d} days` : d < 365 ? `${d} days (~${Math.round(d/30)} months)` : `${Math.round(d/365 * 10) / 10} year${d === 365 ? '' : 's'}`}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  A daily background job removes readings older than this to keep the database lean.
                 </p>
               </div>
             </div>

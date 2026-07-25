@@ -510,6 +510,8 @@ async def rename_hardware_id(
 class DataFrequencyRequest(BaseModel):
     minutes: int = Field(..., ge=0, le=1440,
                          description="Minutes between stored readings (5..1440). 0 disables throttling.")
+    retention_days: Optional[int] = Field(None, ge=0, le=3650,
+                                          description="Auto-purge readings older than this. 0 = keep forever.")
 
 
 @router.put("/{hardware_id}/data-frequency")
@@ -535,11 +537,17 @@ async def set_data_frequency(
         {"hardware_id": hardware_id},
         {"$set": {
             "data_frequency_minutes": int(req.minutes) or None,
+            "data_retention_days": int(req.retention_days) if req.retention_days else None,
             "data_frequency_updated_at": datetime.now(timezone.utc).isoformat(),
             "data_frequency_updated_by": admin.get("id"),
         }},
     )
-    return {"success": True, "hardware_id": hardware_id, "data_frequency_minutes": int(req.minutes) or None}
+    return {
+        "success": True,
+        "hardware_id": hardware_id,
+        "data_frequency_minutes": int(req.minutes) or None,
+        "data_retention_days": int(req.retention_days) if req.retention_days else None,
+    }
 
 
 # --------------------------------------------------------------------------- clear history

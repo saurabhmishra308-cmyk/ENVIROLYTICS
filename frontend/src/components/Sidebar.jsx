@@ -46,9 +46,9 @@ const Sidebar = () => {
     { path: '/graph-report', icon: TrendingUp, label: 'Graph Report' },
     { path: '/site', icon: MapPin, label: 'Site' },
     { path: '/user', icon: Users, label: 'User' },
-    { path: '/certificates', icon: Award, label: 'Certificates' },
-    { path: '/customer-profile', icon: Building2, label: 'Customer Profile' },
+    { path: '/certificates', icon: Award, label: 'Certificate & Photos' },
     { path: '/audit-log', icon: History, label: 'Instrument Report' },
+    { path: '/customer-profile', icon: Building2, label: 'Customer Profile' },
   ];
   if (wqAllowed) {
     baseMenu.push({ path: '/water-quality', icon: Droplets, label: 'Water Quality' });

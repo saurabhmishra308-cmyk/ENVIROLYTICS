@@ -16,6 +16,7 @@ const emptyForm = {
   customer_name: '', site_name: '', unit_name: '', address: '',
   representative_name: '', representative_designation: '',
   representative_email: '', representative_phone: '',
+  noc_mode: 'single',
   noc_number: '', noc_issue_date: '', noc_validity_years: '', noc_expiry_date: '',
   cto_number: '', cto_issue_date: '', cto_expiry_date: '',
   boreholes_permitted: '', abstraction_borewells_count: '',
@@ -276,9 +277,10 @@ const ReadOnlyView = ({ profile, instrumentsByType }) => (
     </Section>
 
     <Section title="Groundwater usage permissions" icon={Droplets}>
-      <Field label="Boreholes permitted" value={profile.boreholes_permitted} />
+      <Field label="NOC mode" value={profile.noc_mode === 'per_borewell' ? 'One NOC per borewell (e.g. Uttar Pradesh)' : 'Single NOC covers all borewells (e.g. Rajasthan)'} />
+      <Field label="Borewell permitted" value={profile.boreholes_permitted} />
       <Field label="Abstraction borewells" value={profile.abstraction_borewells_count} />
-      <Field label="Permitted daily withdrawal" value={profile.permitted_daily_kl} unit="KL/day" />
+      <Field label="Permitted daily withdrawal" value={profile.permitted_daily_kl} unit="KLD" />
       <Field label="Permitted yearly withdrawal" value={profile.permitted_yearly_kl} unit="KL/year" />
       <Field label="Piezometers installed" value={profile.piezometers_count} />
     </Section>
@@ -367,11 +369,28 @@ const EditForm = ({ form, setForm }) => (
     </Section>
 
     <Section title="Groundwater usage permissions" icon={Droplets}>
-      <div className="grid grid-cols-2 gap-3">
-        <Row label="Boreholes permitted" k="boreholes_permitted" type="number" form={form} setForm={setForm} min={0} />
+      <div className="space-y-3">
+        <div>
+          <Label>NOC mode</Label>
+          <select
+            className="w-full border rounded px-3 py-2"
+            value={form.noc_mode || 'single'}
+            onChange={(e) => setForm({ ...form, noc_mode: e.target.value })}
+            data-testid="cp-input-noc_mode"
+          >
+            <option value="single">Single NOC covers all borewells (e.g. Rajasthan)</option>
+            <option value="per_borewell">One NOC per borewell (e.g. Uttar Pradesh)</option>
+          </select>
+          <p className="text-[11px] text-gray-500 mt-1">
+            Governs how NOC reminders and expiries are grouped for this customer.
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mt-3">
+        <Row label="Borewell permitted" k="boreholes_permitted" type="number" form={form} setForm={setForm} min={0} />
         <Row label="Abstraction borewells" k="abstraction_borewells_count" type="number" form={form} setForm={setForm} min={0} />
-        <Row label="Permitted daily withdrawal (KL)" k="permitted_daily_kl" type="number" form={form} setForm={setForm} min={0} step="0.01" />
-        <Row label="Permitted yearly withdrawal (KL)" k="permitted_yearly_kl" type="number" form={form} setForm={setForm} min={0} step="0.01" />
+        <Row label="Permitted daily withdrawal (KLD)" k="permitted_daily_kl" type="number" form={form} setForm={setForm} min={0} step="0.01" />
+        <Row label="Permitted yearly withdrawal (KL/year)" k="permitted_yearly_kl" type="number" form={form} setForm={setForm} min={0} step="0.01" />
         <Row label="Piezometers installed" k="piezometers_count" type="number" form={form} setForm={setForm} min={0} />
       </div>
     </Section>

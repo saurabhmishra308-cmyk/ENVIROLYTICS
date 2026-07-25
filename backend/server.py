@@ -257,6 +257,12 @@ async def startup_event():
     # Background loop for dummy-data generation (offline-instrument safety net)
     from dummy_data_service import dummy_data_loop
     app.state.dummy_task = asyncio.create_task(dummy_data_loop(db))
+    # Background loop for compliance reminders (NOC / CTO / self-compliance)
+    from compliance_reminder_service import compliance_reminder_loop
+    app.state.compliance_task = asyncio.create_task(compliance_reminder_loop(db))
+    # Background loop for retention auto-purge (per-device data_retention_days)
+    from retention_service import retention_purge_loop
+    app.state.retention_task = asyncio.create_task(retention_purge_loop(db))
     # Background loop for ESPL HTTP polling (5 min per device). Devices are
     # picked up from the registry whenever an admin registers one with
     # `source='http'` — no hardcoded devices.
