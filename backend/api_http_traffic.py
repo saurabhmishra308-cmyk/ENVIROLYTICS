@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from auth import require_admin
 import espl_poller
@@ -20,6 +21,20 @@ async def get_espl_traffic(limit: int = 50, admin: dict = Depends(require_admin)
 @router.post("/espl/poll-now")
 async def espl_poll_now(admin: dict = Depends(require_admin)):
     return await espl_poller.poll_all_now()
+
+
+class ProbeRequest(BaseModel):
+    device_id: str = Field(..., min_length=1, max_length=64,
+                            description="Suspected QESPL deviceId (e.g. DTU10020426)")
+
+
+@router.post("/espl/probe")
+async def espl_probe(req: ProbeRequest, admin: dict = Depends(require_admin)):
+    """Fire a one-shot QESPL fetch for an unregistered deviceId and return the
+    parsed params + inferred instrument type. Used by the "Auto-Suggest
+    Registration" panel — the UI calls this, then opens the Add Instrument
+    dialog pre-filled if the probe succeeds."""
+    return await espl_poller.probe_device_id(req.device_id)
 
 
 @router.get("/espl/export.csv")

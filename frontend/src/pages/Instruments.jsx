@@ -111,6 +111,10 @@ const Instruments = () => {
   const [esplOpen, setEsplOpen] = useState(true);
   const [espl, setEspl] = useState(null);
   const [esplPolling, setEsplPolling] = useState(false);
+  // Auto-suggest registration — probe an unknown deviceId
+  const [probeDeviceId, setProbeDeviceId] = useState('');
+  const [probing, setProbing] = useState(false);
+  const [probeResult, setProbeResult] = useState(null); // {ok, values, inferred_instrument_type, already_registered, ...}
 
   // Dummy mode dialog (per-instrument)
   const [dummyOpen, setDummyOpen] = useState(false);
@@ -234,6 +238,54 @@ const Instruments = () => {
     // Prefill the create-instrument form with the IMEI so admin just needs
     // to fill in hardware_id + owner + type + click Register.
     setForm({ ...EMPTY_FORM, imei });
+    setCreateOpen(true);
+  };
+
+  // ---------- Auto-Suggest: probe an unknown deviceId against QESPL ----------
+  const runProbe = async () => {
+    const did = probeDeviceId.trim();
+    if (!did) { toast.error('Enter a deviceId to probe (e.g. DTU10020426)'); return; }
+    setProbing(true);
+    setProbeResult(null);
+    try {
+      const { data } = await api.post('/api/http-traffic/espl/probe', { device_id: did });
+      setProbeResult(data);
+      if (data.already_registered) {
+        toast.info(`${did} is already registered as "${data.already_registered.label || data.already_registered.hardware_id}"`);
+      } else if (data.ok) {
+        toast.success(`Live data found for ${did} — click Register to add it`);
+      } else {
+        toast.warning(`Probe result: ${data.result}`);
+      }
+      // Refresh the traffic panel so the probe row shows up
+      try {
+        const { data: t } = await api.get('/api/http-traffic/espl?limit=50');
+        setEspl(t);
+      } catch (_) { /* ignore */ }
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Probe failed');
+    } finally {
+      setProbing(false);
+    }
+  };
+
+  // Pre-fill the Add-Instrument dialog with everything the probe already knows:
+  // deviceId → IMEI, inferred type → instrument_type, HTTP source, sensible label.
+  const registerProbeResult = () => {
+    if (!probeResult?.device_id) return;
+    setForm({
+      ...EMPTY_FORM,
+      imei: probeResult.device_id,
+      instrument_type: probeResult.inferred_instrument_type || 'do_meter',
+      source: 'http',
+      hardware_id: probeResult.device_id,   // sensible default; admin can rename
+      label: (probeResult.inferred_instrument_type === 'do_meter' ? 'DO Analyzer' :
+              probeResult.inferred_instrument_type === 'wq_stp' ? 'OCEMS / Water Quality Analyzer' :
+              probeResult.inferred_instrument_type === 'chlorine_analyzer' ? 'Chlorine Analyzer' :
+              'Instrument') + ` (${probeResult.device_id})`,
+    });
+    setProbeResult(null);
+    setProbeDeviceId('');
     setCreateOpen(true);
   };
 
@@ -409,6 +461,13 @@ const Instruments = () => {
     } else {
       delete out.plant_capacity_kld;
       delete out.tank_capacity_kld;
+    }
+    // Source override — probe/auto-suggest sets 'http' so QESPL polling
+    // engages immediately after registration. Otherwise default (mqtt).
+    if (out.source && ['mqtt', 'http'].includes(out.source)) {
+      // keep as-is
+    } else {
+      delete out.source;
     }
     return out;
   };
@@ -920,7 +979,79 @@ const Instruments = () => {
           <CardDescription>
             Shows the last 50 REST polls to <span className="font-mono">api.qenggonline.com</span>. Poller runs every 5 min per device. Failed polls appear in amber.
           </CardDescription>
+          {/* Auto-Suggest Registration probe input */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-1 text-xs text-gray-600">
+              <Radio className="h-3.5 w-3.5" /> <span>Probe deviceId:</span>
+            </div>
+            <Input
+              value={probeDeviceId}
+              onChange={(e) => setProbeDeviceId(e.target.value)}
+              placeholder="e.g. DTU10020426"
+              className="h-8 w-56 font-mono text-xs"
+              data-testid="probe-device-input"
+              onKeyDown={(e) => { if (e.key === 'Enter') runProbe(); }}
+            />
+            <Button size="sm" variant="outline" onClick={runProbe} disabled={probing} data-testid="probe-device-btn">
+              {probing ? 'Probing…' : 'Probe'}
+            </Button>
+            <span className="text-[11px] text-gray-500">
+              Check whether a suspected deviceId returns data on QESPL — one-click register if it does.
+            </span>
+          </div>
         </CardHeader>
+        {/* Probe result callout (rendered inside the card body only when open, else above the table) */}
+        {esplOpen && probeResult && (
+          <div className={`mx-6 mt-3 mb-1 rounded-lg border p-3 ${
+            probeResult.already_registered ? 'bg-blue-50 border-blue-200' :
+            probeResult.ok ? 'bg-emerald-50 border-emerald-300' :
+            'bg-amber-50 border-amber-300'
+          }`} data-testid="probe-result">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 space-y-1">
+                <p className="text-sm font-semibold">
+                  {probeResult.already_registered ? '✓ Already registered' :
+                   probeResult.ok ? '🎯 Live data found — unregistered deviceId' :
+                   '⚠ Probe result'}
+                </p>
+                <p className="text-xs text-gray-700">
+                  <span className="font-mono">{probeResult.device_id}</span>
+                  {probeResult.http_status ? ` · HTTP ${probeResult.http_status}` : ''} · {probeResult.result}
+                </p>
+                {probeResult.already_registered && (
+                  <p className="text-xs text-blue-800">
+                    Registered as <strong>{probeResult.already_registered.label || probeResult.already_registered.hardware_id}</strong>
+                    {' '}({probeResult.already_registered.instrument_type}) · source: {probeResult.already_registered.source || 'mqtt'}
+                  </p>
+                )}
+                {probeResult.ok && probeResult.values && Object.keys(probeResult.values).length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {Object.entries(probeResult.values).map(([k, v]) => (
+                      <span key={k} className="text-[11px] bg-white border rounded px-2 py-0.5 font-mono">
+                        {k}: <strong>{typeof v === 'number' ? v.toFixed(2) : String(v)}</strong>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {probeResult.ok && probeResult.inferred_instrument_type && !probeResult.already_registered && (
+                  <p className="text-xs text-emerald-800 mt-1">
+                    Suggested type: <strong>{probeResult.inferred_instrument_type}</strong>
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {probeResult.ok && !probeResult.already_registered && (
+                  <Button size="sm" onClick={registerProbeResult} className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="probe-register-btn">
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Register this device
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setProbeResult(null)} data-testid="probe-dismiss-btn">
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         {esplOpen && (
           <CardContent>
             {espl?.error ? (
@@ -970,9 +1101,10 @@ const Instruments = () => {
                         </td></tr>
                       ) : (
                         (espl.recent || []).map((r) => (
-                          <tr key={r.seq} className={`border-b ${r.ok ? 'bg-white' : 'bg-amber-50/70'}`} data-testid={`espl-row-${r.seq}`}>
+                          <tr key={r.seq} className={`border-b ${r.ok ? 'bg-white' : 'bg-amber-50/70'} ${r.probe ? 'ring-1 ring-emerald-200' : ''}`} data-testid={`espl-row-${r.seq}`}>
                             <td className="p-2 font-mono text-gray-600 whitespace-nowrap">
                               {new Date(r.ts).toLocaleString([], { year: '2-digit', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              {r.probe && <span className="ml-1 text-[9px] uppercase bg-emerald-100 text-emerald-700 rounded px-1">probe</span>}
                             </td>
                             <td className="p-2 font-mono">{r.device_id}</td>
                             <td className="p-2 font-mono">{r.hardware_id ? cleanLabel(r.hardware_id) : <span className="text-gray-400">—</span>}</td>

@@ -85,6 +85,20 @@ Water Quality visualisations.
 - `users`, `audit_log`, `notification_settings`, `certificates`, `renewals`,
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
+## Recent updates (Feb 2026 · auto-suggest)
+- **Auto-Suggest Registration** — new "Probe deviceId" input on the
+  Live HTTP Traffic card. Admin pastes a suspected QESPL deviceId, the
+  backend fires a one-shot POST to `api.qenggonline.com`, and if the
+  response is parseable the UI shows a highlighted callout with the
+  parsed params + inferred `instrument_type`. One-click **Register this
+  device** opens the Add-Instrument dialog pre-filled with
+  `hardware_id`, `imei`, `instrument_type`, `source=http`, and label.
+- Probe entries are added to the traffic buffer with a `probe=True`
+  flag and rendered with a small emerald **PROBE** badge so they're
+  easy to spot in the log.
+- Backend: `POST /api/http-traffic/espl/probe` → returns
+  `{ok, values, inferred_instrument_type, already_registered, ...}`.
+
 ## Recent updates (Feb 2026 · bulk-add)
 - **Bulk-Add Instruments wizard** (`/app/frontend/src/components/BulkAddInstruments.jsx`)
   — 4-step admin flow (client → counts → per-row detail → summary) to

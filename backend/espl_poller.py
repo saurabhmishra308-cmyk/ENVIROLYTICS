@@ -276,6 +276,136 @@ async def _http_devices() -> List[dict]:
     return await cursor.to_list(length=500)
 
 
+# ---------------------------------------------------------------- probe / auto-suggest
+# Which canonical parameter keys hint at which instrument type. The probe
+# endpoint uses this to guess whether an unknown deviceId is a DO Analyzer,
+# OCEMS, Chlorine Analyzer, etc., so the admin gets a one-click "Register"
+# with the right type pre-selected.
+_TYPE_HINTS = {
+    "do_meter": {"DO", "DO_SATURATION"},
+    "chlorine_analyzer": {"CHLORINE", "CHLORINE_DOSE"},
+    "wq_stp": {"PH", "TSS", "TDS", "COD", "BOD", "ORP", "TURBIDITY"},
+    "ph": {"PH"},
+    "tds": {"TDS"},
+    "conductivity": {"CONDUCTIVITY"},
+}
+
+
+def infer_instrument_type(values: Dict[str, float]) -> str:
+    """Return the best-fit instrument_type for a set of parsed parameter keys.
+
+    Priority: DO > Chlorine > OCEMS multi-param > single-param sensors.
+    Defaults to `do_meter` — the most common QESPL device profile.
+    """
+    keys = set(values.keys())
+    if _TYPE_HINTS["do_meter"] & keys:
+        return "do_meter"
+    if _TYPE_HINTS["chlorine_analyzer"] & keys:
+        return "chlorine_analyzer"
+    if len(_TYPE_HINTS["wq_stp"] & keys) >= 2:
+        return "wq_stp"
+    for t in ("ph", "tds", "conductivity"):
+        if _TYPE_HINTS[t] & keys:
+            return t
+    return "do_meter"
+
+
+async def probe_device_id(device_id: str) -> dict:
+    """One-shot QESPL fetch for a suspected deviceId.
+
+    Adds a traffic entry (flagged `probe=True`) and, if the response is
+    parseable, infers the instrument type from the params. Also reports
+    whether the id is already registered so the UI can distinguish
+    "adopt existing" from "add new". Never persists a reading —
+    this is purely a discovery tool.
+    """
+    device_id = (device_id or "").strip()
+    if not device_id:
+        return {"ok": False, "result": "empty deviceId", "device_id": device_id}
+
+    already = None
+    if _State.db is not None:
+        already = await _State.db.instrument_registry.find_one(
+            {"$or": [{"imei": device_id}, {"hardware_id": device_id}]},
+            {"_id": 0, "hardware_id": 1, "instrument_type": 1, "label": 1, "source": 1, "owner_user_id": 1},
+        )
+
+    started = time.monotonic()
+    ts_iso = datetime.now(timezone.utc).isoformat()
+    entry: dict = {
+        "seq": _next_seq(),
+        "ts": ts_iso,
+        "device_id": device_id,
+        "hardware_id": (already or {}).get("hardware_id"),
+        "instrument_type": (already or {}).get("instrument_type"),
+        "http_status": None,
+        "bytes": 0,
+        "ok": False,
+        "result": "pending",
+        "error": None,
+        "probe": True,
+    }
+    values: Dict[str, float] = {}
+    payload = None
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SEC) as client:
+            resp = await client.post(
+                ESPL_ENDPOINT,
+                json={"deviceId": device_id},
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
+            entry["http_status"] = resp.status_code
+            raw_bytes = resp.content or b""
+            entry["bytes"] = len(raw_bytes)
+            if resp.status_code < 200 or resp.status_code >= 300:
+                entry["result"] = f"HTTP {resp.status_code}"
+                entry["error"] = raw_bytes[:200].decode(errors="ignore")
+            else:
+                data = resp.json()
+                payload = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else None)
+                if not payload:
+                    entry["result"] = "empty payload"
+                else:
+                    values = _values_from_payload(payload)
+                    if not values:
+                        entry["result"] = "no params parsed"
+                    else:
+                        entry["ok"] = True
+                        entry["result"] = f"ok · {len(values)} param(s)"
+                        entry["values"] = values
+    except httpx.TimeoutException:
+        entry["result"] = "timeout"
+        entry["error"] = "request timed out"
+    except httpx.HTTPError as e:
+        entry["result"] = "network error"
+        entry["error"] = str(e)[:200]
+    except Exception as e:  # noqa: BLE001
+        entry["result"] = "parse error"
+        entry["error"] = str(e)[:200]
+
+    entry["duration_ms"] = int((time.monotonic() - started) * 1000)
+    _State.traffic.append(entry)
+    _State.counters["total"] += 1
+    if entry["ok"]:
+        _State.counters["ok"] += 1
+    else:
+        _State.counters["failed"] += 1
+
+    inferred = infer_instrument_type(values) if values else None
+    return {
+        "ok": entry["ok"],
+        "device_id": device_id,
+        "http_status": entry["http_status"],
+        "result": entry["result"],
+        "error": entry["error"],
+        "values": values,
+        "raw": payload,
+        "inferred_instrument_type": inferred,
+        "already_registered": already,
+        "traffic_seq": entry["seq"],
+    }
+
+
 async def poll_all_now() -> dict:
     """Force-poll every registered HTTP device — used by the 'Poll now' button.
     Bypasses the per-device 5-min throttle."""
