@@ -85,10 +85,26 @@ Water Quality visualisations.
 - `users`, `audit_log`, `notification_settings`, `certificates`, `renewals`,
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
+## Recent updates (Feb 2026 · bulk-add)
+- **Bulk-Add Instruments wizard** (`/app/frontend/src/components/BulkAddInstruments.jsx`)
+  — 4-step admin flow (client → counts → per-row detail → summary) to
+  register up to 100 instruments per site in one call. DO Analyzer &
+  OCEMS default to `source=http` so QESPL polling starts immediately.
+- **Backend**: `POST /api/instrument-registry/bulk` — validates and
+  creates each row independently; response lists both `created` and
+  `errors` so the UI can show a per-row status.
+- **Confirmed**: QESPL API returns fresh readings for `DTU10020426` and
+  `DTU10020326` (DO / Saturation / Temperature). If the Live HTTP panel
+  shows nothing on production, register those two devices with
+  `type=DO Analyzer`, `source=HTTP`, `deviceId=DTU10020426` /
+  `DTU10020326` — the poller picks them up on its next 5-min tick.
+
 ## Backlog (prioritised)
+- **P1** — Multi-unit hierarchy (parent company + unit/state) for chains
+  like Lemon Tree Hotel across many locations.
 - **P1** — Client-session watermark overlay (low-opacity diagonal repeat of
   `email · datetime` across every page to deter screenshot leaks).
-- **P1** — Instruments.jsx (>1600 lines) split: separate dialog components
+- **P1** — Instruments.jsx (>2000 lines) split: separate dialog components
   for Create / Edit / HTTPS Ingestion / Dummy / Confirm.
 - **P2** — Resolve React hydration warning `<span> in <option>` in
   `Reports.jsx`.

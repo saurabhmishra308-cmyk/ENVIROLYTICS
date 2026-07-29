@@ -8,12 +8,13 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../components/ui/dialog';
 import {
-  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw, Radio, Activity, CheckCircle2, XCircle, Dices, History, Hash, Clock, Eraser,
+  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, Copy, RefreshCw, Radio, Activity, CheckCircle2, XCircle, Dices, History, Hash, Clock, Eraser, Layers,
 } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
 import { toast } from 'sonner';
 import { cleanLabel } from '../utils/labels';
+import BulkAddInstruments from '../components/BulkAddInstruments';
 
 const TYPE_OPTIONS = [
   { value: 'flowmeter', label: 'Flowmeter' },
@@ -68,6 +69,7 @@ const Instruments = () => {
   const [loading, setLoading] = useState(true);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [wipeOpen, setWipeOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -736,6 +738,9 @@ const Instruments = () => {
           <Button style={{ backgroundColor: '#4a9fd8' }} onClick={() => { setForm(EMPTY_FORM); setCreateOpen(true); }} data-testid="add-instrument-btn">
             <Plus className="mr-2 h-4 w-4" /> Add Instrument
           </Button>
+          <Button variant="outline" onClick={() => setBulkOpen(true)} data-testid="bulk-add-btn" title="Register multiple instruments for one site in one flow">
+            <Layers className="mr-2 h-4 w-4" /> Bulk Add
+          </Button>
         </div>
       </div>
 
@@ -1125,6 +1130,14 @@ const Instruments = () => {
       </Card>
 
       {/* Create Dialog */}
+      <BulkAddInstruments
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        users={users}
+        onCreated={refresh}
+      />
+
+
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>

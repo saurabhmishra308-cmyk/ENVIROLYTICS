@@ -207,9 +207,9 @@ async def list_instruments(
     return {"instruments": items, "count": len(items)}
 
 
-@router.post("")
-async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(require_admin)):
-    """Register a new physical device and assign it to a client."""
+async def _create_one_instrument(req: "CreateInstrumentRequest", admin: dict) -> dict:
+    """Shared create logic — used by both the single-create endpoint and
+    the bulk-create endpoint. Returns the persisted registry document."""
     hardware_id = req.hardware_id.strip()
     if not hardware_id:
         raise HTTPException(status_code=400, detail="hardware_id is required")
@@ -228,7 +228,7 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
     if imei:
         clash = await db.instrument_registry.find_one({"imei": imei})
         if clash:
-            raise HTTPException(status_code=409, detail=f"IMEI '{imei}' is already registered to another instrument")
+            raise HTTPException(status_code=409, detail=f"IMEI/deviceId '{imei}' is already registered to another instrument")
 
     doc = {
         "hardware_id": hardware_id,
@@ -264,10 +264,70 @@ async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(
             upsert=True,
         )
 
-    # Subscribe MQTT so real-device data starts flowing
-    await _subscribe_topic(itype, hardware_id)
+    # Subscribe MQTT so real-device data starts flowing (no-op for HTTP source)
+    if doc["source"] == "mqtt":
+        await _subscribe_topic(itype, hardware_id)
 
+    return doc
+
+
+@router.post("")
+async def create_instrument(req: CreateInstrumentRequest, admin: dict = Depends(require_admin)):
+    """Register a new physical device and assign it to a client."""
+    doc = await _create_one_instrument(req, admin)
     return {"success": True, "instrument": doc}
+
+
+# --------------------------------------------------------------------------- bulk create
+class BulkCreateRequest(BaseModel):
+    instruments: List[CreateInstrumentRequest] = Field(
+        ..., min_length=1, max_length=100,
+        description="1..100 instrument definitions to register in one call.",
+    )
+
+
+@router.post("/bulk")
+async def create_bulk_instruments(req: BulkCreateRequest, admin: dict = Depends(require_admin)):
+    """Register multiple instruments in a single call.
+
+    Each entry is validated & created independently — if one row fails
+    (duplicate hardware_id, unknown owner, invalid type, …) the others
+    still succeed. The response lists both `created` and `errors` so the
+    UI can show a per-row status.
+    """
+    created: List[dict] = []
+    errors: List[dict] = []
+    for idx, item in enumerate(req.instruments):
+        try:
+            doc = await _create_one_instrument(item, admin)
+            created.append({
+                "index": idx,
+                "hardware_id": doc["hardware_id"],
+                "instrument_type": doc["instrument_type"],
+                "source": doc["source"],
+                "imei": doc.get("imei"),
+            })
+        except HTTPException as e:
+            errors.append({
+                "index": idx,
+                "hardware_id": (item.hardware_id or "").strip(),
+                "error": str(e.detail),
+                "status_code": e.status_code,
+            })
+        except Exception as e:  # noqa: BLE001
+            errors.append({
+                "index": idx,
+                "hardware_id": (item.hardware_id or "").strip(),
+                "error": str(e)[:200],
+                "status_code": 500,
+            })
+    return {
+        "success": len(errors) == 0,
+        "created_count": len(created),
+        "error_count": len(errors),
+        "created": created,
+        "errors": errors,
+    }
 
 
 @router.put("/{hardware_id}")
