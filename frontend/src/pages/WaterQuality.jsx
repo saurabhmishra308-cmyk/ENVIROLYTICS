@@ -90,16 +90,18 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
+    // Play continuously regardless of DO state. User explicitly asked for
+    // uninterrupted playback — the visual "aeration stopped" cue is now
+    // just the grayscale filter + status badge, not a pause. When DO is in
+    // range we still bump playback rate a little so the bubble rise feels
+    // subtly livelier at higher DO.
     if (aerationActive) {
-      // Very slow, meditative playback — user asked for "very slow movement".
-      // Range: 0.15× (low O2) → 0.35× (high O2). Even the fastest is well below
-      // normal speed so bubble rise looks tranquil.
       const rate = Math.max(0.15, Math.min(0.35, 0.15 + (v / max) * 0.25));
       try { el.playbackRate = rate; } catch (_) { /* noop */ }
-      el.play().catch(() => {});
     } else {
-      try { el.pause(); } catch (_) { /* noop */ }
+      try { el.playbackRate = 0.15; } catch (_) { /* noop */ }
     }
+    el.play().catch(() => {});
   }, [aerationActive, v, max, videoSrc]);
 
   return (
@@ -116,12 +118,13 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
           loop
           playsInline
           preload="auto"
-          className="w-full h-80 object-cover"
+          className="w-full h-96 object-contain"
           style={{
             filter: aerationActive ? 'saturate(1.05) brightness(0.95)' : 'grayscale(0.6) brightness(0.55)',
-            // Zoomed OUT — no CSS scale, so the video fills the taller (h-80)
-            // container naturally via object-cover. Result: full aeration
-            // frame is visible instead of a cropped close-up.
+            // `object-contain` shows the ENTIRE uploaded video frame with
+            // no cropping — admin's footage renders as-is. Combined with
+            // the taller (h-96) container it reads as fully zoomed-out
+            // and clearer than the previous cropped view.
             transform: 'none',
             transformOrigin: 'center center',
             transition: 'filter 0.6s ease-in-out',

@@ -396,12 +396,26 @@ async def import_data(
     # the wrong client's device or the wrong device type.
     # -------------------------------------------------------------------
     hw_in_sheet = {r.get("hardware_id") for r in valid_data if r.get("hardware_id")}
+    latest_ts_by_hw: Dict[str, str] = {}
     if hw_in_sheet:
         registry_docs = await db.instrument_registry.find(
             {"hardware_id": {"$in": list(hw_in_sheet)}},
             {"_id": 0, "hardware_id": 1, "instrument_type": 1, "owner_user_id": 1, "label": 1},
         ).to_list(length=None)
         registered = {d["hardware_id"]: d for d in registry_docs}
+
+        # Pre-fetch the newest existing timestamp per hardware_id so we can
+        # reject rows that would overwrite current data. Backfill must
+        # ONLY correct old (historical) readings — the live stream is
+        # authoritative for anything at or after the newest known ts.
+        for hw in hw_in_sheet:
+            filt = {"hardware_id": hw}
+            if instrument_type == "dwlr":
+                filt["instrument_type"] = "dwlr"
+            newest = await collection.find_one(filt, {"_id": 0, "timestamp": 1}, sort=[("timestamp", -1)])
+            if newest and newest.get("timestamp"):
+                latest_ts_by_hw[hw] = str(newest["timestamp"])
+
         allowed_type = "dwlr" if instrument_type == "dwlr" else "flowmeter"
         good_rows: List[Dict] = []
         for row in valid_data:
@@ -413,6 +427,20 @@ async def import_data(
             if reg.get("instrument_type") != allowed_type:
                 errors.append(
                     f"hardware_id '{hw}' is a {reg.get('instrument_type')} — this template is for {allowed_type} only"
+                )
+                continue
+            # Only permit rows STRICTLY older than the most recent
+            # existing reading. Ensures backfill can never overwrite or
+            # even touch current/live data — only historical gaps.
+            row_ts = row.get("timestamp")
+            if isinstance(row_ts, datetime):
+                row_ts_str = row_ts.isoformat()
+            else:
+                row_ts_str = str(row_ts) if row_ts else ""
+            latest = latest_ts_by_hw.get(hw)
+            if latest and row_ts_str and row_ts_str >= latest:
+                errors.append(
+                    f"Row for '{hw}' at {row_ts_str} was rejected — backfill only accepts timestamps OLDER than the latest live reading ({latest}). Current data is protected."
                 )
                 continue
             good_rows.append(row)
@@ -485,8 +513,8 @@ async def import_data(
         "updated_count": updated,
         "error_count": len(errors),
         "errors": errors[:20],   # keep response light — cap at 20 samples
-        "message": f"Imported {inserted} new row(s), updated {updated} existing row(s)"
-                   + (f" · {len(errors)} skipped" if errors else ""),
+        "message": f"Backfilled {inserted} new historical row(s), corrected {updated} existing historical row(s)"
+                   + (f" · {len(errors)} skipped (current data is protected)" if errors else ""),
     }
 
 

@@ -86,24 +86,24 @@ Water Quality visualisations.
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
 ## Recent updates (Feb 2026 · idempotent CSV import)
-- **Reports → Historical Data import** is now safe to re-upload for
-  data corrections:
+- **Reports → Historical Data import** is now a safe *backfill-only*
+  tool for correcting historical readings:
   * **Idempotent upsert on `{hardware_id, timestamp}`** — re-uploading
     the same CSV overwrites existing rows instead of duplicating.
-    Verified: 3 rows first pass (inserted=3), same file second pass
-    (inserted=0, updated=3), DB still has exactly 3 rows.
+  * **Current data is protected** — every row must have a timestamp
+    STRICTLY OLDER than the most recent existing reading for that
+    device. Rows at or after the live timestamp are rejected with a
+    clear message; the CSV cannot overwrite or replace live-device
+    data. Verified: 2 old rows accepted, 1 row at the live timestamp
+    and 1 future row both rejected, live row's value untouched.
   * **hardware_id validation** — every row's hardware_id must be
-    registered as the matching instrument type (flowmeter → flowmeter,
-    DWLR → DWLR); unknown / wrong-type rows are rejected with a clear
-    error message and other rows still succeed.
+    registered as the matching instrument type; unknown / wrong-type
+    rows are rejected with a clear error message.
   * **Audit trail** — imported rows carry `_import_source=manual_csv`
-    and `_imported_by=<admin_email>` so a subsequent forensic pass can
-    tell live device data from admin-corrected data.
-  * **`latest` cache never regresses** — an old backfill won't wipe the
-    live-dashboard reading; the latest doc is only overwritten if the
-    imported row is newer.
-- No frontend changes required — the existing "Download Template" +
-  "Upload CSV" buttons on `/reports` continue to work.
+    and `_imported_by=<admin_email>`.
+- No frontend changes required — existing "Download Template" /
+  "Upload CSV" buttons on `/reports` continue to work; only the
+  behaviour and response wording changed.
 
 ## Recent updates (Feb 2026 · DO tank mapping fix)
 - **Root cause fixed** — QESPL returns a single `DO` value per device, but
