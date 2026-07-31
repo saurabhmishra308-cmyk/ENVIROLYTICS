@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime, timezone, timedelta
 import io
 import uuid
@@ -389,6 +389,35 @@ async def import_data(
         collection = db.flowmeter_readings
         latest_coll = db.flowmeter_latest
 
+    # -------------------------------------------------------------------
+    # Safety: verify every hardware_id in the sheet is registered AND is of
+    # the expected type (flowmeter row can only write to a flowmeter,
+    # DWLR row can only write to a DWLR). Prevents accidental writes to
+    # the wrong client's device or the wrong device type.
+    # -------------------------------------------------------------------
+    hw_in_sheet = {r.get("hardware_id") for r in valid_data if r.get("hardware_id")}
+    if hw_in_sheet:
+        registry_docs = await db.instrument_registry.find(
+            {"hardware_id": {"$in": list(hw_in_sheet)}},
+            {"_id": 0, "hardware_id": 1, "instrument_type": 1, "owner_user_id": 1, "label": 1},
+        ).to_list(length=None)
+        registered = {d["hardware_id"]: d for d in registry_docs}
+        allowed_type = "dwlr" if instrument_type == "dwlr" else "flowmeter"
+        good_rows: List[Dict] = []
+        for row in valid_data:
+            hw = row.get("hardware_id")
+            reg = registered.get(hw)
+            if not reg:
+                errors.append(f"hardware_id '{hw}' is not registered — add it in the Instruments page first")
+                continue
+            if reg.get("instrument_type") != allowed_type:
+                errors.append(
+                    f"hardware_id '{hw}' is a {reg.get('instrument_type')} — this template is for {allowed_type} only"
+                )
+                continue
+            good_rows.append(row)
+        valid_data = good_rows
+
     if errors and not valid_data:
         return {
             "success": False,
@@ -399,17 +428,38 @@ async def import_data(
         }
 
     inserted = 0
+    updated = 0
     if valid_data:
         now_iso = datetime.now(timezone.utc).isoformat()
         for row in valid_data:
             row.setdefault("received_at", now_iso)
             if isinstance(row.get("timestamp"), datetime):
                 row["timestamp"] = row["timestamp"].isoformat()
-        result = await collection.insert_many(valid_data)
-        inserted = len(result.inserted_ids)
+            row["_import_source"] = "manual_csv"
+            row["_imported_by"] = admin.get("email")
+
+        # ---------------------------------------------------------------
+        # Idempotent upsert on {hardware_id, timestamp}. This is CRITICAL
+        # for the "correct old data" use-case — admin can safely re-upload
+        # a CSV after fixing a bad value in Excel; existing rows for the
+        # same timestamp are overwritten, not duplicated.
+        # ---------------------------------------------------------------
+        for row in valid_data:
+            hw = row.get("hardware_id")
+            ts = row.get("timestamp")
+            if not hw or not ts:
+                continue
+            filt = {"hardware_id": hw, "timestamp": ts}
+            if instrument_type == "dwlr":
+                filt["instrument_type"] = "dwlr"
+            result = await collection.update_one(filt, {"$set": row}, upsert=True)
+            if result.matched_count > 0:
+                updated += 1
+            else:
+                inserted += 1
 
         # Update `latest` collection with the newest row per hardware_id
-        latest_by_hw = {}
+        latest_by_hw: Dict[str, Dict] = {}
         for row in valid_data:
             hw = row.get("hardware_id")
             if not hw:
@@ -422,14 +472,21 @@ async def import_data(
             filt = {"hardware_id": hw}
             if instrument_type == "dwlr":
                 filt["instrument_type"] = "dwlr"
-            await latest_coll.update_one(filt, {"$set": row_copy}, upsert=True)
+            # Only overwrite the "latest" cache if the imported row is
+            # newer than what's already there — never regress the live
+            # dashboard by importing an old backfill.
+            existing = await latest_coll.find_one(filt, {"_id": 0, "timestamp": 1})
+            if not existing or row_copy.get("timestamp", "") > (existing.get("timestamp") or ""):
+                await latest_coll.update_one(filt, {"$set": row_copy}, upsert=True)
 
     return {
         "success": True,
-        "instrument_type": instrument_type,
         "inserted_count": inserted,
+        "updated_count": updated,
         "error_count": len(errors),
-        "errors": errors[:20],
+        "errors": errors[:20],   # keep response light — cap at 20 samples
+        "message": f"Imported {inserted} new row(s), updated {updated} existing row(s)"
+                   + (f" · {len(errors)} skipped" if errors else ""),
     }
 
 

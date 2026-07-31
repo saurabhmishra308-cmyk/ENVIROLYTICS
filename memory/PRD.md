@@ -85,6 +85,26 @@ Water Quality visualisations.
 - `users`, `audit_log`, `notification_settings`, `certificates`, `renewals`,
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
+## Recent updates (Feb 2026 · idempotent CSV import)
+- **Reports → Historical Data import** is now safe to re-upload for
+  data corrections:
+  * **Idempotent upsert on `{hardware_id, timestamp}`** — re-uploading
+    the same CSV overwrites existing rows instead of duplicating.
+    Verified: 3 rows first pass (inserted=3), same file second pass
+    (inserted=0, updated=3), DB still has exactly 3 rows.
+  * **hardware_id validation** — every row's hardware_id must be
+    registered as the matching instrument type (flowmeter → flowmeter,
+    DWLR → DWLR); unknown / wrong-type rows are rejected with a clear
+    error message and other rows still succeed.
+  * **Audit trail** — imported rows carry `_import_source=manual_csv`
+    and `_imported_by=<admin_email>` so a subsequent forensic pass can
+    tell live device data from admin-corrected data.
+  * **`latest` cache never regresses** — an old backfill won't wipe the
+    live-dashboard reading; the latest doc is only overwritten if the
+    imported row is newer.
+- No frontend changes required — the existing "Download Template" +
+  "Upload CSV" buttons on `/reports` continue to work.
+
 ## Recent updates (Feb 2026 · DO tank mapping fix)
 - **Root cause fixed** — QESPL returns a single `DO` value per device, but
   the Water Quality dashboard's Aeration Tank tiles read `DO_TANK_1`
