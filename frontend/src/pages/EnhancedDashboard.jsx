@@ -607,10 +607,20 @@ const EnhancedDashboard = () => {
                   const v = d.values || {};
                   const reg = d._registry || {};
                   const stale = timeSince(d.received_at);
-                  const tanks = [
-                    { n: 1, val: v.DO_TANK_1, cap: reg.do_tank_config?.tank_1_kld },
-                    { n: 2, val: v.DO_TANK_2, cap: reg.do_tank_config?.tank_2_kld },
-                  ];
+                  // Each DO device drives exactly one aeration tank — figure
+                  // out which. Prefer the registry mapping; fall back to
+                  // whichever DO_TANK_N key the poller stored so legacy
+                  // devices still render.
+                  let tn = reg.aeration_tank_number;
+                  if (!tn) {
+                    for (const k of Object.keys(v)) {
+                      const m = /^DO_TANK_(\d+)$/.exec(k);
+                      if (m && v[k] != null) { tn = parseInt(m[1], 10); break; }
+                    }
+                  }
+                  const tank = tn
+                    ? { n: tn, val: v[`DO_TANK_${tn}`], cap: reg.do_tank_config?.[`tank_${tn}_kld`] }
+                    : null;
                   return (
                     <div key={d.hardware_id} data-testid={`do-tile-row-${d.hardware_id}`}>
                       <div className={`text-xs font-semibold mb-1.5 ${text} flex items-center gap-2 flex-wrap`}>
@@ -625,14 +635,18 @@ const EnhancedDashboard = () => {
                           {stale.label}
                         </span>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {tanks.map((t) => {
+                      {tank == null ? (
+                        <p className={`text-xs italic ${muted}`} data-testid={`do-tile-no-tank-${d.hardware_id}`}>
+                          Not linked to an aeration tank yet.
+                        </p>
+                      ) : (
+                        (() => {
+                          const t = tank;
                           const alarm = t.val != null && (t.val < 2 || t.val > 8);
                           const active = t.val != null && !alarm;
                           const borderColor = alarm ? '#dc2626' : (active ? '#0284c7' : '#cbd5e1');
                           return (
                             <div
-                              key={t.n}
                               className={`p-3 rounded border-2 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'} flex items-center justify-between`}
                               style={{ borderColor }}
                               data-testid={`do-tile-${d.hardware_id}-tank${t.n}`}
@@ -652,8 +666,8 @@ const EnhancedDashboard = () => {
                               )}
                             </div>
                           );
-                        })}
-                      </div>
+                        })()
+                      )}
                     </div>
                   );
                 })}
