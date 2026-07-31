@@ -13,6 +13,16 @@ import SubUserCard from '../components/SubUserCard';
 import RenewalsCard from '../components/RenewalsCard';
 import MapLocationPicker from '../components/MapLocationPicker';
 
+// `permissions` on a user record can be either an array (legacy client
+// permissions like ['view_water_quality']) or an object (per-page toggle
+// map like {dashboard: true, reports: false, ...}). This helper normalises
+// both shapes so `.includes()` never throws.
+const hasPermission = (perms, key) => {
+  if (Array.isArray(perms)) return perms.includes(key);
+  if (perms && typeof perms === 'object') return Boolean(perms[key]);
+  return false;
+};
+
 const INSTRUMENT_TYPE_OPTIONS = [
   { value: 'flowmeter',         label: 'Flowmeter' },
   { value: 'dwlr',              label: 'DWLR (Water Level)' },
@@ -496,10 +506,10 @@ const UserPage = () => {
                             <Button
                               size="sm"
                               variant="outline"
-                              className={((u.permissions || []).includes('view_water_quality')) ? 'border-sky-500 text-sky-700' : ''}
+                              className={hasPermission(u.permissions, 'view_water_quality') ? 'border-sky-500 text-sky-700' : ''}
                               onClick={async () => {
                                 try {
-                                  const has = (u.permissions || []).includes('view_water_quality');
+                                  const has = hasPermission(u.permissions, 'view_water_quality');
                                   await api.put(`/api/water-quality/permissions/${u.id}`, { view_water_quality: !has });
                                   toast.success(has ? 'Water-quality access revoked' : 'Water-quality access granted');
                                   fetchUsers();
@@ -509,7 +519,7 @@ const UserPage = () => {
                               }}
                               data-testid={`wq-toggle-${u.id}`}
                             >
-                              💧 {((u.permissions || []).includes('view_water_quality')) ? 'WQ: ON' : 'WQ'}
+                              💧 {hasPermission(u.permissions, 'view_water_quality') ? 'WQ: ON' : 'WQ'}
                             </Button>
                           )}
                           {u.id !== me?.id && (
