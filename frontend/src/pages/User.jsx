@@ -60,7 +60,7 @@ const UserPage = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [createStep, setCreateStep] = useState(1); // 1 = user info, 2 = instruments
   const [creating, setCreating] = useState(false);
-  const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', role: 'client', company_name: '', phone: '', location_name: '', latitude: '', longitude: '', notification_email_1: '', notification_email_2: '' });
+  const [newUser, setNewUser] = useState({ email: '', username: '', password: '', full_name: '', role: 'client', company_name: '', phone: '', location_name: '', latitude: '', longitude: '', notification_email_1: '', notification_email_2: '' });
   const [newInstruments, setNewInstruments] = useState([]); // list of instrument row objects
   // Map-picker state — shared modal, opened per row / for the user home location.
   // `target` is either { type: 'user' } or { type: 'instrument', idx }.
@@ -196,6 +196,9 @@ const UserPage = () => {
       else payload.latitude = parseFloat(payload.latitude);
       if (payload.longitude === '' || payload.longitude == null) delete payload.longitude;
       else payload.longitude = parseFloat(payload.longitude);
+      // Username is optional — drop if the admin left it blank so the
+      // backend derives it from the email local-part.
+      if (!payload.username || !String(payload.username).trim()) delete payload.username;
       // Pack the two admin-configurable alert-emails into a list. Empty
       // strings are dropped; up to 2 are sent.
       const notifEmails = [payload.notification_email_1, payload.notification_email_2]
@@ -466,7 +469,10 @@ const UserPage = () => {
                   {users.map((u) => (
                     <tr key={u.id} className="border-b hover:bg-gray-50">
                       <td className="p-3 font-medium">{u.full_name || '—'}</td>
-                      <td className="p-3 text-gray-600">{u.email}</td>
+                      <td className="p-3 text-gray-600">
+                        {u.username && <div className="font-mono text-xs text-blue-700">{u.username}</div>}
+                        <div className="text-[11px] text-gray-500">{u.email}</div>
+                      </td>
                       <td className="p-3"><Badge className={u.role === 'admin' ? 'bg-purple-500' : 'bg-blue-500'}>{u.role}</Badge></td>
                       <td className="p-3 text-gray-600 text-xs">
                         {u.location_name ? <span className="font-medium">{u.location_name}</span> : <span className="text-gray-400">—</span>}
@@ -555,6 +561,16 @@ const UserPage = () => {
             <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Email *</Label><Input type="email" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} data-testid="new-user-email" /></div>
+                <div>
+                  <Label>Username <span className="text-[10px] text-gray-500 font-normal">(unique login handle)</span></Label>
+                  <Input
+                    value={newUser.username}
+                    onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                    placeholder="e.g. shalimar-lake, plant$north, hotel_1"
+                    data-testid="new-user-username"
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">3–30 chars · letters, digits, and any of <code>. _ - + ! $ @</code>. Leave blank to auto-derive from email.</p>
+                </div>
                 <div><Label>Full Name *</Label><Input value={newUser.full_name} onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })} data-testid="new-user-name" /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">

@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 import io
 import uuid
 
+import re
 from models import UserRole, SiteStatus, SubscriptionType
 from auth import hash_password, require_admin, get_current_user
 from data_export_service import DataExportService, ExcelImportService
@@ -17,12 +18,18 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 # Global db (set from server.py)
 db = None
 
+# Usernames — user-facing login handle. Accept letters, digits, and a
+# useful set of special characters (dots, dashes, underscores, plus, @,
+# and a few punctuation marks). 3..30 chars. Case-preserving.
+USERNAME_RE = re.compile(r"^[A-Za-z0-9._!$@\-+]{3,30}$")
+
 
 # ============================
 # Models
 # ============================
 class AdminCreateUserRequest(BaseModel):
     email: EmailStr
+    username: Optional[str] = None
     password: str
     full_name: str
     role: str = "client"
@@ -35,6 +42,18 @@ class AdminCreateUserRequest(BaseModel):
     # alerts for this client's devices. Client-only — sub-user creation is
     # a separate flow that does not accept these fields.
     notification_emails: Optional[List[str]] = None
+
+    @field_validator("username")
+    @classmethod
+    def _validate_username(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if not USERNAME_RE.match(v):
+            raise ValueError("Username must be 3..30 chars — letters, digits, and any of . _ - + ! $ @")
+        return v
 
     @field_validator("notification_emails")
     @classmethod
@@ -49,6 +68,7 @@ class AdminCreateUserRequest(BaseModel):
 
 class AdminUpdateUserRequest(BaseModel):
     full_name: Optional[str] = None
+    username: Optional[str] = None
     company_name: Optional[str] = None
     phone: Optional[str] = None
     location_name: Optional[str] = None
@@ -56,6 +76,18 @@ class AdminUpdateUserRequest(BaseModel):
     longitude: Optional[float] = None
     role: Optional[str] = None
     notification_emails: Optional[List[str]] = None
+
+    @field_validator("username")
+    @classmethod
+    def _validate_username(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if not USERNAME_RE.match(v):
+            raise ValueError("Username must be 3..30 chars — letters, digits, and any of . _ - + ! $ @")
+        return v
 
     @field_validator("notification_emails")
     @classmethod
@@ -84,6 +116,16 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
     if len(req.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
+    # Username: use admin-supplied value if provided; else derive from email
+    # local-part. Enforce uniqueness by appending a numeric suffix on clash.
+    desired = (req.username or email.split("@")[0]).strip()
+    candidate = desired
+    n = 1
+    while await db.users.find_one({"username": candidate}):
+        n += 1
+        candidate = f"{desired}{n}"
+    final_username = candidate
+
     now_dt = datetime.now(timezone.utc)
     # 365-day service term is a CLIENT concept — admins are "god mode" and
     # never expire. We only stamp expiry for non-admin roles.
@@ -107,7 +149,7 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
     user_doc = {
         "id": f"user_{uuid.uuid4().hex[:12]}",
         "email": email,
-        "username": email.split("@")[0],
+        "username": final_username,
         "password_hash": hash_password(req.password),
         "full_name": req.full_name,
         "company_name": req.company_name,
@@ -165,6 +207,10 @@ async def update_user(user_id: str, req: AdminUpdateUserRequest, admin: dict = D
     updates = req.model_dump(exclude_unset=True)
     if "role" in updates and updates["role"] not in ("admin", "client"):
         raise HTTPException(status_code=400, detail="Invalid role")
+    if "username" in updates and updates["username"]:
+        clash = await db.users.find_one({"username": updates["username"], "id": {"$ne": user_id}})
+        if clash:
+            raise HTTPException(status_code=409, detail=f"Username '{updates['username']}' is already taken")
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await db.users.update_one({"id": user_id}, {"$set": updates})

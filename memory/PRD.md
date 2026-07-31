@@ -85,6 +85,28 @@ Water Quality visualisations.
 - `users`, `audit_log`, `notification_settings`, `certificates`, `renewals`,
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
+## Recent updates (Feb 2026 · username + admin cameras)
+- **Username as separate login handle** — every user account now has a
+  `username` field (unique, 3–30 chars, letters/digits + `. _ - + ! $ @`)
+  in addition to email. Login accepts EITHER identifier: the existing
+  `email` field on the login form is now labelled *"Username or Email"*
+  and the backend looks up by `{$or:[{email},{username}]}`. Admin
+  seed backfills usernames for legacy accounts (email local-part;
+  numeric suffix on clash).
+- **Admin can set the username** during user creation (User → Add User);
+  leave blank to auto-derive from email prefix. Uniqueness enforced by
+  a sparse Mongo index and 409 on collision.
+- **User list** now shows the username in blue mono above the email.
+- **IMEI / DeviceID** field is now completely unrestricted — accepts
+  any alphanumeric string with special characters and no length cap,
+  reflecting the reality that QESPL / MQTT vendors use mixed schemes
+  (`DTU10020426`, `860738070478155`, `SN-BE:CGWA/12345`, …).
+- **New "Live Camera Feed" admin page** (`/cameras`) — grid view of every
+  registered instrument across every client with the existing
+  LiveCameraWidget embedded per device, so admin can upload / link /
+  clear videos for any client from one screen. Filters by client, type,
+  and free-text search on hardware_id / label / owner.
+
 ## Recent updates (Feb 2026 · RWH recharge estimation)
 - **New "Rainwater Recharge Estimate" tile** on the Dashboard, placed
   immediately below the DWLR (Water Level) section so admins can

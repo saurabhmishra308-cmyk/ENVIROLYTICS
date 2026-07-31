@@ -28,7 +28,10 @@ def set_db(database):
 # Models
 # ============================
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # Accepts either an email address or a username. Kept as `email` for
+    # backward-compatibility with the existing frontend / test suites that
+    # already POST `{email, password}`.
+    email: str
     password: str
 
 
@@ -96,10 +99,14 @@ async def _clear_attempts(identifier: str):
 # ============================
 @router.post("/login")
 async def login(req: LoginRequest, request: Request):
-    email = req.email.lower().strip()
+    identifier_raw = (req.email or "").strip()
+    # Emails are case-insensitive; usernames are case-sensitive (they're
+    # user-picked, and admins may set both `Bob` and `bob` as distinct
+    # accounts if they wish).
+    email_lc = identifier_raw.lower()
     client_ip = _get_client_ip(request)
-    identifier = f"{client_ip}:{email}"
-    email_only_id = f"email:{email}"
+    identifier = f"{client_ip}:{email_lc}"
+    email_only_id = f"email:{email_lc}"
 
     if await _is_locked_out(identifier) or await _is_locked_out(email_only_id):
         raise HTTPException(
@@ -107,11 +114,17 @@ async def login(req: LoginRequest, request: Request):
             detail=f"Too many failed attempts. Try again in {LOCKOUT_MINUTES} minutes.",
         )
 
-    user = await db.users.find_one({"email": email})
+    # Match on either the (lower-cased) email OR the (case-preserved) username.
+    user = await db.users.find_one({
+        "$or": [
+            {"email": email_lc},
+            {"username": identifier_raw},
+        ],
+    })
     if not user or not verify_password(req.password, user.get("password_hash", "")):
         await _record_failed(identifier)
         await _record_failed(email_only_id)
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="Invalid username/email or password")
 
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account is deactivated")
@@ -141,6 +154,7 @@ async def login(req: LoginRequest, request: Request):
         "user": {
             "id": user["id"],
             "email": user["email"],
+            "username": user.get("username"),
             "full_name": user.get("full_name", ""),
             "role": user.get("role", "client"),
             "permissions": permissions,
@@ -236,6 +250,23 @@ async def seed_admin(database):
     try:
         await database.users.create_index("email", unique=True)
         await database.users.create_index("id", unique=True)
+        # `username` is now the client-facing login handle (in addition to
+        # email). Unique-sparse so legacy accounts without a username don't
+        # collide until we backfill them below.
+        await database.users.create_index("username", unique=True, sparse=True)
         await database.login_attempts.create_index("identifier")
     except Exception as e:
         print(f"[seed] Index creation warning: {e}")
+
+    # Backfill: every existing account needs a username so admin can share
+    # it with clients. Default = local-part of the email (`alice@x.com` →
+    # `alice`) with a numeric suffix on conflict.
+    async for u in database.users.find({"username": {"$in": [None, ""]}}, {"id": 1, "email": 1, "_id": 0}):
+        base = (u.get("email") or u.get("id") or "user").split("@")[0].strip() or "user"
+        candidate = base
+        n = 1
+        while await database.users.find_one({"username": candidate, "id": {"$ne": u["id"]}}):
+            n += 1
+            candidate = f"{base}{n}"
+        await database.users.update_one({"id": u["id"]}, {"$set": {"username": candidate}})
+        print(f"[seed] Backfilled username '{candidate}' for {u.get('email')}")

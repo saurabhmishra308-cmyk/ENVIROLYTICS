@@ -244,16 +244,16 @@ const Login = () => {
 
             <form onSubmit={handleSubmit} className="relative z-[1]">
               <div className="mb-4">
-                <Label htmlFor="email" className="text-white/90 text-xs uppercase tracking-wider mb-2 block font-semibold">Email</Label>
+                <Label htmlFor="email" className="text-white/90 text-xs uppercase tracking-wider mb-2 block font-semibold">Username or Email</Label>
                 <Input
                   id="email"
-                  type="email"
+                  type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full text-sm px-3 py-2 rounded-md"
-                  placeholder="admin@envirolytics.com"
+                  placeholder="e.g. shalimar-lake or admin@envirolytics.com"
                   data-testid="login-email-input"
-                  autoComplete="email"
+                  autoComplete="username"
                 />
               </div>
 
