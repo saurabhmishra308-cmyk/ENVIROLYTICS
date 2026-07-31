@@ -1,9 +1,11 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { Video, Shield, Search, Cpu } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
+import { Label } from '../components/ui/label';
+import { Video, Shield, Search, Cpu, Upload, CheckCircle2, XCircle } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
 import { toast } from 'sonner';
@@ -27,6 +29,13 @@ export default function Cameras() {
   const [clientFilter, setClientFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [search, setSearch] = useState('');
+  // Bulk upload dialog state — attaches ONE video to N devices in one shot.
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkFile, setBulkFile] = useState(null);
+  const [bulkSelected, setBulkSelected] = useState(new Set());
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+  const fileRef = useRef(null);
 
   const refresh = useCallback(async () => {
     if (!admin) { setLoading(false); return; }
@@ -74,6 +83,42 @@ export default function Cameras() {
     for (const it of items) if (it.instrument_type) seen.add(it.instrument_type);
     return Array.from(seen).sort();
   }, [items]);
+
+  const openBulk = () => {
+    setBulkFile(null);
+    setBulkResult(null);
+    setBulkSelected(new Set(filtered.map((it) => it.hardware_id)));
+    setBulkOpen(true);
+  };
+
+  const toggleBulkPick = (hw) => {
+    setBulkSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(hw)) next.delete(hw); else next.add(hw);
+      return next;
+    });
+  };
+
+  const submitBulk = async () => {
+    if (!bulkFile) return toast.error('Pick a video file first');
+    if (bulkSelected.size === 0) return toast.error('Pick at least one device');
+    const form = new FormData();
+    form.append('file', bulkFile);
+    form.append('hardware_ids', Array.from(bulkSelected).join(','));
+    setBulkUploading(true);
+    try {
+      const { data } = await api.post('/api/camera-streams/bulk-upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setBulkResult(data);
+      toast.success(`Attached to ${data.attached_count} device(s)${data.skipped_count ? ` · ${data.skipped_count} skipped` : ''}`);
+      refresh();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail) || 'Bulk upload failed');
+    } finally {
+      setBulkUploading(false);
+    }
+  };
 
   if (!admin) {
     return (
@@ -125,6 +170,9 @@ export default function Cameras() {
             <option value="">All types</option>
             {types.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+          <Button onClick={openBulk} className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="bulk-upload-open-btn">
+            <Upload className="h-4 w-4 mr-1" /> Bulk Upload Video
+          </Button>
         </div>
       </div>
 
@@ -168,6 +216,106 @@ export default function Cameras() {
           ))}
         </div>
       )}
+
+      {/* ============ BULK UPLOAD VIDEO ============ */}
+      <Dialog open={bulkOpen} onOpenChange={(v) => !v && setBulkOpen(false)}>
+        <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto" data-testid="bulk-upload-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" /> Bulk Upload Camera Video
+            </DialogTitle>
+            <DialogDescription>
+              Upload one video file and attach it to multiple instruments at once — ideal for a site with several identical
+              aeration tanks / DO probes that should show the same footage.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label>Video file (MP4 / WebM, max 120 MB)</Label>
+              <Input
+                ref={fileRef}
+                type="file"
+                accept="video/mp4,video/webm,.mp4,.webm"
+                onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
+                data-testid="bulk-file-input"
+              />
+              {bulkFile && (
+                <p className="text-[11px] text-gray-600 mt-1">
+                  Selected: <strong>{bulkFile.name}</strong> · {(bulkFile.size / 1024 / 1024).toFixed(1)} MB
+                </p>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Attach to devices ({bulkSelected.size} of {filtered.length} selected)</Label>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setBulkSelected(new Set(filtered.map((it) => it.hardware_id)))}>Select all</Button>
+                  <Button size="sm" variant="outline" onClick={() => setBulkSelected(new Set())}>Clear</Button>
+                </div>
+              </div>
+              <div className="max-h-72 overflow-y-auto border rounded">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="p-2 w-8"></th>
+                      <th className="text-left p-2">Device</th>
+                      <th className="text-left p-2">Type</th>
+                      <th className="text-left p-2">Client</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((it) => (
+                      <tr
+                        key={it.hardware_id}
+                        className={`border-t cursor-pointer ${bulkSelected.has(it.hardware_id) ? 'bg-emerald-50' : ''}`}
+                        onClick={() => toggleBulkPick(it.hardware_id)}
+                        data-testid={`bulk-pick-${it.hardware_id}`}
+                      >
+                        <td className="p-2 text-center">
+                          <input type="checkbox" readOnly checked={bulkSelected.has(it.hardware_id)} />
+                        </td>
+                        <td className="p-2">
+                          <div className="font-medium">{cleanLabel(it.label || it.hardware_id)}</div>
+                          <div className="text-[10px] font-mono text-gray-500">{it.hardware_id}</div>
+                        </td>
+                        <td className="p-2 text-xs">{it.instrument_type}</td>
+                        <td className="p-2 text-xs">{it.owner_name || it.owner_email || '—'}</td>
+                      </tr>
+                    ))}
+                    {filtered.length === 0 && (
+                      <tr><td colSpan={4} className="text-center py-6 text-gray-500 text-sm">Adjust the filters to select devices.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {bulkResult && (
+              <div className="rounded-lg border p-3 bg-gray-50" data-testid="bulk-upload-result">
+                <div className="flex items-center gap-4 text-sm">
+                  <span className="flex items-center gap-1 text-green-700"><CheckCircle2 className="h-4 w-4" /> Attached: {bulkResult.attached_count}</span>
+                  <span className="flex items-center gap-1 text-red-700"><XCircle className="h-4 w-4" /> Skipped: {bulkResult.skipped_count}</span>
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1 break-all">Shared URL: <code>{bulkResult.shared_url}</code></p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setBulkOpen(false)}>Close</Button>
+            <Button
+              onClick={submitBulk}
+              disabled={bulkUploading || !bulkFile || bulkSelected.size === 0}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              data-testid="bulk-upload-submit-btn"
+            >
+              {bulkUploading ? 'Uploading…' : (<><Upload className="h-4 w-4 mr-1" /> Upload & attach to {bulkSelected.size} device{bulkSelected.size === 1 ? '' : 's'}</>)}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

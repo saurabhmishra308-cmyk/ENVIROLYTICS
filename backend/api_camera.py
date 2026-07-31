@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 
 import api_instrument_registry
@@ -310,3 +310,102 @@ async def upload_camera_video(hardware_id: str,
     )
     saved = await db.camera_streams.find_one({"hardware_id": hardware_id})
     return {"success": True, "bytes": total, "url": url, "stream": _serialize(saved, True)}
+
+
+# ─────────── Bulk upload — one video → many devices ───────────
+
+@router.post("/bulk-upload")
+async def bulk_upload_camera_video(
+    hardware_ids: str = Form(..., description="Comma-separated list of hardware_ids to attach the video to"),
+    file: UploadFile = File(...),
+    admin: dict = Depends(require_admin),
+):
+    """Admin-only: upload a single MP4/WebM once and attach it to every
+    listed device. Ideal for identical aeration tanks / DO probes at one
+    site where the demo footage is the same. The file is written once to
+    disk and a `camera_streams` row is upserted for each `hardware_id`
+    pointing at the shared URL — one clip powers many tiles.
+
+    Response includes a per-device outcome so the admin sees which rows
+    succeeded and which failed (unregistered id, etc.).
+    """
+    ids = [x.strip() for x in (hardware_ids or "").split(",") if x.strip()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="hardware_ids is required (comma-separated)")
+
+    # Validate registration before writing anything to disk — we don't want
+    # orphan uploads on typos.
+    regs: Dict[str, dict] = {}
+    async for reg in db.instrument_registry.find({"hardware_id": {"$in": ids}}):
+        regs[reg["hardware_id"]] = reg
+    unknown = [i for i in ids if i not in regs]
+    if unknown and len(unknown) == len(ids):
+        raise HTTPException(status_code=404, detail=f"None of the ids are registered: {unknown}")
+
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".mp4"
+    if ext not in ALLOWED_VIDEO_EXTS:
+        raise HTTPException(status_code=400, detail=f"Unsupported extension. Allowed: {sorted(ALLOWED_VIDEO_EXTS)}")
+
+    fname = f"bulk_{uuid.uuid4().hex[:12]}{ext}"
+    dest = UPLOAD_ROOT / fname
+    total = 0
+    try:
+        with dest.open("wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_VIDEO_BYTES:
+                    out.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail=f"File exceeds {MAX_VIDEO_BYTES // (1024*1024)} MB")
+                out.write(chunk)
+    except HTTPException:
+        raise
+    except Exception as e:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+
+    url = f"/api/uploads/camera/{fname}"
+    now = datetime.now(timezone.utc).isoformat()
+    results: List[Dict] = []
+    for hid in ids:
+        reg = regs.get(hid)
+        if not reg:
+            results.append({"hardware_id": hid, "ok": False, "error": "not registered"})
+            continue
+        prev = await db.camera_streams.find_one({"hardware_id": hid})
+        # Purge previous per-device upload — keep bulk file (shared).
+        if prev and prev.get("stream_type") == "upload":
+            old_fname = (prev.get("stream_url") or "").rsplit("/", 1)[-1]
+            if old_fname and old_fname != fname and not old_fname.startswith("bulk_"):
+                (UPLOAD_ROOT / old_fname).unlink(missing_ok=True)
+        doc = {
+            "id": prev.get("id") if prev else str(uuid.uuid4()),
+            "hardware_id": hid,
+            "stream_url": url,
+            "stream_type": "upload",
+            "label": (prev or {}).get("label") or reg.get("label") or hid,
+            "location": (prev or {}).get("location") or reg.get("location_name"),
+            "camera_status": "online",
+            "updated_at": now,
+            "uploaded_at": now,
+            "uploaded_by": admin.get("email"),
+            "bulk_source_url": url,  # useful for later filtering
+        }
+        if prev is None:
+            doc["created_at"] = now
+            doc["created_by"] = admin.get("email")
+        await db.camera_streams.update_one({"hardware_id": hid}, {"$set": doc}, upsert=True)
+        results.append({"hardware_id": hid, "ok": True})
+
+    ok_count = sum(1 for r in results if r["ok"])
+    return {
+        "success": ok_count > 0,
+        "attached_count": ok_count,
+        "skipped_count": len(results) - ok_count,
+        "shared_url": url,
+        "bytes": total,
+        "results": results,
+    }

@@ -1102,8 +1102,15 @@ const WaterQuality = () => {
           {/* STP: gauges + realistic plant flow diagram */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Gauge className="h-5 w-5 text-sky-500" /> Live Parameters — {cleanLabel(currentDevice?._registry?.label || selectedHw)}
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Gauge className="h-5 w-5 text-sky-500" /> Live Parameters — {cleanLabel(currentDevice?._registry?.label || selectedHw)}
+                </span>
+                {isAdmin && selectedHw && (
+                  <a href={`/certificates?tab=photos&hardware_id=${encodeURIComponent(selectedHw)}`} className="text-xs text-blue-600 hover:underline flex items-center gap-1" data-testid="wq-stp-photos-link">
+                    📷 Manage instrument photos & location
+                  </a>
+                )}
               </CardTitle>
               <CardDescription>Real-time values from the STP water-quality analyser. Turbidity is derived from TSS · k (k = {currentDevice?._registry?.turbidity_k ?? 0.5}); chlorine is monitored against the {currentDevice?.chlorine_alert?.min ?? 0.2}–{currentDevice?.chlorine_alert?.max ?? 2.0} mg/L residual band.</CardDescription>
             </CardHeader>
@@ -1196,13 +1203,28 @@ const WaterQuality = () => {
                 <span className="flex items-center gap-2">
                   <Wind className="h-5 w-5 text-sky-500" /> Aeration Tanks — {cleanLabel(currentDevice?._registry?.label || selectedHw)}
                 </span>
-                {isAdmin && (
-                  <Button size="sm" variant="outline" onClick={() => setShowDoTankConfig(true)} data-testid="do-configure-tanks-btn">
-                    ⚙ Configure Tank Capacities
-                  </Button>
-                )}
+                <div className="flex items-center gap-3">
+                  {isAdmin && selectedHw && (
+                    <a href={`/certificates?tab=photos&hardware_id=${encodeURIComponent(selectedHw)}`} className="text-xs text-blue-600 hover:underline" data-testid="wq-do-photos-link">
+                      📷 Manage instrument photos & location
+                    </a>
+                  )}
+                  {isAdmin && (
+                    <Button size="sm" variant="outline" onClick={() => setShowDoTankConfig(true)} data-testid="do-configure-tanks-btn">
+                      ⚙ Configure Tank Capacities
+                    </Button>
+                  )}
+                </div>
               </CardTitle>
-              <CardDescription>Bubble animation speed and density reflect dissolved-oxygen concentration in each tank</CardDescription>
+              <CardDescription>
+                Bubble animation speed and density reflect dissolved-oxygen concentration in each tank
+                {isAdmin && currentDevice?._registry && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-900 rounded px-2 py-0.5 font-medium" data-testid="wq-do-owner-badge">
+                    Client: {currentDevice._registry.owner_name || currentDevice._registry.owner_email || currentDevice._registry.owner_user_id || '—'}
+                    {currentDevice._registry.location_name ? ` · ${currentDevice._registry.location_name}` : ''}
+                  </span>
+                )}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid md:grid-cols-2 gap-8">
@@ -1312,8 +1334,15 @@ const WaterQuality = () => {
           )}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Droplets className="h-5 w-5 text-sky-500" /> Chlorine Analyzer — {cleanLabel(currentDevice?._registry?.label || selectedHw)}
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Droplets className="h-5 w-5 text-sky-500" /> Chlorine Analyzer — {cleanLabel(currentDevice?._registry?.label || selectedHw)}
+                </span>
+                {isAdmin && selectedHw && (
+                  <a href={`/certificates?tab=photos&hardware_id=${encodeURIComponent(selectedHw)}`} className="text-xs text-blue-600 hover:underline" data-testid="wq-cl-photos-link">
+                    📷 Manage instrument photos & location
+                  </a>
+                )}
               </CardTitle>
               <CardDescription>
                 Free-residual chlorine (mg/L) with in-band alerting. Safe band <b>{currentDevice?.chlorine_alert?.min ?? 0.2}</b>–<b>{currentDevice?.chlorine_alert?.max ?? 2.0}</b> mg/L

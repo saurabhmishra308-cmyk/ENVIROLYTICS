@@ -85,6 +85,23 @@ Water Quality visualisations.
 - `users`, `audit_log`, `notification_settings`, `certificates`, `renewals`,
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
+## Recent updates (Feb 2026 · bulk camera + wq context)
+- **Camera Bulk Upload** (`POST /api/camera-streams/bulk-upload`) —
+  admin uploads one MP4/WebM once, picks any subset of registered
+  devices, and the same video is attached to every selected device
+  (shared URL, one on-disk file). Ideal for a site with several
+  identical DO probes / aeration tanks. UI: new "Bulk Upload Video"
+  button on the /cameras admin page opens a dialog with a device
+  picker (respects current filters) + Select-all / Clear.
+- **Water Quality tab — client context badge**: when admin views the
+  DO Analyzer tab, an amber badge next to the description shows
+  "Client: <owner> · <location>" so it's obvious whose camera / device
+  they're configuring.
+- **📷 "Manage instrument photos & location" quick-link** — appears on
+  STP, DO, and Chlorine section headers (admin only). Deep-links to
+  Certificates & Photos filtered to the current instrument, so photos
+  can be added with GPS/landmark from the same flow.
+
 ## Recent updates (Feb 2026 · username + admin cameras)
 - **Username as separate login handle** — every user account now has a
   `username` field (unique, 3–30 chars, letters/digits + `. _ - + ! $ @`)
