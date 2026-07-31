@@ -512,15 +512,19 @@ async def latest_readings(
 @router.get("/history/{hardware_id}")
 async def history(
     hardware_id: str,
-    range: str = Query("daily", regex="^(daily|weekly|monthly)$"),
+    range: str = Query("daily", regex="^(daily|weekly|monthly|quarterly|yearly|raw)$"),
     unit: str = Query("mg/L"),
+    limit: int = Query(500, ge=1, le=10000),
     user: dict = Depends(get_current_user),
 ):
     """Aggregated series for a single device.
 
-    * daily   → last 24 hours, one point per hour
-    * weekly  → last 7 days, one point per day
-    * monthly → last 30 days, one point per day
+    * raw       → last 7 days, every reading (no bucketing, capped by `limit`)
+    * daily     → last 24 hours, one point per hour
+    * weekly    → last 7 days, one point per day
+    * monthly   → last 30 days, one point per day
+    * quarterly → last 13 weeks, one point per ISO week
+    * yearly    → last 12 months, one point per calendar month
     """
     _require_wq_view(user)
     visible = await _visible(user)
@@ -528,15 +532,24 @@ async def history(
         raise HTTPException(status_code=403, detail="Not authorised to view this device")
 
     now = datetime.now(timezone.utc)
-    if range == "daily":
+    if range == "raw":
+        since = now - timedelta(days=7)
+        bucket_fmt = None
+    elif range == "daily":
         since = now - timedelta(hours=24)
         bucket_fmt = "%Y-%m-%dT%H"          # hourly buckets
     elif range == "weekly":
         since = now - timedelta(days=7)
         bucket_fmt = "%Y-%m-%d"             # daily
-    else:
+    elif range == "monthly":
         since = now - timedelta(days=30)
         bucket_fmt = "%Y-%m-%d"
+    elif range == "quarterly":
+        since = now - timedelta(weeks=13)
+        bucket_fmt = "%G-W%V"               # ISO year-week
+    else:  # yearly
+        since = now - timedelta(days=365)
+        bucket_fmt = "%Y-%m"                # calendar month
 
     cursor = db.instrument_readings.find(
         {"hardware_id": hardware_id, "received_at": {"$gte": since.isoformat()},
@@ -555,6 +568,32 @@ async def history(
         param_keys = list(DO_PARAMS.keys())
     else:
         param_keys = list(CHLORINE_PARAMS.keys())
+
+    # ---- raw path: return every reading, timestamped, newest first ----
+    if range == "raw":
+        rows: List[dict] = []
+        async for row in cursor.sort("received_at", -1).limit(limit):
+            entry = {"received_at": row.get("received_at")}
+            vals = row.get("values") or {}
+            for p in param_keys:
+                v = vals.get(p)
+                if v is not None:
+                    try:
+                        v = round(_convert(float(v), "mg/L", unit), 3)
+                    except (TypeError, ValueError):
+                        pass
+                entry[p] = v
+            rows.append(entry)
+        return {
+            "hardware_id": hardware_id,
+            "instrument_type": itype,
+            "label": (reg or {}).get("label"),
+            "range": range,
+            "unit": unit,
+            "since": since.isoformat(),
+            "params": param_keys,
+            "rows": rows,
+        }
 
     buckets: dict = {}
     async for row in cursor:

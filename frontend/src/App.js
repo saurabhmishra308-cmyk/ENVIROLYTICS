@@ -23,7 +23,8 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import AuthGate from "./components/AuthGate";
 import SecurityHardening from "./components/SecurityHardening";
 import { Toaster } from "./components/ui/sonner";
-import { getCurrentUser, isAuthenticated } from "./mockData";
+import { getCurrentUser, isAuthenticated, isAdmin } from "./mockData";
+import { useViewPermissions } from "./hooks/useViewPermissions";
 
 const DashboardLayout = ({ children }) => (
   <div className="flex min-h-screen">
@@ -50,6 +51,19 @@ const RequireAuth = ({ children }) => {
   return children;
 };
 
+// Admin-set view-permission gate. Admins always pass. Clients whose admin
+// has disabled a page get bounced to /dashboard so a typed URL doesn't
+// leak the hidden page. `loading` short-circuits so we don't flash a
+// redirect while permissions are being fetched.
+const ViewGate = ({ permission, children }) => {
+  const { can, loading } = useViewPermissions();
+  if (!isAuthenticated()) return <Navigate to="/" replace />;
+  if (isAdmin()) return children;
+  if (loading) return null;
+  if (!can(permission)) return <Navigate to="/dashboard" replace />;
+  return children;
+};
+
 function App() {
   return (
     <ThemeProvider>
@@ -62,26 +76,26 @@ function App() {
                 <Route path="/" element={<Login />} />
                 <Route path="/policies" element={<Policies />} />
 
-                <Route path="/dashboard" element={<PermissionRoute permission="dashboard"><DashboardLayout><EnhancedDashboard /></DashboardLayout></PermissionRoute>} />
-                <Route path="/analysis" element={<PermissionRoute permission="analysis"><DashboardLayout><Analysis /></DashboardLayout></PermissionRoute>} />
-                <Route path="/reports" element={<PermissionRoute permission="reports"><DashboardLayout><Reports /></DashboardLayout></PermissionRoute>} />
-                <Route path="/graph-report" element={<PermissionRoute permission="reports"><DashboardLayout><GraphReport /></DashboardLayout></PermissionRoute>} />
-                <Route path="/site" element={<RequireAuth><DashboardLayout><Site /></DashboardLayout></RequireAuth>} />
+                <Route path="/dashboard" element={<PermissionRoute permission="dashboard"><ViewGate permission="dashboard"><DashboardLayout><EnhancedDashboard /></DashboardLayout></ViewGate></PermissionRoute>} />
+                <Route path="/analysis" element={<PermissionRoute permission="analysis"><ViewGate permission="analysis"><DashboardLayout><Analysis /></DashboardLayout></ViewGate></PermissionRoute>} />
+                <Route path="/reports" element={<PermissionRoute permission="reports"><ViewGate permission="reports"><DashboardLayout><Reports /></DashboardLayout></ViewGate></PermissionRoute>} />
+                <Route path="/graph-report" element={<PermissionRoute permission="reports"><ViewGate permission="graph_report"><DashboardLayout><GraphReport /></DashboardLayout></ViewGate></PermissionRoute>} />
+                <Route path="/site" element={<ViewGate permission="site"><DashboardLayout><Site /></DashboardLayout></ViewGate>} />
                 <Route path="/user" element={<RequireAuth><DashboardLayout><User /></DashboardLayout></RequireAuth>} />
-                <Route path="/certificates" element={<PermissionRoute permission="certificates"><DashboardLayout><Certificates /></DashboardLayout></PermissionRoute>} />
-                <Route path="/maintenance" element={<PermissionRoute permission="certificates"><DashboardLayout><Certificates /></DashboardLayout></PermissionRoute>} />
-                <Route path="/audit-log" element={<PermissionRoute permission="audit"><DashboardLayout><AuditLog /></DashboardLayout></PermissionRoute>} />
-                <Route path="/customer-profile" element={<RequireAuth><DashboardLayout><CustomerProfile /></DashboardLayout></RequireAuth>} />
+                <Route path="/certificates" element={<PermissionRoute permission="certificates"><ViewGate permission="certificates"><DashboardLayout><Certificates /></DashboardLayout></ViewGate></PermissionRoute>} />
+                <Route path="/maintenance" element={<PermissionRoute permission="certificates"><ViewGate permission="certificates"><DashboardLayout><Certificates /></DashboardLayout></ViewGate></PermissionRoute>} />
+                <Route path="/audit-log" element={<PermissionRoute permission="audit"><ViewGate permission="audit_log"><DashboardLayout><AuditLog /></DashboardLayout></ViewGate></PermissionRoute>} />
+                <Route path="/customer-profile" element={<ViewGate permission="customer_profile"><DashboardLayout><CustomerProfile /></DashboardLayout></ViewGate>} />
                 <Route path="/instruments" element={<RequireAuth><DashboardLayout><Instruments /></DashboardLayout></RequireAuth>} />
                 <Route path="/cameras" element={<RequireAuth><DashboardLayout><Cameras /></DashboardLayout></RequireAuth>} />
-                <Route path="/water-quality" element={<RequireAuth><DashboardLayout><WaterQuality /></DashboardLayout></RequireAuth>} />
+                <Route path="/water-quality" element={<ViewGate permission="water_quality"><DashboardLayout><WaterQuality /></DashboardLayout></ViewGate>} />
 
-                <Route path="/flowmeter" element={<RequireAuth><Flowmeter /></RequireAuth>} />
-                <Route path="/water-level-recorder" element={<RequireAuth><WaterLevelRecorder /></RequireAuth>} />
-                <Route path="/dwlr" element={<RequireAuth><InstrumentDetail type="dwlr" /></RequireAuth>} />
-                <Route path="/ph" element={<RequireAuth><InstrumentDetail type="ph" /></RequireAuth>} />
-                <Route path="/tds" element={<RequireAuth><InstrumentDetail type="tds" /></RequireAuth>} />
-                <Route path="/conductivity" element={<RequireAuth><InstrumentDetail type="conductivity" /></RequireAuth>} />
+                <Route path="/flowmeter" element={<ViewGate permission="flowmeter"><Flowmeter /></ViewGate>} />
+                <Route path="/water-level-recorder" element={<ViewGate permission="dwlr"><WaterLevelRecorder /></ViewGate>} />
+                <Route path="/dwlr" element={<ViewGate permission="dwlr"><InstrumentDetail type="dwlr" /></ViewGate>} />
+                <Route path="/ph" element={<ViewGate permission="ph"><InstrumentDetail type="ph" /></ViewGate>} />
+                <Route path="/tds" element={<ViewGate permission="tds"><InstrumentDetail type="tds" /></ViewGate>} />
+                <Route path="/conductivity" element={<ViewGate permission="conductivity"><InstrumentDetail type="conductivity" /></ViewGate>} />
 
                 {/* Catch-all: send unknown paths to login (keeps session intact via storage) */}
                 <Route path="*" element={<Navigate to="/" replace />} />

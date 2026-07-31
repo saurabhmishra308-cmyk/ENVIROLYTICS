@@ -14,6 +14,7 @@ import { STPConfigDialog } from '../components/STPConfigDialog';
 import { AerationVideoUploader } from '../components/AerationVideoUploader';
 import { DOTankConfigDialog } from '../components/DOTankConfigDialog';
 import { FlowmeterTile } from '../components/FlowmeterTile';
+import HistoricalDataPanel from '../components/HistoricalDataPanel';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { cleanLabel } from '../utils/labels';
@@ -1304,6 +1305,7 @@ const WaterQuality = () => {
               </div>
             </CardContent>
           </Card>
+          <HistoricalDataPanel hardwareId={selectedHw} unit={unit} deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)} />
         </>
       ) : tab === 'do' ? (
         <>
@@ -1423,6 +1425,7 @@ const WaterQuality = () => {
               />
             </CardContent>
           </Card>
+          <HistoricalDataPanel hardwareId={selectedHw} unit={unit} deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)} />
         </>
       ) : (
         <>
@@ -1514,6 +1517,7 @@ const WaterQuality = () => {
               </CardContent>
             </Card>
           )}
+          <HistoricalDataPanel hardwareId={selectedHw} unit={unit} deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)} />
         </>
       )}
 

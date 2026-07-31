@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 import { isAdmin } from '../mockData';
-import api from '../lib/api';
+import { useViewPermissions } from '../hooks/useViewPermissions';
 import { 
   LayoutDashboard, 
   BarChart3, 
@@ -22,24 +22,9 @@ const Sidebar = () => {
   const location = useLocation();
   const { isDarkMode } = useTheme();
   const admin = isAdmin();
-  const [perms, setPerms] = useState(null);
+  const { can } = useViewPermissions();
 
-  // Fetch the current user's effective view permissions. Admins get every
-  // key = true from the backend; clients get their admin-configured map.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data } = await api.get('/api/auth/me/view-permissions');
-        if (!cancelled) setPerms(data?.permissions || {});
-      } catch (e) {
-        if (!cancelled) setPerms({});
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  const can = (key) => admin || Boolean(perms?.[key] ?? true);
+  const isAllowed = (key) => admin || can(key);
 
   const baseMenu = [
     { path: '/dashboard',          icon: LayoutDashboard, label: 'Dashboard',           key: 'dashboard' },
@@ -53,7 +38,7 @@ const Sidebar = () => {
     { path: '/customer-profile',   icon: Building2,       label: 'Customer Profile',    key: 'customer_profile' },
     { path: '/water-quality',      icon: Droplets,        label: 'Water Quality',       key: 'water_quality' },
   ];
-  const filteredMenu = baseMenu.filter((it) => it.key === null || can(it.key));
+  const filteredMenu = baseMenu.filter((it) => it.key === null || isAllowed(it.key));
   const menuItems = admin
     ? [...filteredMenu, { path: '/instruments', icon: Cpu, label: 'Instruments' }]
     : filteredMenu;

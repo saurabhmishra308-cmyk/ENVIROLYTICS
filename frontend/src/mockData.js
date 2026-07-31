@@ -2,6 +2,7 @@
 // Exports keep the same names as the previous mock module so existing
 // pages continue to work without changes.
 import api from "./lib/api";
+import { resetViewPermissions } from "./hooks/useViewPermissions";
 
 const TOKEN_KEY = "envirolytics_token";
 const USER_KEY = "envirolytics_user";
@@ -68,6 +69,10 @@ export async function loginWithEmail(email, password) {
     const msg =
       e?.response?.data?.detail || e?.message || "Login failed";
     return { success: false, message: typeof msg === "string" ? msg : "Login failed" };
+  } finally {
+    // Force a fresh view-permissions fetch — an admin may have changed
+    // this user's view-access map between sessions.
+    resetViewPermissions();
   }
 }
 
@@ -80,6 +85,7 @@ export function mockLogin(username, password) {
 export function mockLogout() {
   safeRemove(TOKEN_KEY);
   safeRemove(USER_KEY);
+  resetViewPermissions();
 }
 
 // Refresh user info from backend
