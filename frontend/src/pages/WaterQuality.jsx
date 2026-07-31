@@ -116,13 +116,15 @@ const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, saf
           loop
           playsInline
           preload="auto"
-          className="w-full h-56 object-cover"
+          className="w-full h-80 object-cover"
           style={{
             filter: aerationActive ? 'saturate(1.05) brightness(0.95)' : 'grayscale(0.6) brightness(0.55)',
-            // 25% more zoom on top of the previous 1.25 → 1.5625× (≈ +55% overall).
-            transform: 'scale(1.5625)',
+            // Zoomed OUT — no CSS scale, so the video fills the taller (h-80)
+            // container naturally via object-cover. Result: full aeration
+            // frame is visible instead of a cropped close-up.
+            transform: 'none',
             transformOrigin: 'center center',
-            transition: 'filter 0.6s ease-in-out, transform 0.6s ease-in-out',
+            transition: 'filter 0.6s ease-in-out',
           }}
           data-testid={`aeration-video-${tankNumber}`}
         />
