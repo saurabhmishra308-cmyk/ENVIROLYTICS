@@ -269,13 +269,53 @@ Water Quality visualisations.
   `type=DO Analyzer`, `source=HTTP`, `deviceId=DTU10020426` /
   `DTU10020326` — the poller picks them up on its next 5-min tick.
 
+## Recent updates (Jun 2026 · per-type device toggles + god-mode + refactor)
+- **Device Type Visibility toggles** — admin can hide entire device types
+  from a client: 8 new keys (`show_flowmeter_devices`, `show_dwlr_devices`,
+  `show_do_devices`, `show_chlorine_devices`, `show_ocems_devices`,
+  `show_ph_devices`, `show_tds_devices`, `show_conductivity_devices`)
+  appended to `VIEW_PERMISSION_KEYS` (now 23 keys). Mapping lives in
+  `api_admin.DEVICE_TYPE_PERMISSIONS`. Enforcement is SERVER-SIDE inside
+  `api_instrument_registry.visible_hardware_ids()` + `hidden_device_types()`
+  (`instrument_type: {$nin: hidden}`), so every consumer (dashboard, WQ,
+  reports, alerts, maps, exports, flowmeter mgmt, limits, camera) filters
+  automatically. Defaults ON (missing key = visible). Admin unaffected.
+- **Admin GOD MODE hardened** — backend now blocks: deactivating an admin
+  (400), deleting an admin account (400), changing an admin's role (400
+  "Admin role cannot be changed"), promoting anyone to admin via
+  update_user (403 single-admin), setting view-permissions on an admin
+  (already 400). Verified admin stays role=admin + active after all calls.
+- **File-size refactor (pure code moves, zero behavior change)**:
+  - `WaterQuality.jsx` 1646→767 lines — extracted `components/wq/`
+    `WQWidgets.jsx` (Gauge2D, AerationTank, DoseRecommendation),
+    `STPPlantDiagram.jsx` (diagram + Tank/PumpBadge/AirBlower/FeedPump/
+    FilterColumn/STPProcessFlow), `DoTankLinker.jsx`.
+  - `Instruments.jsx` 2158→1313 — extracted `components/instruments/`
+    `instrumentOptions.js`, `CreateInstrumentDialog`, `EditInstrumentDialog`,
+    `HttpsIngestionDialog`, `DummyModeDialog`, `SimulateMessageDialog`,
+    `RenameHardwareIdDialog`, `DataFrequencyDialog`, `ClearHistoryDialog`.
+  - `User.jsx` 1051→765 — extracted `components/ViewPermissionsDialog.jsx`
+    (now includes the Device Type Visibility section) and
+    `components/user/InstrumentRowCard.jsx` + `userInstrumentOptions.js`.
+  - Backend `api_water_quality.py` 1306→837 — admin config endpoints
+    (stp-config, aeration-video upload/delete, do-tank-config, thresholds)
+    + STP helpers moved to NEW `api_wq_config.py` (own router, same
+    `/api/water-quality` prefix, registered in server.py after the main WQ
+    router). `api_water_quality` re-imports `_derive_stp_live_metrics`,
+    `_sanitize_stp_cfg_for_client`, `UPLOAD_ROOT` from it.
+- Full regression by testing agent (iteration_19): 18 backend pass /
+  0 fail, all frontend flows pass, no console errors.
+
 ## Backlog (prioritised)
+- **P1** — Stale-vendor-data UX badge: show "Vendor data stale (Xd ago)" on
+  WQ/dashboard tiles when QESPL `received_at` is older than 24 h (user was
+  repeatedly confused by this on production).
 - **P1** — Multi-unit hierarchy (parent company + unit/state) for chains
   like Lemon Tree Hotel across many locations.
 - **P1** — Client-session watermark overlay (low-opacity diagonal repeat of
   `email · datetime` across every page to deter screenshot leaks).
-- **P1** — Instruments.jsx (>2000 lines) split: separate dialog components
-  for Create / Edit / HTTPS Ingestion / Dummy / Confirm.
+- **P1** — Instruments.jsx split: DONE Jun 2026 (dialogs extracted to
+  components/instruments/; 2158→1313 lines).
 - **P2** — Resolve React hydration warning `<span> in <option>` in
   `Reports.jsx`.
 - **P2** — Admin "Purge dummy readings" button per device (currently the

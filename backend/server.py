@@ -168,6 +168,10 @@ app.include_router(http_traffic_router)
 from api_water_quality import router as water_quality_router  # noqa: E402
 app.include_router(water_quality_router)
 
+# STP unit config / aeration videos / DO tank config / thresholds (admin)
+from api_wq_config import router as wq_config_router  # noqa: E402
+app.include_router(wq_config_router)
+
 # Serve uploaded aeration videos as static files under /api/uploads/aeration
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pathlib import Path as _Path  # noqa: E402

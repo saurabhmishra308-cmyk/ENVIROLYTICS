@@ -60,8 +60,25 @@ async def visible_hardware_ids(user: dict) -> Optional[Set[str]]:
     (currently never — kept as escape hatch for migrations).
     """
     query: Dict = {} if user.get("role") == "admin" else {"owner_user_id": user.get("id")}
+    if user.get("role") != "admin":
+        hidden = await hidden_device_types(user)
+        if hidden:
+            query["instrument_type"] = {"$nin": sorted(hidden)}
     cursor = db.instrument_registry.find(query, {"hardware_id": 1, "_id": 0})
     return {doc["hardware_id"] async for doc in cursor}
+
+
+async def hidden_device_types(user: dict) -> Set[str]:
+    """Instrument types the (non-admin) user's admin has toggled OFF.
+
+    Admins always get an empty set (god mode). Missing keys default to
+    visible so legacy accounts behave exactly as before."""
+    if user.get("role") == "admin":
+        return set()
+    from api_admin import DEVICE_TYPE_PERMISSIONS  # local import — avoids cycle
+    doc = await db.users.find_one({"id": user.get("id")}, {"_id": 0, "view_permissions": 1}) or {}
+    vp = doc.get("view_permissions") or {}
+    return {itype for key, itype in DEVICE_TYPE_PERMISSIONS.items() if vp.get(key, True) is False}
 
 
 def _normalise_type(t: str) -> str:
@@ -183,10 +200,17 @@ async def list_instruments(
     (flowmeter | dwlr | ph | tds | conductivity).
     """
     query: Dict = {}
+    hidden: Set[str] = set()
     if user.get("role") != "admin":
         query["owner_user_id"] = user.get("id")
+        hidden = await hidden_device_types(user)
+        if hidden:
+            query["instrument_type"] = {"$nin": sorted(hidden)}
     if instrument_type:
-        query["instrument_type"] = _normalise_type(instrument_type)
+        t = _normalise_type(instrument_type)
+        if t in hidden:
+            return {"instruments": [], "count": 0}
+        query["instrument_type"] = t
     cursor = db.instrument_registry.find(query, {"_id": 0}).sort("created_at", -1)
     items = await cursor.to_list(length=2000)
     items = await _enrich_with_owner(items)

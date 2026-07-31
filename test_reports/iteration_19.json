@@ -1,0 +1,34 @@
+{
+  "summary": "Full backend + frontend regression for iter19 (per-device-type visibility toggles, admin god-mode, and refactored api_wq_config.py + Instruments/WaterQuality/User components). Backend pytest: 18 passed, 1 skipped (no wq_stp device in registry — expected). Frontend UI: all critical flows PASS — login works via username, ViewPermissionsDialog exposes 15 page + 8 device toggles (23 total), flowmeter toggle persists round-trip, cleanup succeeded, Instruments/WaterQuality/create-user wizard all render.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/water-quality/{hw}/stp-config", "issue": "No wq_stp device seeded in registry — endpoint not exercised (test skipped). Confirm STP config path with a real wq_stp device in a follow-up."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration19_view_perms_godmode.py",
+    "/app/test_reports/pytest/iter19_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "api_wq_config.py PUT /{hw}/thresholds returns 400 'No fields to update' on empty payload — reasonable, but frontend must never send an empty thresholds payload; consider returning 200 no-op instead to be idempotent.",
+    "ViewPermissionsDialog: while loading, the vp-save button is already in the DOM (disabled) — E2E tests must gate on vp-enabled-count (post-load) to avoid interacting with a still-loading dialog.",
+    "admin_id / self-delete guard in api_admin.py uses 'Cannot delete self' (400) — matches spec. Admin-role-change guard returns 400 'Admin role cannot be changed'. All good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration19_view_perms_godmode.py (new)"
+  ],
+  "success_rate": {"backend": "100% (18/18 executed, 1 skipped)", "frontend": "100% (all critical flows)"},
+  "test_credentials": "admin/Admin@Envirolytics2026, testclient/Client@Test2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. Toggled testclient.show_flowmeter_devices during tests and restored to True at end. VTFM001 / VTDO001 untouched. Admin left with role=admin, is_active=true.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend login POST /api/auth/login uses field 'email' (not 'identifier') and accepts email/username/user-id. Users list is at /api/admin/users/list (returns {users:[...]}). WQ thresholds endpoint requires at least one field from WQThresholdsConfig (turbidity_k / chlorine_min / chlorine_max / …) — empty {} rejects with 400. VP dialog only becomes interactive when [data-testid=vp-enabled-count] appears (not vp-save which pre-renders).",
+  "rca of the issue": "N/A — no failing tests. Initial script authoring hiccups: (1) test used wrong login field name 'identifier' → 422, fixed to 'email'; (2) used /api/admin/users (404), fixed to /api/admin/users/list; (3) sent empty thresholds payload, fixed to send chlorine_min/max; (4) UI script queried vp-device-section before dialog data loaded — fixed by waiting for vp-enabled-count first."
+}

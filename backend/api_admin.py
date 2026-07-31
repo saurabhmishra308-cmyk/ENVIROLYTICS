@@ -192,9 +192,12 @@ async def list_locations(user: dict = Depends(get_current_user)):
 
 @router.put("/users/{user_id}/status")
 async def toggle_user_status(user_id: str, is_active: bool, admin: dict = Depends(require_admin)):
-    result = await db.users.update_one({"id": user_id}, {"$set": {"is_active": is_active}})
-    if result.matched_count == 0:
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1})
+    if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    if target.get("role") == "admin" and not is_active:
+        raise HTTPException(status_code=400, detail="Admin accounts cannot be deactivated")
+    await db.users.update_one({"id": user_id}, {"$set": {"is_active": is_active}})
     return {"success": True, "is_active": is_active}
 
 
@@ -207,6 +210,12 @@ async def update_user(user_id: str, req: AdminUpdateUserRequest, admin: dict = D
     updates = req.model_dump(exclude_unset=True)
     if "role" in updates and updates["role"] not in ("admin", "client"):
         raise HTTPException(status_code=400, detail="Invalid role")
+    if "role" in updates:
+        target = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1})
+        if target and target.get("role") == "admin" and updates["role"] != "admin":
+            raise HTTPException(status_code=400, detail="Admin role cannot be changed — admin is always god mode")
+        if target and target.get("role") != "admin" and updates["role"] == "admin":
+            raise HTTPException(status_code=403, detail="Only one admin account is permitted")
     if "username" in updates and updates["username"]:
         clash = await db.users.find_one({"username": updates["username"], "id": {"$ne": user_id}})
         if clash:
@@ -223,6 +232,9 @@ async def update_user(user_id: str, req: AdminUpdateUserRequest, admin: dict = D
 async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     if user_id == admin["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete self")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1})
+    if target and target.get("role") == "admin":
+        raise HTTPException(status_code=400, detail="Admin accounts cannot be deleted")
     result = await db.users.delete_one({"id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
@@ -252,6 +264,22 @@ VIEW_PERMISSION_KEYS = [
     "conductivity",
     "rwh_recharge",
 ]
+
+# Per-device-type visibility toggles. When a key is OFF for a client, every
+# device of the mapped instrument_type is filtered out of ALL data endpoints
+# (dashboard, reports, water quality, maps, exports) at the backend level.
+# Admins always see everything (god mode).
+DEVICE_TYPE_PERMISSIONS = {
+    "show_flowmeter_devices": "flowmeter",
+    "show_dwlr_devices": "dwlr",
+    "show_do_devices": "do_meter",
+    "show_chlorine_devices": "chlorine_analyzer",
+    "show_ocems_devices": "wq_stp",
+    "show_ph_devices": "ph",
+    "show_tds_devices": "tds",
+    "show_conductivity_devices": "conductivity",
+}
+VIEW_PERMISSION_KEYS += list(DEVICE_TYPE_PERMISSIONS.keys())
 
 
 class ViewPermissionsRequest(BaseModel):
