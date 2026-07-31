@@ -434,8 +434,11 @@ const Instruments = () => {
       const fixed = INSTRUMENT_CATEGORY_MAP[out.instrument_type];
       if (fixed) out.category = fixed.value; else delete out.category;
     }
-    // IMEI: strip non-digits, empty string → drop
-    const imei = String(out.imei || '').replace(/\D/g, '').trim();
+    // IMEI / vendor deviceId — accept any non-empty printable string.
+    // MQTT devices report numeric SIM IMEIs; QESPL HTTP devices report
+    // alphanumeric ids like `DTU10020426`. Some vendors include letters,
+    // dashes, dots — so no format restriction is enforced.
+    const imei = String(out.imei || '').trim();
     if (imei) out.imei = imei; else delete out.imei;
     // Manual water temp — only send for DWLR (and only if a valid number)
     if (out.instrument_type === 'dwlr') {
@@ -475,11 +478,6 @@ const Instruments = () => {
   const handleCreate = async () => {
     if (!form.hardware_id || !form.owner_user_id) {
       toast.error('Hardware ID and Owner are required');
-      return;
-    }
-    const imei = String(form.imei || '').replace(/\D/g, '').trim();
-    if (imei && !/^\d{14,16}$/.test(imei)) {
-      toast.error('IMEI must be 14–16 digits (numeric only)');
       return;
     }
     try {
@@ -1361,15 +1359,14 @@ const Instruments = () => {
               </div>
             </div>
             <div>
-              <Label>IMEI *</Label>
+              <Label>IMEI / Device ID *</Label>
               <Input
                 value={form.imei}
-                onChange={(e) => setForm({ ...form, imei: e.target.value.replace(/\D/g, '') })}
-                placeholder="e.g. 860738070478155"
-                maxLength={16}
+                onChange={(e) => setForm({ ...form, imei: e.target.value })}
+                placeholder="e.g. 860738070478155 or DTU10020426"
                 data-testid="instrument-imei"
               />
-              <p className="text-xs text-gray-500 mt-1">SIM/modem IMEI on the device. MQTT messages are routed to this instrument by IMEI.</p>
+              <p className="text-xs text-gray-500 mt-1">SIM/modem IMEI or vendor deviceId (alphanumeric, no length limit). Used to route incoming MQTT/HTTP data to this instrument.</p>
             </div>
             {form.instrument_type === 'dwlr' && (
               <div>
@@ -1477,15 +1474,14 @@ const Instruments = () => {
               </div>
             </div>
             <div>
-              <Label>IMEI *</Label>
+              <Label>IMEI / Device ID *</Label>
               <Input
                 value={form.imei}
-                onChange={(e) => setForm({ ...form, imei: e.target.value.replace(/\D/g, '') })}
-                placeholder="e.g. 860738070478155"
-                maxLength={16}
+                onChange={(e) => setForm({ ...form, imei: e.target.value })}
+                placeholder="e.g. 860738070478155 or DTU10020426"
                 data-testid="edit-instrument-imei"
               />
-              <p className="text-xs text-gray-500 mt-1">SIM/modem IMEI. MQTT messages are matched to this instrument by IMEI.</p>
+              <p className="text-xs text-gray-500 mt-1">Alphanumeric SIM IMEI (MQTT) or vendor deviceId (HTTP). No length limit.</p>
             </div>
             {form.instrument_type === 'dwlr' && (
               <div>

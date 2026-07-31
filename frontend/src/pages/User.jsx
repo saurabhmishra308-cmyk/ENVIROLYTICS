@@ -174,15 +174,10 @@ const UserPage = () => {
       seen.add(hw);
       const imei = it.imei?.trim();
       if (imei) {
-        // HTTP source uses vendor deviceIds like `DTU10020426` — alphanumeric.
-        // MQTT devices report a numeric SIM IMEI (14–16 digits).
-        if (it.source === 'http') {
-          if (!/^[A-Za-z0-9_-]{4,32}$/.test(imei)) {
-            toast.error(`Instrument #${i + 1}: deviceId must be 4–32 alphanumeric characters`); return false;
-          }
-        } else if (!/^\d{14,16}$/.test(imei)) {
-          toast.error(`Instrument #${i + 1}: IMEI must be 14–16 digits (or switch source to HTTP)`); return false;
-        }
+        // No format restriction — accept any non-empty alphanumeric id.
+        // MQTT modems produce numeric IMEIs; QESPL and other vendors use
+        // mixed-case ids like `DTU10020426`. Some carriers even include
+        // dashes/dots. Duplicate check is the only real safety net.
         if (seenImei.has(imei)) { toast.error(`Instrument #${i + 1}: Duplicate IMEI/deviceId "${imei}"`); return false; }
         seenImei.add(imei);
       }
