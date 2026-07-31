@@ -274,6 +274,21 @@ async def startup_event():
     # Background loop for ESPL HTTP polling (5 min per device). Devices are
     # picked up from the registry whenever an admin registers one with
     # `source='http'` — no hardcoded devices.
+    #
+    # Startup backfill: DO Analyzer / Chlorine Analyzer / OCEMS devices
+    # only exist via QESPL HTTP in practice, but earlier versions of the
+    # create endpoint defaulted `source` to "mqtt" for every type. Flip
+    # any such device that was registered without an explicit source over
+    # to "http" so the poller starts hitting QESPL for them.
+    backfill_result = await db.instrument_registry.update_many(
+        {
+            "instrument_type": {"$in": ["do_meter", "chlorine_analyzer", "wq_stp"]},
+            "source": {"$ne": "http"},
+        },
+        {"$set": {"source": "http"}},
+    )
+    if backfill_result.modified_count:
+        logger.info(f"[startup] Backfilled source=http for {backfill_result.modified_count} DO/Chlorine/OCEMS devices")
     espl_poller.start_background(app)
     logger.info("Startup complete")
 

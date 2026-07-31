@@ -312,12 +312,17 @@ async def latest_readings(
                 # Safety net for devices that don't have `aeration_tank_number`
                 # set in the registry yet — surface whatever DO_TANK_* the
                 # poller baked in previously so the tank tile still shows
-                # live data instead of going blank. As soon as an admin sets
-                # the tank number via the inline linker, the branch above
-                # takes over and stale keys are stripped for good.
+                # live data instead of going blank. If neither is present,
+                # fall back to Tank 1 using the raw `DO` value so a freshly
+                # provisioned DO Analyzer isn't invisible until an admin
+                # remembers to configure the aeration tank number.
+                found_any = False
                 for k, v in raw_vals.items():
                     if k.startswith("DO_TANK_") and v is not None:
                         vals[k] = v
+                        found_any = True
+                if not found_any and do_val is not None:
+                    vals["DO_TANK_1"] = do_val
             r["values"] = vals
 
     chlorine_items: List[dict] = []

@@ -252,7 +252,17 @@ async def _create_one_instrument(req: "CreateInstrumentRequest", admin: dict) ->
         "tank_capacity_kld": req.tank_capacity_kld if itype in ("wq_stp", "do_meter", "chlorine_analyzer") else None,
         # DO-Analyzer-only: which aeration tank the sensor is mounted in.
         "aeration_tank_number": int(req.aeration_tank_number) if (itype == "do_meter" and req.aeration_tank_number) else None,
-        "source": (req.source or "mqtt").lower() if (req.source or "mqtt").lower() in ("mqtt", "http") else "mqtt",
+        # Source: default to HTTP for QESPL-only instrument types
+        # (DO/Chlorine/OCEMS) unless the admin explicitly picks something
+        # else. These types never arrive over MQTT in practice, and
+        # defaulting them to MQTT silently prevented the poller from
+        # picking them up ("registered device but dashboard shows No data
+        # yet"). Every other type still defaults to MQTT.
+        "source": (
+            (req.source or "").lower()
+            if (req.source or "").lower() in ("mqtt", "http")
+            else ("http" if itype in ("do_meter", "chlorine_analyzer", "wq_stp") else "mqtt")
+        ),
         "device_key": secrets.token_urlsafe(24),  # for HTTPS ingestion auth
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": admin.get("id"),
