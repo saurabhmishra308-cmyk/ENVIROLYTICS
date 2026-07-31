@@ -464,9 +464,11 @@ const UserPage = () => {
                       <td className="p-3"><Badge className={u.is_active ? 'bg-green-500' : 'bg-gray-500'}>{u.is_active ? 'Active' : 'Inactive'}</Badge></td>
                       <td className="p-3">
                         <div className="flex gap-2 flex-wrap">
-                          <Button size="sm" variant="outline" onClick={() => openEdit(u)} data-testid={`edit-user-${u.id}`}>
-                            Edit
-                          </Button>
+                          {u.role !== 'admin' && (
+                            <Button size="sm" variant="outline" onClick={() => openEdit(u)} data-testid={`edit-user-${u.id}`}>
+                              Edit
+                            </Button>
+                          )}
                           <Button size="sm" variant="outline" onClick={() => { setPwTarget(u); setPwOpen(true); }} data-testid={`reset-pw-${u.id}`}>
                             <KeyRound className="h-3 w-3 mr-1" /> Reset PW
                           </Button>
