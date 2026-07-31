@@ -326,3 +326,13 @@ Water Quality visualisations.
 - URL: https://monitor.envirolytics.in
 - Preview DB is empty; production DB carries live devices (Piezometer,
   Lemon Tree Hotel STP, etc.).
+
+## Changelog — Feb 2026
+- **Login identifier hardening (Feb 2026)**: Removed `user_id` as a valid
+  login identifier. `/api/auth/login` now only accepts **email**
+  (case-insensitive) or **username** (case-sensitive). Same password works
+  for both. Login page label updated to "Username or Email" and the
+  frontend no longer force-lowercases the identifier (which had silently
+  broken case-sensitive usernames). Verified via curl: admin+testclient
+  succeed via both email & username; leaked `user_2ba8…` IDs now return
+  401.

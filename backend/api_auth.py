@@ -114,14 +114,13 @@ async def login(req: LoginRequest, request: Request):
             detail=f"Too many failed attempts. Try again in {LOCKOUT_MINUTES} minutes.",
         )
 
-    # Match on email (case-insensitive), username (case-sensitive), or
-    # internal user id (case-preserved). The user id is useful for admins
-    # signing in to a client account without knowing the client's email.
+    # Match on email (case-insensitive) OR username (case-sensitive).
+    # Login via internal user_id is intentionally NOT supported — clients
+    # log in with their email or the username admin shares with them.
     user = await db.users.find_one({
         "$or": [
             {"email": email_lc},
             {"username": identifier_raw},
-            {"id": identifier_raw},
         ],
     })
     if not user or not verify_password(req.password, user.get("password_hash", "")):

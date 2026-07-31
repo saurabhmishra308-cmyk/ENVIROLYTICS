@@ -46,7 +46,7 @@ const Login = () => {
       return;
     }
     setSubmitting(true);
-    const result = await loginWithEmail(email.trim().toLowerCase(), password);
+    const result = await loginWithEmail(email.trim(), password);
     setSubmitting(false);
     if (result.success) {
       navigate('/dashboard');
@@ -244,14 +244,14 @@ const Login = () => {
 
             <form onSubmit={handleSubmit} className="relative z-[1]">
               <div className="mb-4">
-                <Label htmlFor="email" className="text-white/90 text-xs uppercase tracking-wider mb-2 block font-semibold">Username, Email or User ID</Label>
+                <Label htmlFor="email" className="text-white/90 text-xs uppercase tracking-wider mb-2 block font-semibold">Username or Email</Label>
                 <Input
                   id="email"
                   type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full text-sm px-3 py-2 rounded-md"
-                  placeholder="e.g. shalimar-lake, admin@envirolytics.com or user_2ba8d15c08ae"
+                  placeholder="e.g. shalimar-lake or admin@envirolytics.com"
                   data-testid="login-email-input"
                   autoComplete="username"
                 />
