@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, Link } from 'react-router-dom';
 import { loginWithEmail, isAuthenticated } from '../mockData';
+import api from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { FileText, Loader2 } from 'lucide-react';
+import { FileText, Loader2, KeyRound, X } from 'lucide-react';
 import '../styles/login-scene.css';
 
 // Compact potted-plant SVG used 4 times across the scene
@@ -29,6 +31,56 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Admin OTP-based password recovery
+  const [showRecover, setShowRecover] = useState(false);
+  const [recoverStep, setRecoverStep] = useState(1); // 1=request OTP, 2=verify + set new
+  const [otp, setOtp] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [recoverErr, setRecoverErr] = useState('');
+  const [recoverMsg, setRecoverMsg] = useState('');
+  const [recoverBusy, setRecoverBusy] = useState(false);
+
+  const openRecover = () => {
+    setShowRecover(true);
+    setRecoverStep(1);
+    setOtp('');
+    setNewPass('');
+    setRecoverErr('');
+    setRecoverMsg('');
+  };
+
+  const requestOtp = async () => {
+    setRecoverErr('');
+    setRecoverMsg('');
+    setRecoverBusy(true);
+    try {
+      await api.post('/api/auth/admin-recovery/request-otp');
+      setRecoverMsg('OTP sent to the admin recovery mailbox. Check inbox and enter the 6-digit code below.');
+      setRecoverStep(2);
+    } catch (e) {
+      setRecoverErr(e?.response?.data?.detail || 'Failed to send OTP. Try again in a minute.');
+    } finally {
+      setRecoverBusy(false);
+    }
+  };
+
+  const submitOtp = async () => {
+    setRecoverErr('');
+    setRecoverMsg('');
+    if (!/^\d{6}$/.test(otp)) { setRecoverErr('Enter the 6-digit OTP.'); return; }
+    if (newPass.length < 8) { setRecoverErr('New password must be at least 8 characters.'); return; }
+    setRecoverBusy(true);
+    try {
+      await api.post('/api/auth/admin-recovery/verify-otp', { otp, new_password: newPass });
+      setRecoverMsg('Admin password updated. You can now sign in with the new password.');
+      setTimeout(() => setShowRecover(false), 2000);
+    } catch (e) {
+      setRecoverErr(e?.response?.data?.detail || 'Invalid or expired OTP.');
+    } finally {
+      setRecoverBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (isAuthenticated()) {
@@ -287,10 +339,19 @@ const Login = () => {
               </div>
             </form>
 
-            <div className="text-center mb-3 relative z-[1]">
+            <div className="text-center mb-3 relative z-[1] flex items-center justify-center gap-4">
               <Link to="/policies" className="text-white/85 text-sm inline-flex items-center gap-1 hover:text-white hover:underline transition-colors">
                 <FileText size={14} /> Policies
               </Link>
+              <span className="text-white/40 text-sm">·</span>
+              <button
+                type="button"
+                onClick={openRecover}
+                className="text-white/85 text-sm inline-flex items-center gap-1 hover:text-white hover:underline transition-colors bg-transparent border-0 cursor-pointer p-0"
+                data-testid="forgot-admin-password-link"
+              >
+                <KeyRound size={14} /> Forgot admin password?
+              </button>
             </div>
 
             <div className="text-center text-gray-400/80 text-[11px] tracking-wider relative z-[1]">VERSION 1.0  ·  SECURE LOGIN</div>
@@ -300,6 +361,112 @@ const Login = () => {
           </p>
         </div>
       </div>
+
+      {/* Admin recovery modal (OTP to pre-configured recovery mailbox) */}
+      {showRecover && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          data-testid="admin-recovery-modal"
+        >
+          <div className="w-full max-w-md mx-4 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-6 text-white relative">
+            <button
+              type="button"
+              onClick={() => setShowRecover(false)}
+              className="absolute top-3 right-3 text-white/60 hover:text-white bg-transparent border-0 cursor-pointer"
+              data-testid="admin-recovery-close"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+            <div className="flex items-center gap-2 mb-2">
+              <KeyRound size={18} className="text-sky-400" />
+              <h3 className="text-lg font-semibold">Admin Password Recovery</h3>
+            </div>
+            <p className="text-white/70 text-xs mb-4">
+              A 6-digit OTP will be emailed to the pre-registered admin recovery mailbox.
+              Only the mailbox owner can complete the reset.
+            </p>
+
+            {recoverStep === 1 && (
+              <div className="space-y-3">
+                <Button
+                  type="button"
+                  onClick={requestOtp}
+                  disabled={recoverBusy}
+                  className="w-full bg-sky-500 hover:bg-sky-400 text-white"
+                  data-testid="admin-recovery-request-otp"
+                >
+                  {recoverBusy ? <span className="flex items-center gap-2 justify-center"><Loader2 className="w-4 h-4 animate-spin" />Sending…</span> : 'Send OTP to admin mailbox'}
+                </Button>
+              </div>
+            )}
+
+            {recoverStep === 2 && (
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs uppercase tracking-wider text-white/80 mb-1 block">6-digit OTP</Label>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="123456"
+                    className="text-center text-lg tracking-[0.5em] font-mono text-white"
+                    data-testid="admin-recovery-otp-input"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs uppercase tracking-wider text-white/80 mb-1 block">New admin password</Label>
+                  <Input
+                    type="password"
+                    value={newPass}
+                    onChange={(e) => setNewPass(e.target.value)}
+                    placeholder="Min 8 characters"
+                    className="text-white"
+                    data-testid="admin-recovery-newpass-input"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  onClick={submitOtp}
+                  disabled={recoverBusy}
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-white"
+                  data-testid="admin-recovery-verify-otp"
+                >
+                  {recoverBusy ? <span className="flex items-center gap-2 justify-center"><Loader2 className="w-4 h-4 animate-spin" />Verifying…</span> : 'Reset admin password'}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => { setRecoverStep(1); setOtp(''); setNewPass(''); setRecoverErr(''); setRecoverMsg(''); }}
+                  className="text-xs text-white/60 hover:text-white underline bg-transparent border-0 cursor-pointer w-full text-center"
+                  data-testid="admin-recovery-resend"
+                >
+                  Didn&apos;t get it? Send a new OTP
+                </button>
+              </div>
+            )}
+
+            {recoverMsg && (
+              <div
+                className="mt-3 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-3 py-2"
+                data-testid="admin-recovery-message"
+              >
+                {recoverMsg}
+              </div>
+            )}
+            {recoverErr && (
+              <div
+                className="mt-3 text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2"
+                data-testid="admin-recovery-error"
+              >
+                {recoverErr}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

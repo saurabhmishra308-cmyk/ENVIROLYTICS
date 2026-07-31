@@ -1,6 +1,8 @@
 """Authentication API endpoints + admin seed."""
 import os
 import uuid
+import hashlib
+import secrets
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, EmailStr
@@ -12,6 +14,7 @@ from auth import (
     get_current_user,
     require_admin,
 )
+from notification_service import _send as _send_email
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -261,6 +264,151 @@ async def _recover_admin(request: Request):
         raise HTTPException(status_code=404, detail="Not Found")
     await _clear_attempts(identifier)
     return {"success": True, "message": "Admin credentials restored from .env"}
+
+
+# ============================
+# Email-OTP admin password recovery
+# ============================
+# Public flow (no auth) — sends a 6-digit OTP to the pre-configured recovery
+# mailbox (ADMIN_RECOVERY_EMAIL in backend/.env). Anyone hitting the
+# request endpoint can trigger a mail to that mailbox (never disclosed in
+# the API); only whoever controls that mailbox can complete the reset.
+# OTP lifetime = 10 min, single-use, brute-force rate-limited.
+OTP_TTL_MINUTES = 10
+OTP_MAX_REQUESTS_PER_HOUR = 5
+
+
+class RequestAdminOTP(BaseModel):
+    pass  # no body — the recovery email is fixed on the server
+
+
+class VerifyAdminOTP(BaseModel):
+    otp: str
+    new_password: str
+
+
+async def _throttle_otp_requests(client_ip: str):
+    """Block if >5 OTPs requested from same IP in past 60 min."""
+    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    since_iso = since.isoformat()
+    count = await db.admin_otp.count_documents({
+        "kind": "request",
+        "client_ip": client_ip,
+        "created_at": {"$gte": since_iso},
+    })
+    if count >= OTP_MAX_REQUESTS_PER_HOUR:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many OTP requests. Try again in 1 hour.",
+        )
+
+
+def _build_otp_html(otp: str, requester_ip: str) -> str:
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;background:#0f172a;color:#f1f5f9;border-radius:12px;">
+      <h2 style="margin:0 0 8px 0;color:#38bdf8;">Envirolytics — Admin Password Recovery</h2>
+      <p style="margin:0 0 18px 0;color:#94a3b8;font-size:13px;">Someone (IP <code style="color:#f59e0b;">{requester_ip}</code>) requested a password reset for the admin account.</p>
+      <div style="background:#1e293b;padding:20px;border-radius:8px;text-align:center;margin:16px 0;">
+        <div style="font-size:11px;letter-spacing:2px;color:#94a3b8;text-transform:uppercase;">Your one-time code</div>
+        <div style="font-size:36px;font-weight:700;letter-spacing:8px;color:#38bdf8;margin-top:8px;font-family:'Courier New',monospace;">{otp}</div>
+      </div>
+      <p style="margin:0 0 8px 0;font-size:13px;">This code expires in <strong>{OTP_TTL_MINUTES} minutes</strong> and can only be used once.</p>
+      <p style="margin:0;font-size:12px;color:#94a3b8;">If you did not request this, ignore this email — the admin password stays unchanged.</p>
+    </div>
+    """
+
+
+@router.post("/admin-recovery/request-otp")
+async def request_admin_otp(request: Request):
+    """Generate a 6-digit OTP and email it to ADMIN_RECOVERY_EMAIL.
+
+    The recovery mailbox is a server-side secret — the API never leaks
+    which address received the code. Response is intentionally minimal.
+    """
+    client_ip = _get_client_ip(request)
+    await _throttle_otp_requests(client_ip)
+
+    recovery_email = (os.environ.get("ADMIN_RECOVERY_EMAIL") or "").strip()
+    if not recovery_email:
+        raise HTTPException(status_code=503, detail="Admin recovery email not configured")
+
+    # Invalidate any prior unused OTPs so a fresh code is always the only valid one
+    await db.admin_otp.update_many(
+        {"kind": "otp", "used": False},
+        {"$set": {"used": True, "invalidated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    otp_digest = hashlib.sha256(otp.encode()).hexdigest()
+    now = datetime.now(timezone.utc)
+    await db.admin_otp.insert_one({
+        "kind": "otp",
+        "otp_hash": otp_digest,
+        "expires_at": (now + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
+        "created_at": now.isoformat(),
+        "used": False,
+        "client_ip": client_ip,
+    })
+    # Log the request (throttle counter)
+    await db.admin_otp.insert_one({
+        "kind": "request",
+        "client_ip": client_ip,
+        "created_at": now.isoformat(),
+    })
+
+    result = await _send_email(
+        [recovery_email],
+        "Envirolytics — Admin password reset code",
+        _build_otp_html(otp, client_ip),
+    )
+    if not result.get("sent"):
+        raise HTTPException(
+            status_code=502,
+            detail=f"OTP could not be emailed: {result.get('reason', 'unknown')}",
+        )
+    # Never return the OTP or the recipient. Only a generic ack.
+    return {"success": True, "message": "If the recovery mailbox is configured, an OTP has been sent."}
+
+
+@router.post("/admin-recovery/verify-otp")
+async def verify_admin_otp(req: VerifyAdminOTP, request: Request):
+    """Verify OTP and set a new admin password."""
+    client_ip = _get_client_ip(request)
+    lock_id = f"otp:{client_ip}"
+    if await _is_locked_out(lock_id):
+        raise HTTPException(status_code=429, detail=f"Too many failed attempts. Try again in {LOCKOUT_MINUTES} minutes.")
+
+    if not req.otp or not req.otp.isdigit() or len(req.otp) != 6:
+        await _record_failed(lock_id)
+        raise HTTPException(status_code=400, detail="Invalid OTP format")
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    # Fetch the most recent unused, unexpired OTP record
+    record = await db.admin_otp.find_one(
+        {"kind": "otp", "used": False, "expires_at": {"$gt": now_iso}},
+        sort=[("created_at", -1)],
+    )
+    if not record or hashlib.sha256(req.otp.encode()).hexdigest() != record.get("otp_hash", ""):
+        await _record_failed(lock_id)
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
+
+    # Mark used and reset admin password
+    await db.admin_otp.update_one({"_id": record["_id"]}, {"$set": {"used": True, "used_at": now_iso}})
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@envirolytics.com").lower()
+    result = await db.users.update_one(
+        {"email": admin_email},
+        {"$set": {
+            "password_hash": hash_password(req.new_password),
+            "role": "admin",
+            "is_active": True,
+        }},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Admin account not found")
+    await _clear_attempts(lock_id)
+    return {"success": True, "message": "Admin password updated. You can now sign in."}
 
 
 # ============================
