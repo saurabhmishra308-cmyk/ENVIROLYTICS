@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 
 import WeatherCard from '../components/WeatherCard';
 import InstrumentSection from '../components/InstrumentSection';
+import RwhRechargeTile from '../components/RwhRechargeTile';
 import LocationMap from '../components/LocationMap';
 import OfflineAlertsBanner from '../components/OfflineAlertsBanner';
 import NotificationRecipientsCard from '../components/NotificationRecipientsCard';
@@ -453,6 +454,11 @@ const EnhancedDashboard = () => {
           isDarkMode={isDarkMode}
           testId="section-water-level"
         />
+
+        {/* === RWH RECHARGE ESTIMATE ===
+            Sits next to Water Level so admins can compare abstraction (DWLR
+            drawdown) against recharge (rainfall × catchment × runoff). */}
+        <RwhRechargeTile isDarkMode={isDarkMode} />
 
         {/* === BOREWELL WATER QUALITY === */}
         <Card className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`} style={{ borderTopColor: '#8e44ad' }} data-testid="section-water-quality">

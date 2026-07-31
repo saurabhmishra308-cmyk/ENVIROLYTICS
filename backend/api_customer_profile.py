@@ -64,6 +64,7 @@ _PROFILE_FIELDS = {
     "piezometers_count",
     "rwh_structure_count",
     "rwh_catchment_area_sqm",
+    "rwh_runoff_coefficient",  # 0..1 — CGWB reference values: RCC roof 0.85, GI 0.90, tiled 0.75, paved 0.70, unpaved 0.10-0.25
     "borewell_nocs",           # per-borewell NOC list when noc_mode == 'per_borewell'
     "noc_file_name",           # single-mode NOC certificate file name (uploaded via /noc-certificate)
     "notes",
@@ -99,6 +100,10 @@ class ProfileUpdate(BaseModel):
     piezometers_count: Optional[int] = Field(None, ge=0)
     rwh_structure_count: Optional[int] = Field(None, ge=0)
     rwh_catchment_area_sqm: Optional[float] = Field(None, ge=0)
+    rwh_runoff_coefficient: Optional[float] = Field(
+        None, ge=0.0, le=1.0,
+        description="Runoff coefficient (0..1). CGWB refs: RCC roof 0.85, GI 0.90, tiled 0.75, paved 0.70, unpaved 0.10-0.25.",
+    )
     # List of {borewell_name, noc_number, issue_date, expiry_date} entries.
     # Used when `noc_mode == 'per_borewell'` (e.g. Uttar Pradesh) so each
     # borewell can carry its own NOC dates and reminders.

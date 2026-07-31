@@ -85,6 +85,24 @@ Water Quality visualisations.
 - `users`, `audit_log`, `notification_settings`, `certificates`, `renewals`,
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
+## Recent updates (Feb 2026 · RWH recharge estimation)
+- **New "Rainwater Recharge Estimate" tile** on the Dashboard, placed
+  immediately below the DWLR (Water Level) section so admins can
+  compare abstraction against recharge at a glance. Shows Today · Past
+  7 days · Past 30 days totals (L and KL).
+- **Backend**: `/api/rwh/recharge` — reads `rwh_catchment_area_sqm`,
+  `rwh_runoff_coefficient` (default 0.85 · RCC roof) from Customer
+  Profile, fetches daily rainfall from Open-Meteo (`past_days=30`) at
+  the user's coordinates, and returns
+  `recharge_litres = area × runoff × rainfall_mm` per day + rolling
+  totals + full series for future charting.
+- **Customer Profile** now includes a **Runoff Coefficient** input
+  (CGWB reference values inline as helper text): RCC roof 0.85, GI 0.90,
+  tiled 0.75, paved 0.70, unpaved 0.10–0.25.
+- Renders for **every user** — client, admin, sub-users. Degrades
+  gracefully when catchment area is missing (points to the profile
+  page) or coordinates are unset.
+
 ## Recent updates (Feb 2026 · create-user parity)
 - **Create-User wizard now supports every instrument type** — added
   DO Analyzer, OCEMS/WQ, Chlorine Analyzer to the type dropdown so a

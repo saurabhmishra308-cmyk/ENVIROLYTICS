@@ -21,7 +21,7 @@ const emptyForm = {
   cto_number: '', cto_issue_date: '', cto_expiry_date: '',
   boreholes_permitted: '', abstraction_borewells_count: '',
   permitted_daily_kl: '', permitted_yearly_kl: '',
-  piezometers_count: '', rwh_structure_count: '', rwh_catchment_area_sqm: '',
+  piezometers_count: '', rwh_structure_count: '', rwh_catchment_area_sqm: '', rwh_runoff_coefficient: '',
   notes: '',
 };
 
@@ -143,7 +143,7 @@ const CustomerProfile = () => {
       const numericFields = new Set([
         'noc_validity_years', 'boreholes_permitted', 'abstraction_borewells_count',
         'permitted_daily_kl', 'permitted_yearly_kl', 'piezometers_count',
-        'rwh_structure_count', 'rwh_catchment_area_sqm',
+        'rwh_structure_count', 'rwh_catchment_area_sqm', 'rwh_runoff_coefficient',
       ]);
       for (const [k, v] of Object.entries(form)) {
         if (v === '' || v === undefined) { payload[k] = null; continue; }
@@ -393,6 +393,7 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability 
     <Section title="Rainwater harvesting" icon={CalendarClock} hidden={!applicability.showRWH}>
       <Field label="Number of structures" value={profile.rwh_structure_count} />
       <Field label="Total catchment area" value={profile.rwh_catchment_area_sqm} unit="m²" />
+      <Field label="Runoff coefficient" value={profile.rwh_runoff_coefficient} />
     </Section>
 
     <Section title="Instruments installed" icon={Cpu} hidden={!applicability.showInstruments}>
@@ -584,7 +585,13 @@ const EditForm = ({ form, setForm, borewellNocs, setBorewellNocs, profile, onNoc
       <div className="grid grid-cols-2 gap-3">
         <Row label="Number of structures" k="rwh_structure_count" type="number" form={form} setForm={setForm} min={0} />
         <Row label="Total catchment area (m²)" k="rwh_catchment_area_sqm" type="number" form={form} setForm={setForm} min={0} step="0.01" />
+        <Row label="Runoff coefficient (0..1)" k="rwh_runoff_coefficient" type="number" form={form} setForm={setForm} min={0} max={1} step="0.01"
+             placeholder="0.85 (RCC roof) · 0.75 (tiled) · 0.70 (paved)" />
       </div>
+      <p className="text-[11px] text-gray-500 mt-2">
+        CGWB reference values — RCC roof: 0.85 · GI sheet: 0.90 · tiled: 0.75 · paved: 0.70 · unpaved: 0.10-0.25.
+        The dashboard multiplies this by rainfall (mm) and area (m²) to estimate daily recharge.
+      </p>
     </Section>
 
     <Section title="Notes">
