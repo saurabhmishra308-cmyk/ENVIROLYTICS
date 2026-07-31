@@ -86,13 +86,15 @@ export default function BulkAddInstruments({ open, onClose, users, onCreated }) 
           instrument_type: t.value,
           hardware_id: `${HW_PREFIX[t.value] || ''}${(i).toString().padStart(3, '0')}`,
           imei: '',
-          label: `${t.label} #${i}`,
+          // Label & aeration tank # are left blank — admin fills them in
+          // manually so the label matches on-site naming conventions
+          // (e.g. "STP 750 KLD", "Groundwater — north tower") rather
+          // than a generic auto-generated string.
+          label: '',
           source: DEFAULT_SOURCE[t.value] || 'mqtt',
           category: t.value === 'flowmeter' ? 'groundwater_abstraction' : undefined,
         };
-        // Auto-number aeration tanks for DO Analyzers so admin doesn't have
-        // to type 1..N manually. Overrideable in the per-row editor.
-        if (t.value === 'do_meter') row.aeration_tank_number = i;
+        if (t.value === 'do_meter') row.aeration_tank_number = '';
         out.push(row);
       }
     }
@@ -252,6 +254,7 @@ export default function BulkAddInstruments({ open, onClose, users, onCreated }) 
                     <th className="text-left px-2 py-1.5">Type</th>
                     <th className="text-left px-2 py-1.5">Hardware ID *</th>
                     <th className="text-left px-2 py-1.5">Label</th>
+                    <th className="text-left px-2 py-1.5">Tank #</th>
                     <th className="text-left px-2 py-1.5">Source</th>
                     <th className="text-left px-2 py-1.5">deviceId / IMEI</th>
                     <th className="text-left px-2 py-1.5"></th>
@@ -278,8 +281,23 @@ export default function BulkAddInstruments({ open, onClose, users, onCreated }) 
                         <Input
                           value={r.label}
                           onChange={(e) => updateRow(i, { label: e.target.value })}
+                          placeholder="e.g. STP 750 KLD"
                           className="h-8"
                         />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {r.instrument_type === 'do_meter' ? (
+                          <Input
+                            type="number" min="1" max="100"
+                            value={r.aeration_tank_number ?? ''}
+                            onChange={(e) => updateRow(i, { aeration_tank_number: e.target.value })}
+                            placeholder="1"
+                            className="h-8 w-16"
+                            data-testid={`bulk-row-tank-${i}`}
+                          />
+                        ) : (
+                          <span className="text-gray-300 text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-2 py-1.5">
                         <select
