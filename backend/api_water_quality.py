@@ -286,6 +286,13 @@ async def latest_readings(
     # share an `owner_user_id` — whichever device the operator selects
     # from the pill list will therefore show every tank the client has.
     #
+    # IMPORTANT: We always re-derive `DO_TANK_<n>` from the CURRENT
+    # `aeration_tank_number` in the registry (never trust the pre-baked
+    # `DO_TANK_N` key stored by the poller). Otherwise, when an admin
+    # remaps a device from Tank 1 to Tank 2 via the linker, the stale
+    # `DO_TANK_1` key that the poller wrote before the remap would still
+    # be merged in — showing the wrong reading on the wrong tank.
+    #
     # We look up owner from `instrument_registry` because
     # `instrument_latest` doesn't carry it.
     if do_items:
@@ -296,17 +303,26 @@ async def latest_readings(
             {"_id": 0, "hardware_id": 1, "owner_user_id": 1, "aeration_tank_number": 1},
         ):
             registry_map[reg["hardware_id"]] = reg
-        # owner_user_id → dict of DO_TANK_N → latest value
+        # Strip any pre-baked DO_TANK_* keys — we'll re-derive them below.
+        for r in do_items:
+            r["values"] = {
+                k: v for k, v in (r.get("values") or {}).items()
+                if not k.startswith("DO_TANK_")
+            }
+        # owner_user_id → dict of DO_TANK_N → latest value (freshly derived)
         owner_tank_values: Dict[str, Dict[str, float]] = {}
         for r in do_items:
             hw = r.get("hardware_id")
-            owner = (registry_map.get(hw) or {}).get("owner_user_id")
-            if not owner:
+            reg = registry_map.get(hw) or {}
+            owner = reg.get("owner_user_id")
+            tn = reg.get("aeration_tank_number")
+            if not owner or not isinstance(tn, int):
                 continue
-            owner_tank_values.setdefault(owner, {})
-            for k, v in (r.get("values") or {}).items():
-                if k.startswith("DO_TANK_") and v is not None:
-                    owner_tank_values[owner][k] = v
+            # Prefer the raw `DO` value (the poller always stores it).
+            do_val = (r.get("values") or {}).get("DO")
+            if do_val is None:
+                continue
+            owner_tank_values.setdefault(owner, {})[f"DO_TANK_{tn}"] = do_val
         # Apply the merged tank values to every DO device of that owner —
         # so switching the pill selector doesn't hide the sibling tank.
         for r in do_items:
@@ -316,7 +332,7 @@ async def latest_readings(
                 continue
             merged = dict(r.get("values") or {})
             for k, v in owner_tank_values[owner].items():
-                merged.setdefault(k, v)   # own reading takes precedence
+                merged[k] = v   # freshly-derived tank keys always win
             r["values"] = merged
         # dedup happens after registry placeholders are appended (below).
 

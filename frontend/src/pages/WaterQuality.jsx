@@ -1327,15 +1327,6 @@ const WaterQuality = () => {
                   )}
                 </div>
               </CardTitle>
-              <CardDescription>
-                Bubble animation speed and density reflect dissolved-oxygen concentration in each tank
-                {isAdmin && currentDevice?._registry && (
-                  <span className="ml-2 inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-900 rounded px-2 py-0.5 font-medium" data-testid="wq-do-owner-badge">
-                    Client: {currentDevice._registry.owner_name || currentDevice._registry.owner_email || currentDevice._registry.owner_user_id || '—'}
-                    {currentDevice._registry.location_name ? ` · ${currentDevice._registry.location_name}` : ''}
-                  </span>
-                )}
-              </CardDescription>
             </CardHeader>
             <CardContent>
               {isAdmin && Array.isArray(currentDevice?._do_siblings) && currentDevice._do_siblings.length > 0 && (
