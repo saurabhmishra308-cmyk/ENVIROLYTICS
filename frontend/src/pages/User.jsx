@@ -470,9 +470,11 @@ const UserPage = () => {
                           <Button size="sm" variant="outline" onClick={() => { setPwTarget(u); setPwOpen(true); }} data-testid={`reset-pw-${u.id}`}>
                             <KeyRound className="h-3 w-3 mr-1" /> Reset PW
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => toggleStatus(u)} data-testid={`toggle-status-${u.id}`}>
-                            <Power className="h-3 w-3 mr-1" /> {u.is_active ? 'Deactivate' : 'Activate'}
-                          </Button>
+                          {u.role !== 'admin' && (
+                            <Button size="sm" variant="outline" onClick={() => toggleStatus(u)} data-testid={`toggle-status-${u.id}`}>
+                              <Power className="h-3 w-3 mr-1" /> {u.is_active ? 'Deactivate' : 'Activate'}
+                            </Button>
+                          )}
                           {u.role !== 'admin' && (
                             <Button
                               size="sm"
@@ -484,7 +486,7 @@ const UserPage = () => {
                               <Shield className="h-3 w-3 mr-1" /> View Access
                             </Button>
                           )}
-                          {u.id !== me?.id && (
+                          {u.id !== me?.id && u.role !== 'admin' && (
                             <Button size="sm" variant="outline" className="text-red-600 border-red-600" onClick={() => deleteUser(u)} data-testid={`delete-user-${u.id}`}>
                               <Trash2 className="h-3 w-3" />
                             </Button>
