@@ -85,6 +85,25 @@ Water Quality visualisations.
 - `users`, `audit_log`, `notification_settings`, `certificates`, `renewals`,
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
+## Recent updates (Feb 2026 · WQ DO consolidation)
+- **Single DO Analyzer card per client** — previously the WQ page rendered
+  one card per DO device, so a two-tank site got two apparently-identical
+  cards. The `/api/water-quality/latest` endpoint now dedupes DO items by
+  owner: it picks the lowest `aeration_tank_number` as the canonical
+  card and aggregates DO_TANK_* values across every DO device owned by
+  the same client. Verified: two DO probes (tank 1 + tank 2) → response
+  returns exactly **1 DO card** with `DO_TANK_1=7.13, DO_TANK_2=2.6`.
+- **Client badge fix** — the WQ endpoint now joins the registry to the
+  users collection and adds `owner_name` (company / full name / username /
+  email), so the admin badge on the DO Analyzer tab reads
+  "Client: Shalimar Lake City" instead of "Client: user_2ba8d15c08ae".
+- **Prominent Configure CTA in Live Camera Feed** — added an amber
+  "No live camera or video attached yet · Configure Now" banner below
+  the video whenever admin has `canManage=true` and no stream is set,
+  and made the header Configure button a solid amber pill so it can't
+  be missed. Fixes the earlier report of "no configuration is showing"
+  even though the small ghost button was technically rendered.
+
 ## Recent updates (Feb 2026 · idempotent CSV import)
 - **Reports → Historical Data import** is now a safe *backfill-only*
   tool for correcting historical readings:

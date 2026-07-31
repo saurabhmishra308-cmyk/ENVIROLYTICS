@@ -204,16 +204,35 @@ export const LiveCameraWidget = ({
         {canManage && (
           <Button
             size="sm"
-            variant="ghost"
-            className="h-7 text-xs text-slate-300 hover:text-white hover:bg-slate-800"
+            className="h-8 text-xs bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold shadow-md"
             onClick={() => setShowConfig(true)}
             data-testid="camera-configure-btn"
           >
             <Settings className="h-3.5 w-3.5 mr-1" />
-            Configure
+            Configure Live Feed
           </Button>
         )}
       </div>
+
+      {/* Prominent Configure banner when NO stream is attached — sits BELOW
+          the video so admin cannot miss it. Only shown to admins. */}
+      {canManage && !hasStream && !loading && (
+        <div className="flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 border-t border-amber-200" data-testid="camera-configure-cta">
+          <div className="text-xs text-amber-900">
+            <div className="font-semibold">No live camera or video attached yet</div>
+            <div>Upload an MP4/WebM file, paste a YouTube link, or set a stream URL.</div>
+          </div>
+          <Button
+            size="sm"
+            className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold"
+            onClick={() => setShowConfig(true)}
+            data-testid="camera-configure-cta-btn"
+          >
+            <Settings className="h-3.5 w-3.5 mr-1" />
+            Configure Now
+          </Button>
+        </div>
+      )}
 
       {canManage && (
         <CameraConfigDialog

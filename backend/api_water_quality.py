@@ -27,7 +27,7 @@ import shutil
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
@@ -318,6 +318,7 @@ async def latest_readings(
             for k, v in owner_tank_values[owner].items():
                 merged.setdefault(k, v)   # own reading takes precedence
             r["values"] = merged
+        # dedup happens after registry placeholders are appended (below).
 
     chlorine_items: List[dict] = []
     async for r in db.instrument_latest.find({"instrument_type": "chlorine_analyzer", "_dummy": {"$ne": True}}, {"_id": 0}):
@@ -362,12 +363,64 @@ async def latest_readings(
             {"_id": 0, "hardware_id": 1, "label": 1, "location_name": 1,
              "instrument_type": 1, "owner_user_id": 1, "dummy_config": 1,
              "plant_capacity_kld": 1, "tank_capacity_kld": 1,
+             "aeration_tank_number": 1,
              "stp_unit_config": 1, "aeration_videos": 1, "do_tank_config": 1,
              "turbidity_k": 1, "chlorine_min": 1, "chlorine_max": 1,
              "chlorine_dose_target_mg_l": 1, "chlorine_solution_pct": 1,
              "chlorine_pump_kw": 1, "chlorine_flow_kld": 1},
         ):
             regs[reg["hardware_id"]] = reg
+
+    # Owner-level DO dedup — every DO card for the same client renders the
+    # same merged tank data, so keep only ONE representative per owner.
+    # Runs AFTER the registry-placeholder pass so newly-registered devices
+    # (which appear as empty placeholders here) also get collapsed into
+    # the unified card. Chooses the lowest `aeration_tank_number` as the
+    # canonical entry.
+    if do_items:
+        by_owner: Dict[str, List[dict]] = {}
+        for r in do_items:
+            hw = r.get("hardware_id")
+            owner = (regs.get(hw) or {}).get("owner_user_id") or hw
+            by_owner.setdefault(owner, []).append(r)
+        deduped: List[dict] = []
+        for owner, items in by_owner.items():
+            def _tank_key(rr, _regs=regs):
+                reg = _regs.get(rr.get("hardware_id")) or {}
+                tn = reg.get("aeration_tank_number")
+                return (0, tn) if isinstance(tn, int) else (1, 0)
+            items.sort(key=_tank_key)
+            # Aggregate merged tank values across ALL devices of this owner
+            # onto the canonical card so a placeholder with no data can
+            # still show live tank values.
+            canonical = items[0]
+            merged_vals = dict(canonical.get("values") or {})
+            for extra in items[1:]:
+                for k, v in (extra.get("values") or {}).items():
+                    merged_vals.setdefault(k, v)
+            canonical["values"] = merged_vals
+            deduped.append(canonical)
+        do_items = deduped
+
+    # Enrich each registry entry with the owner's friendly name / email so
+    # the admin badge on the WQ page reads "Client: Shalimar Lake City"
+    # instead of "Client: user_2ba8d15c08ae".
+    owner_ids = list({reg.get("owner_user_id") for reg in regs.values() if reg.get("owner_user_id")})
+    if owner_ids:
+        users_map: Dict[str, dict] = {}
+        async for u in db.users.find(
+            {"id": {"$in": owner_ids}},
+            {"_id": 0, "id": 1, "email": 1, "company_name": 1, "full_name": 1, "location_name": 1, "username": 1},
+        ):
+            users_map[u["id"]] = u
+        for reg in regs.values():
+            owner = users_map.get(reg.get("owner_user_id"))
+            if owner:
+                reg["owner_name"] = owner.get("company_name") or owner.get("full_name") or owner.get("username") or owner.get("email")
+                reg["owner_email"] = owner.get("email")
+                # Fall back to the owner's location if the device didn't have one.
+                if not reg.get("location_name") and owner.get("location_name"):
+                    reg["location_name"] = owner["location_name"]
 
     # Derive turbidity for STP items now that we know each device's coefficient.
     for it in stp_items:

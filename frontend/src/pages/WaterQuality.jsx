@@ -1206,7 +1206,7 @@ const WaterQuality = () => {
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span className="flex items-center gap-2">
-                  <Wind className="h-5 w-5 text-sky-500" /> Aeration Tanks — {cleanLabel(currentDevice?._registry?.label || selectedHw)}
+                  <Wind className="h-5 w-5 text-sky-500" /> DO Analyzer — Aeration Tanks
                 </span>
                 <div className="flex items-center gap-3">
                   {isAdmin && selectedHw && (
