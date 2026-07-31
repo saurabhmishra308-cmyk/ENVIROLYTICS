@@ -399,6 +399,19 @@ async def latest_readings(
                 for k, v in (extra.get("values") or {}).items():
                     merged_vals.setdefault(k, v)
             canonical["values"] = merged_vals
+            # Attach every DO device owned by the same owner so the admin
+            # can pick which physical device drives Tank 1 vs Tank 2 from
+            # a dropdown inside the DO Analyzer card.
+            siblings = []
+            for it in items:
+                hw = it.get("hardware_id")
+                reg = regs.get(hw) or {}
+                siblings.append({
+                    "hardware_id": hw,
+                    "label": reg.get("label") or hw,
+                    "aeration_tank_number": reg.get("aeration_tank_number"),
+                })
+            canonical["_do_siblings"] = siblings
             deduped.append(canonical)
         do_items = deduped
 

@@ -381,6 +381,9 @@ async def update_instrument(hardware_id: str, req: UpdateInstrumentRequest, admi
         updates["tank_capacity_kld"] = float(req.tank_capacity_kld)
     if req.aeration_tank_number is not None:
         updates["aeration_tank_number"] = int(req.aeration_tank_number)
+    elif "aeration_tank_number" in getattr(req, "model_fields_set", set()):
+        # Explicit `null` in the request body → clear the mapping.
+        updates["aeration_tank_number"] = None
     if req.source is not None:
         s = req.source.lower().strip()
         if s not in ("mqtt", "http"):

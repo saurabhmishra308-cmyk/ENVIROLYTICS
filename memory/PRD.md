@@ -93,6 +93,18 @@ Water Quality visualisations.
   card and aggregates DO_TANK_* values across every DO device owned by
   the same client. Verified: two DO probes (tank 1 + tank 2) → response
   returns exactly **1 DO card** with `DO_TANK_1=7.13, DO_TANK_2=2.6`.
+- **Inline "Link DO device → Tank" admin panel** — the unified DO Analyzer
+  card now exposes two dropdowns (Tank 1, Tank 2) inside the card header
+  region. Admin picks which registered DO device (e.g. DTU10020426,
+  DTU10020326) powers each tank; on select the frontend PUTs
+  `aeration_tank_number` on that device via `/api/instrument-registry/{hw}`
+  and clears any previously-assigned device on that tank so the mapping
+  stays 1:1. `PUT /api/instrument-registry/{hw}` now honours an explicit
+  `null` value to unset the assignment.
+- The `/api/water-quality/latest` DO items now include a `_do_siblings`
+  array listing every DO device owned by the same client
+  (`hardware_id`, `label`, `aeration_tank_number`) so the linker can
+  render a full dropdown with the current assignment pre-selected.
 - **Client badge fix** — the WQ endpoint now joins the registry to the
   users collection and adds `owner_name` (company / full name / username /
   email), so the admin badge on the DO Analyzer tab reads
