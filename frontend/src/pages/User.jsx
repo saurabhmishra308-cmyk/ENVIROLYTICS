@@ -91,6 +91,62 @@ const UserPage = () => {
   const [selfPwOpen, setSelfPwOpen] = useState(false);
   const [selfPw, setSelfPw] = useState({ current_password: '', new_password: '' });
 
+  // View-permissions dialog — admin toggles which sidebar pages / panels
+  // a specific client is allowed to see. Everything is view-only; the
+  // client never gets edit / add / delete rights anywhere.
+  const [vpOpen, setVpOpen] = useState(false);
+  const [vpTarget, setVpTarget] = useState(null);
+  const [vpPerms, setVpPerms] = useState({});
+  const [vpLoading, setVpLoading] = useState(false);
+  const VP_LABELS = [
+    { key: 'dashboard',        label: 'Dashboard' },
+    { key: 'analysis',         label: 'Analysis' },
+    { key: 'reports',          label: 'Reports' },
+    { key: 'graph_report',     label: 'Graph Report' },
+    { key: 'site',             label: 'Site / Location Map' },
+    { key: 'certificates',     label: 'Certificate & Photos' },
+    { key: 'audit_log',        label: 'Instrument Report' },
+    { key: 'customer_profile', label: 'Customer Profile' },
+    { key: 'water_quality',    label: 'Water Quality (STP · DO · Chlorine)' },
+    { key: 'flowmeter',        label: 'Flowmeter' },
+    { key: 'dwlr',             label: 'DWLR (Water Level)' },
+    { key: 'ph',               label: 'pH' },
+    { key: 'tds',              label: 'TDS' },
+    { key: 'conductivity',     label: 'Conductivity' },
+    { key: 'rwh_recharge',     label: 'Rainwater Recharge Estimate' },
+  ];
+  const openViewPermissions = async (u) => {
+    setVpTarget(u);
+    setVpOpen(true);
+    setVpLoading(true);
+    try {
+      const { data } = await api.get(`/api/admin/users/${u.id}/view-permissions`);
+      setVpPerms(data?.permissions || {});
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+      setVpOpen(false);
+    } finally {
+      setVpLoading(false);
+    }
+  };
+  const toggleVpKey = (k) => setVpPerms((prev) => ({ ...prev, [k]: !prev[k] }));
+  const saveViewPermissions = async () => {
+    if (!vpTarget) return;
+    try {
+      await api.put(`/api/admin/users/${vpTarget.id}/view-permissions`, { permissions: vpPerms });
+      toast.success(`View access updated for ${vpTarget.email}`);
+      setVpOpen(false);
+      fetchUsers();
+    } catch (e) {
+      toast.error(formatApiError(e?.response?.data?.detail));
+    }
+  };
+  const setAllVpKeys = (val) => {
+    const next = {};
+    VP_LABELS.forEach((k) => { next[k.key] = val; });
+    setVpPerms(next);
+  };
+
   // "Send test alert" — in-flight user id (disables the button while sending)
   const [testingUserId, setTestingUserId] = useState(null);
 
@@ -506,20 +562,11 @@ const UserPage = () => {
                             <Button
                               size="sm"
                               variant="outline"
-                              className={hasPermission(u.permissions, 'view_water_quality') ? 'border-sky-500 text-sky-700' : ''}
-                              onClick={async () => {
-                                try {
-                                  const has = hasPermission(u.permissions, 'view_water_quality');
-                                  await api.put(`/api/water-quality/permissions/${u.id}`, { view_water_quality: !has });
-                                  toast.success(has ? 'Water-quality access revoked' : 'Water-quality access granted');
-                                  fetchUsers();
-                                } catch (e) {
-                                  toast.error(formatApiError(e?.response?.data?.detail));
-                                }
-                              }}
-                              data-testid={`wq-toggle-${u.id}`}
+                              className="border-sky-500 text-sky-700"
+                              onClick={() => openViewPermissions(u)}
+                              data-testid={`view-perms-${u.id}`}
                             >
-                              💧 {hasPermission(u.permissions, 'view_water_quality') ? 'WQ: ON' : 'WQ'}
+                              <Shield className="h-3 w-3 mr-1" /> View Access
                             </Button>
                           )}
                           {u.id !== me?.id && (
@@ -916,6 +963,66 @@ const UserPage = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelfPwOpen(false)}>Cancel</Button>
             <Button onClick={handleSelfChangePassword}>Update</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Permissions dialog — admin toggles page-level view access
+          for a specific client. Everything is view-only; the client
+          never gets edit / configure controls anywhere. */}
+      <Dialog open={vpOpen} onOpenChange={setVpOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>View Access — {vpTarget?.email}</DialogTitle>
+            <DialogDescription>
+              Pick which sidebar pages and panels this client can see. Every
+              enabled tab is <span className="font-semibold">read-only</span> — the
+              client can view live data, charts, and maps but cannot add,
+              edit, delete, upload, or configure anything.
+            </DialogDescription>
+          </DialogHeader>
+          {vpLoading ? (
+            <p className="text-sm text-gray-500 py-6 text-center">Loading…</p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-gray-500">
+                  {Object.values(vpPerms).filter(Boolean).length} of {VP_LABELS.length} enabled
+                </span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setAllVpKeys(true)} data-testid="vp-enable-all">
+                    Enable all
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setAllVpKeys(false)} data-testid="vp-disable-all">
+                    Disable all
+                  </Button>
+                </div>
+              </div>
+              <div className="max-h-[420px] overflow-y-auto border rounded divide-y">
+                {VP_LABELS.map(({ key, label }) => (
+                  <label
+                    key={key}
+                    className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-50"
+                    data-testid={`vp-row-${key}`}
+                  >
+                    <span className="text-sm text-gray-800">{label}</span>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-sky-600"
+                      checked={Boolean(vpPerms[key])}
+                      onChange={() => toggleVpKey(key)}
+                      data-testid={`vp-checkbox-${key}`}
+                    />
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVpOpen(false)}>Cancel</Button>
+            <Button onClick={saveViewPermissions} disabled={vpLoading} data-testid="vp-save">
+              <Check className="h-3 w-3 mr-1" /> Save
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

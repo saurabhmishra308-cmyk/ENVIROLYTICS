@@ -22,40 +22,41 @@ const Sidebar = () => {
   const location = useLocation();
   const { isDarkMode } = useTheme();
   const admin = isAdmin();
-  const [wqAllowed, setWqAllowed] = useState(admin);
+  const [perms, setPerms] = useState(null);
 
-  // Ask the backend if the current user has water-quality permission.
-  // Admins always pass. Clients only see the tab when explicitly granted.
+  // Fetch the current user's effective view permissions. Admins get every
+  // key = true from the backend; clients get their admin-configured map.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await api.get('/api/water-quality/me/permission');
-        if (!cancelled) setWqAllowed(!!data?.view_water_quality);
+        const { data } = await api.get('/api/auth/me/view-permissions');
+        if (!cancelled) setPerms(data?.permissions || {});
       } catch (e) {
-        if (!cancelled) setWqAllowed(admin);
+        if (!cancelled) setPerms({});
       }
     })();
     return () => { cancelled = true; };
-  }, [admin]);
+  }, []);
+
+  const can = (key) => admin || Boolean(perms?.[key] ?? true);
 
   const baseMenu = [
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/analysis', icon: BarChart3, label: 'Analysis' },
-    { path: '/reports', icon: FileText, label: 'Reports' },
-    { path: '/graph-report', icon: TrendingUp, label: 'Graph Report' },
-    { path: '/site', icon: MapPin, label: 'Site' },
-    { path: '/user', icon: Users, label: 'User' },
-    { path: '/certificates', icon: Award, label: 'Certificate & Photos' },
-    { path: '/audit-log', icon: History, label: 'Instrument Report' },
-    { path: '/customer-profile', icon: Building2, label: 'Customer Profile' },
+    { path: '/dashboard',          icon: LayoutDashboard, label: 'Dashboard',           key: 'dashboard' },
+    { path: '/analysis',           icon: BarChart3,       label: 'Analysis',            key: 'analysis' },
+    { path: '/reports',            icon: FileText,        label: 'Reports',             key: 'reports' },
+    { path: '/graph-report',       icon: TrendingUp,      label: 'Graph Report',        key: 'graph_report' },
+    { path: '/site',               icon: MapPin,          label: 'Site',                key: 'site' },
+    { path: '/user',               icon: Users,           label: 'User',                key: null /* always visible */ },
+    { path: '/certificates',       icon: Award,           label: 'Certificate & Photos', key: 'certificates' },
+    { path: '/audit-log',          icon: History,         label: 'Instrument Report',   key: 'audit_log' },
+    { path: '/customer-profile',   icon: Building2,       label: 'Customer Profile',    key: 'customer_profile' },
+    { path: '/water-quality',      icon: Droplets,        label: 'Water Quality',       key: 'water_quality' },
   ];
-  if (wqAllowed) {
-    baseMenu.push({ path: '/water-quality', icon: Droplets, label: 'Water Quality' });
-  }
+  const filteredMenu = baseMenu.filter((it) => it.key === null || can(it.key));
   const menuItems = admin
-    ? [...baseMenu, { path: '/instruments', icon: Cpu, label: 'Instruments' }]
-    : baseMenu;
+    ? [...filteredMenu, { path: '/instruments', icon: Cpu, label: 'Instruments' }]
+    : filteredMenu;
 
   const isActive = (path) => location.pathname === path;
 

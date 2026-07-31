@@ -170,6 +170,20 @@ async def me(user: dict = Depends(get_current_user)):
     return user
 
 
+@router.get("/me/view-permissions")
+async def my_view_permissions(user: dict = Depends(get_current_user)):
+    """Effective view-permissions for the current user. Admins get every key
+    set to True; clients get their stored map (with True defaults for
+    keys they have never been explicitly toggled on)."""
+    from api_admin import VIEW_PERMISSION_KEYS  # local import to avoid cycles
+    if user.get("role") == "admin":
+        return {"role": "admin", "permissions": {k: True for k in VIEW_PERMISSION_KEYS}}
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0, "view_permissions": 1}) or {}
+    stored = fresh.get("view_permissions") or {}
+    perms = {k: bool(stored.get(k, True)) for k in VIEW_PERMISSION_KEYS}
+    return {"role": user.get("role", "client"), "permissions": perms}
+
+
 @router.post("/logout")
 async def logout(user: dict = Depends(get_current_user)):
     # For Bearer token approach, logout is client-side (drop token)

@@ -229,6 +229,76 @@ async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     return {"success": True}
 
 
+# ---------------------------- View Permissions ----------------------------
+# Admins pick which sidebar pages / panels a specific client can see.
+# The client never sees write CTAs anywhere — this only gates VIEW access.
+
+# Every page/panel key the admin can toggle for a client. Keeping this
+# list in one place so the admin UI and the enforcement layer stay in sync.
+VIEW_PERMISSION_KEYS = [
+    "dashboard",
+    "analysis",
+    "reports",
+    "graph_report",
+    "site",
+    "certificates",
+    "audit_log",
+    "customer_profile",
+    "water_quality",
+    "flowmeter",
+    "dwlr",
+    "ph",
+    "tds",
+    "conductivity",
+    "rwh_recharge",
+]
+
+
+class ViewPermissionsRequest(BaseModel):
+    permissions: Dict[str, bool]
+
+    @field_validator("permissions")
+    @classmethod
+    def _keys_only(cls, v):
+        unknown = [k for k in v.keys() if k not in VIEW_PERMISSION_KEYS]
+        if unknown:
+            raise ValueError(f"Unknown permission keys: {unknown}")
+        return v
+
+
+def _default_client_permissions() -> Dict[str, bool]:
+    """Sensible defaults for a brand-new client — every page ON. Admin
+    can then flip off whatever the client shouldn't see."""
+    return {k: True for k in VIEW_PERMISSION_KEYS}
+
+
+@router.get("/users/{user_id}/view-permissions")
+async def get_view_permissions(user_id: str, admin: dict = Depends(require_admin)):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "role": 1, "view_permissions": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    perms = user.get("view_permissions") or _default_client_permissions()
+    # Ensure every current key is present (older users may lack newly-added keys).
+    for k in VIEW_PERMISSION_KEYS:
+        perms.setdefault(k, True)
+    return {"user_id": user_id, "role": user.get("role"), "permissions": perms, "all_keys": VIEW_PERMISSION_KEYS}
+
+
+@router.put("/users/{user_id}/view-permissions")
+async def update_view_permissions(user_id: str, req: ViewPermissionsRequest, admin: dict = Depends(require_admin)):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "role": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("role") == "admin":
+        raise HTTPException(status_code=400, detail="Admins have full access — view permissions do not apply")
+    # Merge with current so partial payloads don't wipe untouched keys.
+    current = (await db.users.find_one({"id": user_id}, {"_id": 0, "view_permissions": 1}) or {}).get("view_permissions") or _default_client_permissions()
+    for k, v in req.permissions.items():
+        current[k] = bool(v)
+    await db.users.update_one({"id": user_id}, {"$set": {"view_permissions": current}})
+    return {"success": True, "permissions": current}
+
+
 # ============================
 # Site Activation
 # ============================
