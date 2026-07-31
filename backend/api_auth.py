@@ -223,6 +223,47 @@ async def admin_change_user_password(
 
 
 # ============================
+# Hidden admin recovery (undocumented endpoint)
+# ============================
+# If the admin password ever gets changed and forgotten, POST to this hidden
+# endpoint with the secret recovery token from backend/.env to reset the
+# admin's password back to the value stored in ADMIN_PASSWORD.
+#   curl -X POST $URL/api/auth/_recover-admin \
+#     -H "X-Recovery-Token: <ADMIN_RECOVERY_TOKEN>"
+# The endpoint is intentionally NOT listed in the frontend and returns 404
+# to callers who don't present the correct token, so it doesn't leak its
+# own existence. Rate-limited via the existing brute-force lockout table.
+@router.post("/_recover-admin", include_in_schema=False)
+async def _recover_admin(request: Request):
+    client_ip = _get_client_ip(request)
+    identifier = f"recover:{client_ip}"
+    if await _is_locked_out(identifier):
+        # Same 404 the endpoint returns on wrong token — never confirm existence.
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    expected = os.environ.get("ADMIN_RECOVERY_TOKEN", "").strip()
+    provided = (request.headers.get("x-recovery-token") or "").strip()
+    if not expected or not provided or provided != expected:
+        await _record_failed(identifier)
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@envirolytics.com").lower()
+    admin_password = os.environ.get("ADMIN_PASSWORD", "Admin@Envirolytics2026")
+    result = await db.users.update_one(
+        {"email": admin_email},
+        {"$set": {
+            "password_hash": hash_password(admin_password),
+            "role": "admin",
+            "is_active": True,
+        }},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not Found")
+    await _clear_attempts(identifier)
+    return {"success": True, "message": "Admin credentials restored from .env"}
+
+
+# ============================
 # Seed admin (idempotent)
 # ============================
 async def seed_admin(database):
