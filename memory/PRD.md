@@ -85,6 +85,15 @@ Water Quality visualisations.
 - `users`, `audit_log`, `notification_settings`, `certificates`, `renewals`,
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
+## Recent updates (Feb 2026 · sidebar cleanup)
+- Removed the "Live Camera Feed" sidebar entry. Camera management now
+  happens contextually inside the Water Quality → DO Analyzer tab
+  (`/water-quality`) where the DO telemetry overlay is meaningful.
+  The `/cameras` admin bulk manager page still exists (URL-accessible)
+  but is not exposed in the sidebar.
+- Updated the DO camera card description text to
+  "Admins can configure the stream URL or upload video."
+
 ## Recent updates (Feb 2026 · bulk camera + wq context)
 - **Camera Bulk Upload** (`POST /api/camera-streams/bulk-upload`) —
   admin uploads one MP4/WebM once, picks any subset of registered

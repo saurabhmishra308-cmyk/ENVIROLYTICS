@@ -1288,7 +1288,7 @@ const WaterQuality = () => {
               </CardTitle>
               <CardDescription>
                 Real-time video of the biological aeration tank with live DO telemetry overlay.
-                {isAdmin && ' Admins can configure the stream URL per device.'}
+                {isAdmin && ' Admins can configure the stream URL or upload video.'}
               </CardDescription>
             </CardHeader>
             <CardContent>

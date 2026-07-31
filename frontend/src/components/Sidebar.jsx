@@ -13,7 +13,6 @@ import {
   Award,
   History,
   Cpu,
-  Video,
   Droplets,
   Building2,
   ChevronRight
@@ -55,10 +54,7 @@ const Sidebar = () => {
     baseMenu.push({ path: '/water-quality', icon: Droplets, label: 'Water Quality' });
   }
   const menuItems = admin
-    ? [...baseMenu,
-        { path: '/instruments', icon: Cpu, label: 'Instruments' },
-        { path: '/cameras', icon: Video, label: 'Live Camera Feed' },
-      ]
+    ? [...baseMenu, { path: '/instruments', icon: Cpu, label: 'Instruments' }]
     : baseMenu;
 
   const isActive = (path) => location.pathname === path;
