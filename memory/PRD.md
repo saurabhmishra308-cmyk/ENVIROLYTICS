@@ -85,7 +85,31 @@ Water Quality visualisations.
 - `users`, `audit_log`, `notification_settings`, `certificates`, `renewals`,
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
-## Recent updates (Feb 2026 · auto-suggest)
+## Recent updates (Feb 2026 · create-user parity)
+- **Create-User wizard now supports every instrument type** — added
+  DO Analyzer, OCEMS/WQ, Chlorine Analyzer to the type dropdown so a
+  new client can be provisioned with the same variety already available
+  in the Instruments page.
+- **DO Analyzers** get an **Aeration Tank #** field (1..100). Bulk Add
+  auto-numbers tanks sequentially when creating N DO analyzers in one
+  batch, so admin doesn't have to type 1, 2, 3… for a multi-tank STP.
+- **Plant / Tank Capacity (KLD)** fields exposed in the user wizard for
+  DO / OCEMS / Chlorine devices — used by the Water Quality dashboard
+  to compute dose recommendations.
+- **Telemetry Source** dropdown on every instrument row — defaults to
+  HTTP for DO/OCEMS so QESPL polling engages the moment the device is
+  registered; IMEI validation switches to alphanumeric (32-char) when
+  source=HTTP, keeping the strict 14-16 digit rule for MQTT devices.
+- **Pick on map** — new Leaflet-based click-to-select picker
+  (`MapLocationPicker.jsx`, Satellite + Streets layers) captures 6-decimal
+  precision coordinates for both the user home location and each
+  instrument row.
+- **Bulk Add max bumped to 100 per type** — matches vendor rate limits
+  (5-min interval) while letting a large chain register a full site in
+  one call.
+- Backend: `aeration_tank_number` (1..100) added to
+  `CreateInstrumentRequest` / `UpdateInstrumentRequest` and persisted
+  on `instrument_registry`.
 - **Auto-Suggest Registration** — new "Probe deviceId" input on the
   Live HTTP Traffic card. Admin pastes a suspected QESPL deviceId, the
   backend fires a one-shot POST to `api.qenggonline.com`, and if the

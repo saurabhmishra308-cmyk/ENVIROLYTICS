@@ -82,14 +82,18 @@ export default function BulkAddInstruments({ open, onClose, users, onCreated }) 
     for (const t of TYPE_MENU) {
       const n = parseInt(counts[t.value], 10) || 0;
       for (let i = 1; i <= n; i++) {
-        out.push({
+        const row = {
           instrument_type: t.value,
           hardware_id: `${HW_PREFIX[t.value] || ''}${(i).toString().padStart(3, '0')}`,
           imei: '',
           label: `${t.label} #${i}`,
           source: DEFAULT_SOURCE[t.value] || 'mqtt',
           category: t.value === 'flowmeter' ? 'groundwater_abstraction' : undefined,
-        });
+        };
+        // Auto-number aeration tanks for DO Analyzers so admin doesn't have
+        // to type 1..N manually. Overrideable in the per-row editor.
+        if (t.value === 'do_meter') row.aeration_tank_number = i;
+        out.push(row);
       }
     }
     setRows(out);
@@ -133,6 +137,7 @@ export default function BulkAddInstruments({ open, onClose, users, onCreated }) 
         source: r.source,
         imei: r.imei?.trim() || null,
         category: r.instrument_type === 'flowmeter' ? (r.category || 'groundwater_abstraction') : undefined,
+        aeration_tank_number: r.instrument_type === 'do_meter' && r.aeration_tank_number ? parseInt(r.aeration_tank_number, 10) : undefined,
       })),
     };
 
@@ -207,7 +212,7 @@ export default function BulkAddInstruments({ open, onClose, users, onCreated }) 
         {step === 2 && (
           <div className="space-y-3">
             <p className="text-sm text-gray-600">
-              How many of each instrument type are installed at <strong>{siteName || 'this site'}</strong>? (0–10 per type)
+              How many of each instrument type are installed at <strong>{siteName || 'this site'}</strong>? (0–100 per type)
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {TYPE_MENU.map((t) => (
@@ -217,10 +222,10 @@ export default function BulkAddInstruments({ open, onClose, users, onCreated }) 
                     <p className="text-[11px] text-gray-500">{t.value}</p>
                   </div>
                   <Input
-                    type="number" min="0" max="10"
+                    type="number" min="0" max="100"
                     className="w-20 text-center"
                     value={counts[t.value]}
-                    onChange={(e) => setCounts({ ...counts, [t.value]: Math.max(0, Math.min(10, parseInt(e.target.value || '0', 10))) })}
+                    onChange={(e) => setCounts({ ...counts, [t.value]: Math.max(0, Math.min(100, parseInt(e.target.value || '0', 10))) })}
                     data-testid={`bulk-count-${t.value}`}
                   />
                 </div>

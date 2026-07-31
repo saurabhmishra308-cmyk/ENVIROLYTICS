@@ -139,11 +139,16 @@ class CreateInstrumentRequest(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     category: Optional[str] = None  # flowmeter only
-    imei: Optional[str] = Field(None, description="SIM/IMEI carried in device payload — how live data is matched to the device")
+    imei: Optional[str] = Field(None, description="SIM/IMEI (MQTT) or vendor deviceId (HTTP) — how live data is matched to the device")
     manual_water_temp_c: Optional[float] = Field(None, description="Admin-set water temperature (°C) for DWLR devices — device does not send this")
     # STP / DO meter — capacity metadata used by the Water Quality dashboard
     plant_capacity_kld: Optional[float] = Field(None, description="STP plant capacity in KLD (kilolitres per day)")
     tank_capacity_kld: Optional[float] = Field(None, description="Individual aeration tank capacity in KLD")
+    # Which aeration tank this DO probe is mounted in (only used for do_meter).
+    # Facilities with two or more aeration tanks (parallel-flow STPs) install
+    # one DO sensor per tank; this number lets the dashboard split them.
+    aeration_tank_number: Optional[int] = Field(None, ge=1, le=100,
+                                                 description="Aeration tank number (1..100) for DO analyzers")
     # How this device delivers telemetry to the backend. 'mqtt' (default) covers
     # every device on the shared broker; 'http' is reserved for devices that
     # POST readings over HTTP (e.g. ESPL / gateway REST endpoints).
@@ -162,6 +167,7 @@ class UpdateInstrumentRequest(BaseModel):
     manual_water_temp_c: Optional[float] = None
     plant_capacity_kld: Optional[float] = None
     tank_capacity_kld: Optional[float] = None
+    aeration_tank_number: Optional[int] = Field(None, ge=1, le=100)
     source: Optional[str] = None
 
 
@@ -244,6 +250,8 @@ async def _create_one_instrument(req: "CreateInstrumentRequest", admin: dict) ->
         # Capacity metadata — STP + DO meter only, ignored for other types.
         "plant_capacity_kld": req.plant_capacity_kld if itype in ("wq_stp", "do_meter", "chlorine_analyzer") else None,
         "tank_capacity_kld": req.tank_capacity_kld if itype in ("wq_stp", "do_meter", "chlorine_analyzer") else None,
+        # DO-Analyzer-only: which aeration tank the sensor is mounted in.
+        "aeration_tank_number": int(req.aeration_tank_number) if (itype == "do_meter" and req.aeration_tank_number) else None,
         "source": (req.source or "mqtt").lower() if (req.source or "mqtt").lower() in ("mqtt", "http") else "mqtt",
         "device_key": secrets.token_urlsafe(24),  # for HTTPS ingestion auth
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -371,6 +379,8 @@ async def update_instrument(hardware_id: str, req: UpdateInstrumentRequest, admi
         updates["plant_capacity_kld"] = float(req.plant_capacity_kld)
     if req.tank_capacity_kld is not None:
         updates["tank_capacity_kld"] = float(req.tank_capacity_kld)
+    if req.aeration_tank_number is not None:
+        updates["aeration_tank_number"] = int(req.aeration_tank_number)
     if req.source is not None:
         s = req.source.lower().strip()
         if s not in ("mqtt", "http"):

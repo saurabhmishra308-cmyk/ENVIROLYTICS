@@ -5,20 +5,28 @@ import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
-import { Users as UsersIcon, UserPlus, Shield, KeyRound, Power, Trash2, Cpu, Plus, ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import { Users as UsersIcon, UserPlus, Shield, KeyRound, Power, Trash2, Cpu, Plus, ChevronLeft, ChevronRight, Check, MapPin } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin, getCurrentUser } from '../mockData';
 import { toast } from 'sonner';
 import SubUserCard from '../components/SubUserCard';
 import RenewalsCard from '../components/RenewalsCard';
+import MapLocationPicker from '../components/MapLocationPicker';
 
 const INSTRUMENT_TYPE_OPTIONS = [
-  { value: 'flowmeter', label: 'Flowmeter' },
-  { value: 'dwlr', label: 'DWLR (Water Level)' },
-  { value: 'ph', label: 'pH Sensor' },
-  { value: 'tds', label: 'TDS Sensor' },
-  { value: 'conductivity', label: 'Conductivity Sensor' },
+  { value: 'flowmeter',         label: 'Flowmeter' },
+  { value: 'dwlr',              label: 'DWLR (Water Level)' },
+  { value: 'do_meter',          label: 'DO Analyzer (Aeration Tanks)' },
+  { value: 'wq_stp',            label: 'OCEMS / Water Quality Analyzer' },
+  { value: 'chlorine_analyzer', label: 'Chlorine Analyzer (STP Effluent)' },
+  { value: 'ph',                label: 'pH Sensor' },
+  { value: 'tds',               label: 'TDS Sensor' },
+  { value: 'conductivity',      label: 'Conductivity Sensor' },
 ];
+
+// Default telemetry source per type. DO / OCEMS are typically HTTP-polled via
+// QESPL; every other type defaults to MQTT.
+const DEFAULT_SOURCE = { do_meter: 'http', wq_stp: 'http' };
 
 const FLOWMETER_CATEGORY_OPTIONS = [
   { value: 'groundwater_abstraction', label: 'Groundwater Abstraction' },
@@ -36,6 +44,10 @@ const EMPTY_INSTRUMENT_ROW = {
   longitude: '',
   imei: '',
   manual_water_temp_c: '',
+  source: 'mqtt',
+  aeration_tank_number: '',
+  plant_capacity_kld: '',
+  tank_capacity_kld: '',
 };
 
 const UserPage = () => {
@@ -50,6 +62,10 @@ const UserPage = () => {
   const [creating, setCreating] = useState(false);
   const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', role: 'client', company_name: '', phone: '', location_name: '', latitude: '', longitude: '', notification_email_1: '', notification_email_2: '' });
   const [newInstruments, setNewInstruments] = useState([]); // list of instrument row objects
+  // Map-picker state — shared modal, opened per row / for the user home location.
+  // `target` is either { type: 'user' } or { type: 'instrument', idx }.
+  const [mapPickerOpen, setMapPickerOpen] = useState(false);
+  const [mapPickerTarget, setMapPickerTarget] = useState(null);
 
   // Edit user state
   const [editOpen, setEditOpen] = useState(false);
@@ -129,7 +145,18 @@ const UserPage = () => {
   };
 
   const updateInstrumentRow = (idx, patch) => {
-    setNewInstruments((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+    setNewInstruments((rows) => rows.map((r, i) => {
+      if (i !== idx) return r;
+      const merged = { ...r, ...patch };
+      // When the type flips, apply sensible defaults so QESPL-polled DO/OCEMS
+      // devices don't get stuck on 'mqtt' + numeric IMEI validation.
+      if (patch.instrument_type && patch.instrument_type !== r.instrument_type) {
+        merged.source = DEFAULT_SOURCE[patch.instrument_type] || 'mqtt';
+        if (patch.instrument_type !== 'do_meter') merged.aeration_tank_number = '';
+        if (patch.instrument_type !== 'flowmeter') merged.category = '';
+      }
+      return merged;
+    }));
   };
 
   const removeInstrumentRow = (idx) => {
@@ -147,8 +174,16 @@ const UserPage = () => {
       seen.add(hw);
       const imei = it.imei?.trim();
       if (imei) {
-        if (!/^\d{14,16}$/.test(imei)) { toast.error(`Instrument #${i + 1}: IMEI must be 14–16 digits`); return false; }
-        if (seenImei.has(imei)) { toast.error(`Instrument #${i + 1}: Duplicate IMEI "${imei}"`); return false; }
+        // HTTP source uses vendor deviceIds like `DTU10020426` — alphanumeric.
+        // MQTT devices report a numeric SIM IMEI (14–16 digits).
+        if (it.source === 'http') {
+          if (!/^[A-Za-z0-9_-]{4,32}$/.test(imei)) {
+            toast.error(`Instrument #${i + 1}: deviceId must be 4–32 alphanumeric characters`); return false;
+          }
+        } else if (!/^\d{14,16}$/.test(imei)) {
+          toast.error(`Instrument #${i + 1}: IMEI must be 14–16 digits (or switch source to HTTP)`); return false;
+        }
+        if (seenImei.has(imei)) { toast.error(`Instrument #${i + 1}: Duplicate IMEI/deviceId "${imei}"`); return false; }
         seenImei.add(imei);
       }
     }
@@ -201,6 +236,25 @@ const UserPage = () => {
           if (tv !== '') {
             const n = parseFloat(tv);
             if (!Number.isNaN(n)) ipayload.manual_water_temp_c = n;
+          }
+        }
+        // Source (mqtt | http) — required for QESPL-polled devices
+        if (row.source && ['mqtt', 'http'].includes(row.source)) {
+          ipayload.source = row.source;
+        }
+        // Aeration tank number (DO Analyzer only)
+        if (row.instrument_type === 'do_meter' && row.aeration_tank_number !== '' && row.aeration_tank_number != null) {
+          const n = parseInt(row.aeration_tank_number, 10);
+          if (!Number.isNaN(n) && n > 0) ipayload.aeration_tank_number = n;
+        }
+        // Plant / tank capacity (WQ, DO, Chlorine)
+        if (['wq_stp', 'do_meter', 'chlorine_analyzer'].includes(row.instrument_type)) {
+          for (const k of ['plant_capacity_kld', 'tank_capacity_kld']) {
+            const v = String(row[k] ?? '').trim();
+            if (v !== '') {
+              const n = parseFloat(v);
+              if (!Number.isNaN(n)) ipayload[k] = n;
+            }
           }
         }
         try {
@@ -527,6 +581,11 @@ const UserPage = () => {
                 <div><Label>Latitude</Label><Input value={newUser.latitude} onChange={(e) => setNewUser({ ...newUser, latitude: e.target.value })} placeholder="26.8467" data-testid="new-user-latitude" /></div>
                 <div><Label>Longitude</Label><Input value={newUser.longitude} onChange={(e) => setNewUser({ ...newUser, longitude: e.target.value })} placeholder="80.9462" data-testid="new-user-longitude" /></div>
               </div>
+              <div>
+                <Button type="button" variant="outline" size="sm" onClick={() => { setMapPickerTarget({ type: 'user' }); setMapPickerOpen(true); }} data-testid="new-user-pick-map">
+                  <MapPin className="h-3.5 w-3.5 mr-1" /> Pick user location on map
+                </Button>
+              </div>
               {/* Admin-managed alert email addresses — the client cannot edit
                   these themselves. Up to 2 additional recipients receive the
                   offline-device email in addition to the client's login email. */}
@@ -616,21 +675,87 @@ const UserPage = () => {
                         </div>
                       )}
                       <div className="grid grid-cols-2 gap-3">
-                        <div><Label className="text-xs">Latitude</Label><Input value={row.latitude} onChange={(e) => updateInstrumentRow(idx, { latitude: e.target.value })} placeholder="26.8467" /></div>
-                        <div><Label className="text-xs">Longitude</Label><Input value={row.longitude} onChange={(e) => updateInstrumentRow(idx, { longitude: e.target.value })} placeholder="80.9462" /></div>
+                        <div><Label className="text-xs">Latitude</Label><Input value={row.latitude} onChange={(e) => updateInstrumentRow(idx, { latitude: e.target.value })} placeholder="26.8467" data-testid={`instrument-lat-${idx}`} /></div>
+                        <div><Label className="text-xs">Longitude</Label><Input value={row.longitude} onChange={(e) => updateInstrumentRow(idx, { longitude: e.target.value })} placeholder="80.9462" data-testid={`instrument-lng-${idx}`} /></div>
+                      </div>
+                      <div>
+                        <Button type="button" variant="outline" size="sm" onClick={() => { setMapPickerTarget({ type: 'instrument', idx }); setMapPickerOpen(true); }} data-testid={`instrument-pick-map-${idx}`}>
+                          <MapPin className="h-3.5 w-3.5 mr-1" /> Pick on map
+                        </Button>
+                        <span className="ml-2 text-[10px] text-gray-500">Click on the map to capture the exact installation coordinates.</span>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <Label className="text-xs">IMEI (admin-only) *</Label>
+                          <Label className="text-xs">Telemetry Source *</Label>
+                          <select
+                            className="w-full border rounded px-3 py-2 h-10"
+                            value={row.source || 'mqtt'}
+                            onChange={(e) => updateInstrumentRow(idx, { source: e.target.value })}
+                            data-testid={`instrument-source-${idx}`}
+                          >
+                            <option value="mqtt">MQTT (direct broker)</option>
+                            <option value="http">HTTP (QESPL polling)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">
+                            {row.source === 'http' ? 'Vendor deviceId *' : 'IMEI (admin-only)'}
+                          </Label>
                           <Input
                             value={row.imei}
-                            onChange={(e) => updateInstrumentRow(idx, { imei: e.target.value.replace(/\D/g, '') })}
-                            placeholder="e.g. 860738070478155"
-                            maxLength={16}
+                            onChange={(e) => updateInstrumentRow(idx, {
+                              imei: row.source === 'http' ? e.target.value.trim() : e.target.value.replace(/\D/g, ''),
+                            })}
+                            placeholder={row.source === 'http' ? 'e.g. DTU10020426' : 'e.g. 860738070478155'}
+                            maxLength={row.source === 'http' ? 32 : 16}
                             data-testid={`instrument-imei-${idx}`}
                           />
-                          <p className="text-[10px] text-gray-500 mt-1">IMEI on the device SIM/modem. Used to match incoming MQTT data.</p>
+                          <p className="text-[10px] text-gray-500 mt-1">
+                            {row.source === 'http'
+                              ? 'QESPL deviceId — the 5-min HTTP poller uses this to fetch readings.'
+                              : 'IMEI on the device SIM/modem. Used to match incoming MQTT data.'}
+                          </p>
                         </div>
+                      </div>
+                      {row.instrument_type === 'do_meter' && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Aeration Tank #</Label>
+                            <Input
+                              type="number" min="1" max="100"
+                              value={row.aeration_tank_number}
+                              onChange={(e) => updateInstrumentRow(idx, { aeration_tank_number: e.target.value })}
+                              placeholder="e.g. 1"
+                              data-testid={`instrument-tank-num-${idx}`}
+                            />
+                            <p className="text-[10px] text-gray-500 mt-1">Which aeration tank this DO sensor is mounted in (1..100).</p>
+                          </div>
+                          <div />
+                        </div>
+                      )}
+                      {['wq_stp', 'do_meter', 'chlorine_analyzer'].includes(row.instrument_type) && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Plant Capacity (KLD)</Label>
+                            <Input
+                              type="number"
+                              value={row.plant_capacity_kld}
+                              onChange={(e) => updateInstrumentRow(idx, { plant_capacity_kld: e.target.value })}
+                              placeholder="e.g. 500"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Tank Capacity (KLD)</Label>
+                            <Input
+                              type="number"
+                              value={row.tank_capacity_kld}
+                              onChange={(e) => updateInstrumentRow(idx, { tank_capacity_kld: e.target.value })}
+                              placeholder="e.g. 250"
+                            />
+                          </div>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-3">
                         {row.instrument_type === 'dwlr' ? (
                           <div>
                             <Label className="text-xs">Water Temperature (°C)</Label>
@@ -773,6 +898,23 @@ const UserPage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Shared map picker — captures lat/lng for either the user home location
+          or a specific instrument row. */}
+      <MapLocationPicker
+        open={mapPickerOpen}
+        onClose={() => { setMapPickerOpen(false); setMapPickerTarget(null); }}
+        initialLat={mapPickerTarget?.type === 'instrument' ? newInstruments[mapPickerTarget.idx]?.latitude : newUser.latitude}
+        initialLng={mapPickerTarget?.type === 'instrument' ? newInstruments[mapPickerTarget.idx]?.longitude : newUser.longitude}
+        title={mapPickerTarget?.type === 'instrument' ? `Pick location for Instrument #${(mapPickerTarget.idx ?? 0) + 1}` : 'Pick user location'}
+        onPick={(la, lo) => {
+          if (mapPickerTarget?.type === 'instrument') {
+            updateInstrumentRow(mapPickerTarget.idx, { latitude: String(la), longitude: String(lo) });
+          } else {
+            setNewUser((u) => ({ ...u, latitude: String(la), longitude: String(lo) }));
+          }
+        }}
+      />
     </div>
   );
 };
