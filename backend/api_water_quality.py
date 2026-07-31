@@ -302,14 +302,22 @@ async def latest_readings(
             hw = r.get("hardware_id")
             reg = registry_map.get(hw) or {}
             tn = reg.get("aeration_tank_number")
+            raw_vals = r.get("values") or {}
             # Strip any pre-baked DO_TANK_* keys — re-derive from current mapping.
-            vals = {
-                k: v for k, v in (r.get("values") or {}).items()
-                if not k.startswith("DO_TANK_")
-            }
+            vals = {k: v for k, v in raw_vals.items() if not k.startswith("DO_TANK_")}
             do_val = vals.get("DO")
             if isinstance(tn, int) and do_val is not None:
                 vals[f"DO_TANK_{tn}"] = do_val
+            elif not isinstance(tn, int):
+                # Safety net for devices that don't have `aeration_tank_number`
+                # set in the registry yet — surface whatever DO_TANK_* the
+                # poller baked in previously so the tank tile still shows
+                # live data instead of going blank. As soon as an admin sets
+                # the tank number via the inline linker, the branch above
+                # takes over and stale keys are stripped for good.
+                for k, v in raw_vals.items():
+                    if k.startswith("DO_TANK_") and v is not None:
+                        vals[k] = v
             r["values"] = vals
 
     chlorine_items: List[dict] = []

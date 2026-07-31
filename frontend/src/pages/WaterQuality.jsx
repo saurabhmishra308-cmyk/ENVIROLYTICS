@@ -1336,7 +1336,18 @@ const WaterQuality = () => {
                 />
               )}
               {(() => {
-                const tn = currentDevice?._registry?.aeration_tank_number;
+                let tn = currentDevice?._registry?.aeration_tank_number;
+                // Fallback: if the registry hasn't been configured with an
+                // aeration_tank_number yet, infer it from whichever
+                // DO_TANK_N key the poller baked in. Prevents a totally
+                // blank card for legacy devices provisioned before the
+                // inline linker existed.
+                if (!tn) {
+                  for (const k of Object.keys(currentValues)) {
+                    const m = /^DO_TANK_(\d+)$/.exec(k);
+                    if (m && currentValues[k] != null) { tn = parseInt(m[1], 10); break; }
+                  }
+                }
                 if (!tn) {
                   return (
                     <div
@@ -1399,7 +1410,13 @@ const WaterQuality = () => {
                 hardwareId={selectedHw}
                 deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)}
                 telemetry={(() => {
-                  const tn = currentDevice?._registry?.aeration_tank_number;
+                  let tn = currentDevice?._registry?.aeration_tank_number;
+                  if (!tn) {
+                    for (const k of Object.keys(currentValues)) {
+                      const m = /^DO_TANK_(\d+)$/.exec(k);
+                      if (m && currentValues[k] != null) { tn = parseInt(m[1], 10); break; }
+                    }
+                  }
                   return tn ? { [`DO_TANK_${tn}`]: currentValues[`DO_TANK_${tn}`] } : {};
                 })()}
                 canManage={isAdmin}
