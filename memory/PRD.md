@@ -85,6 +85,21 @@ Water Quality visualisations.
 - `users`, `audit_log`, `notification_settings`, `certificates`, `renewals`,
   `flowmeter_categories`, `flow_limits`, `camera_streams`, `login_attempts`.
 
+## Recent updates (Feb 2026 · DO tank mapping fix)
+- **Root cause fixed** — QESPL returns a single `DO` value per device, but
+  the Water Quality dashboard's Aeration Tank tiles read `DO_TANK_1`
+  and `DO_TANK_2`. Tanks therefore fell through to "Aeration Stopped"
+  and the video paused.
+- `espl_poller._persist_reading` now re-labels the incoming DO to
+  `DO_TANK_<aeration_tank_number>` (keeping the raw `DO` too for
+  historical reports).
+- `api_water_quality.latest` merges `DO_TANK_*` readings across every
+  DO Analyzer owned by the same client — whichever DO device the
+  operator selects from the pill list will show every tank the site has.
+- Verified with the two live production ids (`DTU10020426` → tank 1,
+  `DTU10020326` → tank 2): response returns
+  `DO_TANK_1=7.13 · DO_TANK_2=2.6` on either device.
+
 ## Recent updates (Feb 2026 · sidebar cleanup)
 - Removed the "Live Camera Feed" sidebar entry. Camera management now
   happens contextually inside the Water Quality → DO Analyzer tab

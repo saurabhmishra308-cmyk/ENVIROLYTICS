@@ -278,6 +278,47 @@ async def latest_readings(
         r["values"] = vals
         do_items.append(r)
 
+    # ----- Multi-tank merge -----
+    # Each physical DO Analyzer covers ONE aeration tank (mapped by
+    # `aeration_tank_number` at registration). QESPL emits a single DO
+    # value per device, but the WQ page renders Tank 1 and Tank 2 side by
+    # side. So we merge DO_TANK_* readings across all DO devices that
+    # share an `owner_user_id` — whichever device the operator selects
+    # from the pill list will therefore show every tank the client has.
+    #
+    # We look up owner from `instrument_registry` because
+    # `instrument_latest` doesn't carry it.
+    if do_items:
+        do_hws = [r.get("hardware_id") for r in do_items if r.get("hardware_id")]
+        registry_map: Dict[str, dict] = {}
+        async for reg in db.instrument_registry.find(
+            {"hardware_id": {"$in": do_hws}},
+            {"_id": 0, "hardware_id": 1, "owner_user_id": 1, "aeration_tank_number": 1},
+        ):
+            registry_map[reg["hardware_id"]] = reg
+        # owner_user_id → dict of DO_TANK_N → latest value
+        owner_tank_values: Dict[str, Dict[str, float]] = {}
+        for r in do_items:
+            hw = r.get("hardware_id")
+            owner = (registry_map.get(hw) or {}).get("owner_user_id")
+            if not owner:
+                continue
+            owner_tank_values.setdefault(owner, {})
+            for k, v in (r.get("values") or {}).items():
+                if k.startswith("DO_TANK_") and v is not None:
+                    owner_tank_values[owner][k] = v
+        # Apply the merged tank values to every DO device of that owner —
+        # so switching the pill selector doesn't hide the sibling tank.
+        for r in do_items:
+            hw = r.get("hardware_id")
+            owner = (registry_map.get(hw) or {}).get("owner_user_id")
+            if not owner or owner not in owner_tank_values:
+                continue
+            merged = dict(r.get("values") or {})
+            for k, v in owner_tank_values[owner].items():
+                merged.setdefault(k, v)   # own reading takes precedence
+            r["values"] = merged
+
     chlorine_items: List[dict] = []
     async for r in db.instrument_latest.find({"instrument_type": "chlorine_analyzer", "_dummy": {"$ne": True}}, {"_id": 0}):
         if not _in(r):

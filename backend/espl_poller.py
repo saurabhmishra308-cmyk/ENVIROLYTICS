@@ -152,6 +152,20 @@ async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]
     # Vendor sends naive "YYYY-MM-DDTHH:MM:SS" — treat as UTC for simplicity.
     if isinstance(ts, str) and "T" in ts and "+" not in ts and "Z" not in ts:
         ts = ts + "Z"
+    # DO Analyzer: QESPL emits a single generic `DO` reading per device.
+    # Our Water Quality dashboard shows Aeration Tank #1 / #2 as separate
+    # tiles keyed on DO_TANK_1 / DO_TANK_2, so we re-label the incoming DO
+    # based on the device's admin-configured `aeration_tank_number`.
+    if device.get("instrument_type") == "do_meter" and isinstance(values.get("DO"), (int, float)):
+        tank_n = device.get("aeration_tank_number")
+        try:
+            tank_int = int(tank_n) if tank_n is not None else None
+        except (TypeError, ValueError):
+            tank_int = None
+        if tank_int and tank_int > 0:
+            values[f"DO_TANK_{tank_int}"] = values["DO"]
+            # Keep raw DO too — historical reports & other consumers still
+            # rely on the canonical key.
     # If the vendor sent TSS but not turbidity, derive it now using the
     # device-level `turbidity_k` (defaults to 0.5 — TSS/2, domestic-sewage
     # rule of thumb). This mirrors the derivation the /water-quality API
@@ -271,7 +285,7 @@ async def _http_devices() -> List[dict]:
         return []
     cursor = _State.db.instrument_registry.find(
         {"source": "http"},
-        {"_id": 0, "hardware_id": 1, "instrument_type": 1, "imei": 1, "owner_user_id": 1, "turbidity_k": 1},
+        {"_id": 0, "hardware_id": 1, "instrument_type": 1, "imei": 1, "owner_user_id": 1, "turbidity_k": 1, "data_frequency_minutes": 1, "aeration_tank_number": 1},
     )
     return await cursor.to_list(length=500)
 
