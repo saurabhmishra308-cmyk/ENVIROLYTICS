@@ -135,11 +135,15 @@ export default function BulkAddInstruments({ open, onClose, users, onCreated }) 
         instrument_type: r.instrument_type,
         owner_user_id: ownerId,
         label: r.label?.trim() || r.hardware_id.trim(),
-        location_name: siteName?.trim() || null,
+        // Per-row location beats the site-wide default. Empty falls back to
+        // the site name entered on step 1 so we always have a location.
+        location_name: (r.location_name?.trim()) || siteName?.trim() || null,
         source: r.source,
         imei: r.imei?.trim() || null,
         category: r.instrument_type === 'flowmeter' ? (r.category || 'groundwater_abstraction') : undefined,
         aeration_tank_number: r.instrument_type === 'do_meter' && r.aeration_tank_number ? parseInt(r.aeration_tank_number, 10) : undefined,
+        manual_water_temp_c: r.instrument_type === 'dwlr' && r.manual_water_temp_c !== '' && r.manual_water_temp_c != null
+          ? parseFloat(r.manual_water_temp_c) : undefined,
       })),
     };
 
@@ -254,7 +258,8 @@ export default function BulkAddInstruments({ open, onClose, users, onCreated }) 
                     <th className="text-left px-2 py-1.5">Type</th>
                     <th className="text-left px-2 py-1.5">Hardware ID *</th>
                     <th className="text-left px-2 py-1.5">Label</th>
-                    <th className="text-left px-2 py-1.5">Tank #</th>
+                    <th className="text-left px-2 py-1.5">Type-specific</th>
+                    <th className="text-left px-2 py-1.5">Location</th>
                     <th className="text-left px-2 py-1.5">Source</th>
                     <th className="text-left px-2 py-1.5">deviceId / IMEI</th>
                     <th className="text-left px-2 py-1.5"></th>
@@ -291,13 +296,42 @@ export default function BulkAddInstruments({ open, onClose, users, onCreated }) 
                             type="number" min="1" max="100"
                             value={r.aeration_tank_number ?? ''}
                             onChange={(e) => updateRow(i, { aeration_tank_number: e.target.value })}
-                            placeholder="1"
-                            className="h-8 w-16"
+                            placeholder="Tank #"
+                            className="h-8 w-20"
                             data-testid={`bulk-row-tank-${i}`}
+                          />
+                        ) : r.instrument_type === 'flowmeter' ? (
+                          <select
+                            value={r.category || 'groundwater_abstraction'}
+                            onChange={(e) => updateRow(i, { category: e.target.value })}
+                            className="border rounded px-1.5 h-8 text-xs"
+                            data-testid={`bulk-row-cat-${i}`}
+                          >
+                            {FLOWMETER_CATEGORIES.map((c) => (
+                              <option key={c.value} value={c.value}>{c.label}</option>
+                            ))}
+                          </select>
+                        ) : r.instrument_type === 'dwlr' ? (
+                          <Input
+                            type="number" step="0.1"
+                            value={r.manual_water_temp_c ?? ''}
+                            onChange={(e) => updateRow(i, { manual_water_temp_c: e.target.value })}
+                            placeholder="Temp °C"
+                            className="h-8 w-24"
+                            data-testid={`bulk-row-temp-${i}`}
                           />
                         ) : (
                           <span className="text-gray-300 text-xs">—</span>
                         )}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <Input
+                          value={r.location_name ?? ''}
+                          onChange={(e) => updateRow(i, { location_name: e.target.value })}
+                          placeholder={siteName || 'Location (optional)'}
+                          className="h-8"
+                          data-testid={`bulk-row-loc-${i}`}
+                        />
                       </td>
                       <td className="px-2 py-1.5">
                         <select
