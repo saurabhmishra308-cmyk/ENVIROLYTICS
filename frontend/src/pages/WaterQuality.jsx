@@ -1335,56 +1335,51 @@ const WaterQuality = () => {
                   onChanged={() => load()}
                 />
               )}
-              <div className="grid md:grid-cols-2 gap-8">
-                <div>
-                  <AerationTank
-                    tankNumber={1}
-                    doValue={currentValues.DO_TANK_1}
-                    min={doMeta.DO_TANK_1?.min ?? 0}
-                    max={doMeta.DO_TANK_1?.max ?? 20}
-                    safeMin={doMeta.DO_TANK_1?.safe_min}
-                    safeMax={doMeta.DO_TANK_1?.safe_max}
-                    unit={unit}
-                    capacityKld={
-                      currentDevice?._registry?.do_tank_config?.tank_1_kld
-                      ?? currentDevice?._registry?.tank_capacity_kld
-                    }
-                    videoSrc={currentDevice?._registry?.aeration_videos?.tank_1 ? backendAssetUrl(currentDevice._registry.aeration_videos.tank_1) : null}
-                    isCustomVideo={Boolean(currentDevice?._registry?.aeration_videos?.tank_1)}
-                  />
-                  <AerationVideoUploader
-                    hardwareId={selectedHw}
-                    tankNumber={1}
-                    currentUrl={currentDevice?._registry?.aeration_videos?.tank_1}
-                    canManage={isAdmin}
-                    onChange={() => load()}
-                  />
-                </div>
-                <div>
-                  <AerationTank
-                    tankNumber={2}
-                    doValue={currentValues.DO_TANK_2}
-                    min={doMeta.DO_TANK_2?.min ?? 0}
-                    max={doMeta.DO_TANK_2?.max ?? 20}
-                    safeMin={doMeta.DO_TANK_2?.safe_min}
-                    safeMax={doMeta.DO_TANK_2?.safe_max}
-                    unit={unit}
-                    capacityKld={
-                      currentDevice?._registry?.do_tank_config?.tank_2_kld
-                      ?? currentDevice?._registry?.tank_capacity_kld
-                    }
-                    videoSrc={currentDevice?._registry?.aeration_videos?.tank_2 ? backendAssetUrl(currentDevice._registry.aeration_videos.tank_2) : null}
-                    isCustomVideo={Boolean(currentDevice?._registry?.aeration_videos?.tank_2)}
-                  />
-                  <AerationVideoUploader
-                    hardwareId={selectedHw}
-                    tankNumber={2}
-                    currentUrl={currentDevice?._registry?.aeration_videos?.tank_2}
-                    canManage={isAdmin}
-                    onChange={() => load()}
-                  />
-                </div>
-              </div>
+              {(() => {
+                const tn = currentDevice?._registry?.aeration_tank_number;
+                if (!tn) {
+                  return (
+                    <div
+                      className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+                      data-testid="do-no-tank-assigned"
+                    >
+                      This DO device isn&apos;t linked to an aeration tank yet.
+                      {isAdmin
+                        ? ' Use the dropdown above to link it to Tank 1 or Tank 2.'
+                        : ' Ask your admin to link it to a tank.'}
+                    </div>
+                  );
+                }
+                const doValue = currentValues[`DO_TANK_${tn}`];
+                const meta = doMeta[`DO_TANK_${tn}`] || doMeta.DO_TANK_1 || {};
+                const cap = currentDevice?._registry?.do_tank_config?.[`tank_${tn}_kld`]
+                  ?? currentDevice?._registry?.tank_capacity_kld;
+                const vidKey = `tank_${tn}`;
+                const vidPath = currentDevice?._registry?.aeration_videos?.[vidKey];
+                return (
+                  <div className="max-w-2xl mx-auto" data-testid={`do-tank-${tn}-card`}>
+                    <AerationTank
+                      tankNumber={tn}
+                      doValue={doValue}
+                      min={meta.min ?? 0}
+                      max={meta.max ?? 20}
+                      safeMin={meta.safe_min}
+                      safeMax={meta.safe_max}
+                      unit={unit}
+                      capacityKld={cap}
+                      videoSrc={vidPath ? backendAssetUrl(vidPath) : null}
+                      isCustomVideo={Boolean(vidPath)}
+                    />
+                    <AerationVideoUploader
+                      hardwareId={selectedHw}
+                      tankNumber={tn}
+                      currentUrl={vidPath}
+                      canManage={isAdmin}
+                      onChange={() => load()}
+                    />
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 
@@ -1403,10 +1398,10 @@ const WaterQuality = () => {
               <LiveCameraWidget
                 hardwareId={selectedHw}
                 deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)}
-                telemetry={{
-                  DO_TANK_1: currentValues.DO_TANK_1,
-                  DO_TANK_2: currentValues.DO_TANK_2,
-                }}
+                telemetry={(() => {
+                  const tn = currentDevice?._registry?.aeration_tank_number;
+                  return tn ? { [`DO_TANK_${tn}`]: currentValues[`DO_TANK_${tn}`] } : {};
+                })()}
                 canManage={isAdmin}
               />
             </CardContent>

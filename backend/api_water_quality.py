@@ -278,23 +278,18 @@ async def latest_readings(
         r["values"] = vals
         do_items.append(r)
 
-    # ----- Multi-tank merge -----
+    # ----- Per-device tank labelling (no cross-device merge) -----
     # Each physical DO Analyzer covers ONE aeration tank (mapped by
-    # `aeration_tank_number` at registration). QESPL emits a single DO
-    # value per device, but the WQ page renders Tank 1 and Tank 2 side by
-    # side. So we merge DO_TANK_* readings across all DO devices that
-    # share an `owner_user_id` — whichever device the operator selects
-    # from the pill list will therefore show every tank the client has.
+    # `aeration_tank_number` at registration). Each device is rendered as
+    # its own card showing ONLY its own tank — the user picks a device
+    # from the pill list to view that tank.
     #
     # IMPORTANT: We always re-derive `DO_TANK_<n>` from the CURRENT
     # `aeration_tank_number` in the registry (never trust the pre-baked
     # `DO_TANK_N` key stored by the poller). Otherwise, when an admin
     # remaps a device from Tank 1 to Tank 2 via the linker, the stale
     # `DO_TANK_1` key that the poller wrote before the remap would still
-    # be merged in — showing the wrong reading on the wrong tank.
-    #
-    # We look up owner from `instrument_registry` because
-    # `instrument_latest` doesn't carry it.
+    # show — showing the wrong reading on the wrong tank.
     if do_items:
         do_hws = [r.get("hardware_id") for r in do_items if r.get("hardware_id")]
         registry_map: Dict[str, dict] = {}
@@ -303,38 +298,19 @@ async def latest_readings(
             {"_id": 0, "hardware_id": 1, "owner_user_id": 1, "aeration_tank_number": 1},
         ):
             registry_map[reg["hardware_id"]] = reg
-        # Strip any pre-baked DO_TANK_* keys — we'll re-derive them below.
-        for r in do_items:
-            r["values"] = {
-                k: v for k, v in (r.get("values") or {}).items()
-                if not k.startswith("DO_TANK_")
-            }
-        # owner_user_id → dict of DO_TANK_N → latest value (freshly derived)
-        owner_tank_values: Dict[str, Dict[str, float]] = {}
         for r in do_items:
             hw = r.get("hardware_id")
             reg = registry_map.get(hw) or {}
-            owner = reg.get("owner_user_id")
             tn = reg.get("aeration_tank_number")
-            if not owner or not isinstance(tn, int):
-                continue
-            # Prefer the raw `DO` value (the poller always stores it).
-            do_val = (r.get("values") or {}).get("DO")
-            if do_val is None:
-                continue
-            owner_tank_values.setdefault(owner, {})[f"DO_TANK_{tn}"] = do_val
-        # Apply the merged tank values to every DO device of that owner —
-        # so switching the pill selector doesn't hide the sibling tank.
-        for r in do_items:
-            hw = r.get("hardware_id")
-            owner = (registry_map.get(hw) or {}).get("owner_user_id")
-            if not owner or owner not in owner_tank_values:
-                continue
-            merged = dict(r.get("values") or {})
-            for k, v in owner_tank_values[owner].items():
-                merged[k] = v   # freshly-derived tank keys always win
-            r["values"] = merged
-        # dedup happens after registry placeholders are appended (below).
+            # Strip any pre-baked DO_TANK_* keys — re-derive from current mapping.
+            vals = {
+                k: v for k, v in (r.get("values") or {}).items()
+                if not k.startswith("DO_TANK_")
+            }
+            do_val = vals.get("DO")
+            if isinstance(tn, int) and do_val is not None:
+                vals[f"DO_TANK_{tn}"] = do_val
+            r["values"] = vals
 
     chlorine_items: List[dict] = []
     async for r in db.instrument_latest.find({"instrument_type": "chlorine_analyzer", "_dummy": {"$ne": True}}, {"_id": 0}):
@@ -393,31 +369,18 @@ async def latest_readings(
     # (which appear as empty placeholders here) also get collapsed into
     # the unified card. Chooses the lowest `aeration_tank_number` as the
     # canonical entry.
+    # Attach a `_do_siblings` list to every DO card so the inline admin
+    # dropdown (Link DO device → Tank) can list all sibling DO devices
+    # owned by the same client and show the current assignment. We do NOT
+    # dedupe / merge — each device is rendered as its OWN card showing
+    # only its own tank.
     if do_items:
         by_owner: Dict[str, List[dict]] = {}
         for r in do_items:
             hw = r.get("hardware_id")
             owner = (regs.get(hw) or {}).get("owner_user_id") or hw
             by_owner.setdefault(owner, []).append(r)
-        deduped: List[dict] = []
         for owner, items in by_owner.items():
-            def _tank_key(rr, _regs=regs):
-                reg = _regs.get(rr.get("hardware_id")) or {}
-                tn = reg.get("aeration_tank_number")
-                return (0, tn) if isinstance(tn, int) else (1, 0)
-            items.sort(key=_tank_key)
-            # Aggregate merged tank values across ALL devices of this owner
-            # onto the canonical card so a placeholder with no data can
-            # still show live tank values.
-            canonical = items[0]
-            merged_vals = dict(canonical.get("values") or {})
-            for extra in items[1:]:
-                for k, v in (extra.get("values") or {}).items():
-                    merged_vals.setdefault(k, v)
-            canonical["values"] = merged_vals
-            # Attach every DO device owned by the same owner so the admin
-            # can pick which physical device drives Tank 1 vs Tank 2 from
-            # a dropdown inside the DO Analyzer card.
             siblings = []
             for it in items:
                 hw = it.get("hardware_id")
@@ -427,9 +390,8 @@ async def latest_readings(
                     "label": reg.get("label") or hw,
                     "aeration_tank_number": reg.get("aeration_tank_number"),
                 })
-            canonical["_do_siblings"] = siblings
-            deduped.append(canonical)
-        do_items = deduped
+            for it in items:
+                it["_do_siblings"] = siblings
 
     # Enrich each registry entry with the owner's friendly name / email so
     # the admin badge on the WQ page reads "Client: Shalimar Lake City"
