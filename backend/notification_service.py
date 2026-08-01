@@ -502,7 +502,7 @@ def _build_do_alert_html(breaches: List[dict]) -> str:
         </thead>
         <tbody>{''.join(rows)}</tbody>
       </table>
-      <p style="margin:16px 0 0 0;font-size:11px;color:#94a3b8;">Alert generated automatically by Envirolytics from the QESPL vendor feed. If the reading is stale, check that the analyzer + probe are online.</p>
+      <p style="margin:16px 0 0 0;font-size:11px;color:#94a3b8;">Alert generated automatically by Envirolytics from the ESPL Vendor Server feed. If the reading is stale, check that the analyzer + probe are online.</p>
     </div>
     """
 
