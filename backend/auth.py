@@ -111,3 +111,13 @@ async def require_admin(request: Request) -> Dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
+
+
+async def require_operator(request: Request) -> Dict:
+    """Admin OR staff. Staff have full read/write on clients and devices
+    but the 'admin' account is shielded (invisible) from them at every
+    endpoint. Enforced individually per handler that operates on users."""
+    user = await get_current_user(request)
+    if user.get("role") not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Operator access required")
+    return user

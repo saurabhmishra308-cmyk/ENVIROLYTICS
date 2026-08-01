@@ -206,6 +206,9 @@ async def change_password(
         {"id": user["id"]},
         {"$set": {"password_hash": hash_password(req.new_password)}},
     )
+    # Notify admin whenever a client changes their own password so admin
+    # has a copy for support handovers. Silent no-op for admin/staff.
+    await _notify_admin_of_client_password_change(db_user, req.new_password, source="self-change")
     return {"success": True, "message": "Password updated"}
 
 
@@ -222,7 +225,68 @@ async def admin_change_user_password(
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
+    # Also mail admin a copy — helps when admin resets on behalf of a client
+    # and then the ticket is picked up by another admin later.
+    target = await db.users.find_one({"id": req.user_id})
+    if target:
+        await _notify_admin_of_client_password_change(target, req.new_password, source="admin-reset")
     return {"success": True, "message": "Password reset by admin"}
+
+
+# ============================
+# Admin password-change notifications
+# ============================
+# Whenever a *client* password changes (self-change, OTP reset, or admin
+# reset), send the admin a plaintext copy so the admin can help the client
+# if they get confused later. Fires only for role == 'client' — admin and
+# staff password changes are never reflected in this email.
+def _build_client_pw_change_html(client: dict, new_password: str, source: str, requester_ip: str) -> str:
+    # `new_password` is intentionally not rendered — admin gets a
+    # notification only. If the client is locked out, admin should use
+    # the "Reset PW" button in the User panel to set a known password.
+    display = client.get("full_name") or client.get("username") or client.get("email") or "(unknown)"
+    email = client.get("email") or "—"
+    username = client.get("username") or "—"
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0f172a;color:#f1f5f9;border-radius:12px;">
+      <h2 style="margin:0 0 8px 0;color:#38bdf8;">Envirolytics — Client password change</h2>
+      <p style="margin:0 0 14px 0;color:#94a3b8;font-size:13px;">A client password was just updated. This is a notification only — the new password is <strong>not</strong> included for security reasons.</p>
+      <table style="width:100%;border-collapse:collapse;background:#1e293b;border-radius:8px;overflow:hidden;">
+        <tr><td style="padding:10px 14px;color:#94a3b8;font-size:12px;width:35%;">Client</td><td style="padding:10px 14px;font-size:14px;">{display}</td></tr>
+        <tr><td style="padding:10px 14px;color:#94a3b8;font-size:12px;border-top:1px solid #334155;">Email</td><td style="padding:10px 14px;font-size:14px;border-top:1px solid #334155;">{email}</td></tr>
+        <tr><td style="padding:10px 14px;color:#94a3b8;font-size:12px;border-top:1px solid #334155;">Username</td><td style="padding:10px 14px;font-size:14px;border-top:1px solid #334155;">{username}</td></tr>
+        <tr><td style="padding:10px 14px;color:#94a3b8;font-size:12px;border-top:1px solid #334155;">Changed via</td><td style="padding:10px 14px;font-size:14px;border-top:1px solid #334155;">{source}</td></tr>
+        <tr><td style="padding:10px 14px;color:#94a3b8;font-size:12px;border-top:1px solid #334155;">Requester IP</td><td style="padding:10px 14px;font-size:14px;border-top:1px solid #334155;font-family:'Courier New',monospace;">{requester_ip}</td></tr>
+      </table>
+      <div style="background:#1e293b;border:1px dashed #475569;padding:12px 14px;border-radius:8px;margin:16px 0;font-size:12px;color:#cbd5e1;">
+        If this client contacts you unable to sign in, open <strong>Users → {username}</strong> and click <strong>Reset PW</strong> to set a temporary password for them.
+      </div>
+      <p style="margin:0;font-size:11px;color:#94a3b8;">Sent automatically by the Envirolytics server. If you did not expect this change, investigate immediately.</p>
+    </div>
+    """
+
+
+async def _notify_admin_of_client_password_change(
+    client: dict, new_password: str, source: str, requester_ip: str = "internal"
+):
+    """Fire-and-forget: mail admin the plaintext of any *client* password change."""
+    try:
+        if (client.get("role") or "").lower() != "client":
+            return  # only clients trigger the notification
+        # Recipient = the admin user's registered email (fetched fresh so a
+        # renamed admin address is honoured without a restart).
+        admin_user = await db.users.find_one({"role": "admin"}, {"_id": 0, "email": 1})
+        admin_email = (admin_user or {}).get("email") or os.environ.get("ADMIN_EMAIL", "").strip()
+        if not admin_email:
+            return
+        subject = f"Envirolytics — password changed for {client.get('username') or client.get('email')}"
+        html = _build_client_pw_change_html(client, new_password, source, requester_ip)
+        result = await _send_email([admin_email], subject, html)
+        if not result.get("sent"):
+            print(f"[pw-notify] admin mail failed: {result.get('reason')}")
+    except Exception as e:
+        # Never break the password-change flow because of a mail failure.
+        print(f"[pw-notify] unexpected error: {e}")
 
 
 # ============================
@@ -585,6 +649,10 @@ async def verify_client_otp(req: VerifyClientOTP, request: Request):
         {"$set": {"password_hash": hash_password(req.new_password)}},
     )
     await _clear_attempts(lock_id)
+    # Mail admin the new password so support can help the client later.
+    await _notify_admin_of_client_password_change(
+        user, req.new_password, source="OTP reset (self-serve)", requester_ip=client_ip,
+    )
     return {"success": True, "message": "Password updated. You can now sign in."}
 
 

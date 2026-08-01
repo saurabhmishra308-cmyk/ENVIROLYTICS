@@ -9,7 +9,7 @@ import uuid
 
 import re
 from models import UserRole, SiteStatus, SubscriptionType
-from auth import hash_password, require_admin, get_current_user
+from auth import hash_password, require_admin, require_operator, get_current_user
 from data_export_service import DataExportService, ExcelImportService
 from certificate_service import CertificateGenerator
 
