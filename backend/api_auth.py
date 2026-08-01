@@ -412,6 +412,183 @@ async def verify_admin_otp(req: VerifyAdminOTP, request: Request):
 
 
 # ============================
+# Client self-serve password recovery (email OTP)
+# ============================
+# Anyone can request an OTP for a client account by supplying the client's
+# email OR username. The OTP is emailed to the account's *registered email*
+# (never to a caller-supplied address) so a stranger can't hijack anyone.
+# Admin accounts intentionally CANNOT use this endpoint — they must use
+# the dedicated admin recovery flow (mailbox-secured).
+# Same 6-digit / 10-min / single-use / rate-limited invariants as the
+# admin OTP flow.
+CLIENT_OTP_MAX_REQUESTS_PER_HOUR = 5
+
+
+class RequestClientOTP(BaseModel):
+    identifier: str  # email or username
+
+
+class VerifyClientOTP(BaseModel):
+    identifier: str
+    otp: str
+    new_password: str
+
+
+async def _find_client_by_identifier(identifier: str) -> Optional[dict]:
+    """Match on email (case-insensitive) or username (case-sensitive).
+    Returns the raw user doc or None. Admins are intentionally excluded."""
+    ident = (identifier or "").strip()
+    if not ident:
+        return None
+    user = await db.users.find_one({
+        "$or": [{"email": ident.lower()}, {"username": ident}],
+    })
+    if not user:
+        return None
+    if (user.get("role") or "").lower() == "admin":
+        # Silently treat admins as "not a client" so the endpoint doesn't
+        # leak admin existence via a different error message.
+        return None
+    return user
+
+
+async def _throttle_client_otp_requests(client_ip: str, target_email: str):
+    """Rate-limit both by requester IP and by target email so a stranger
+    can't spam a client's mailbox even by rotating client IPs."""
+    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    since_iso = since.isoformat()
+    ip_count = await db.client_password_otp.count_documents({
+        "kind": "request", "client_ip": client_ip, "created_at": {"$gte": since_iso},
+    })
+    target_count = await db.client_password_otp.count_documents({
+        "kind": "request", "target_email": target_email, "created_at": {"$gte": since_iso},
+    })
+    if ip_count >= CLIENT_OTP_MAX_REQUESTS_PER_HOUR or target_count >= CLIENT_OTP_MAX_REQUESTS_PER_HOUR:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many OTP requests. Try again in 1 hour.",
+        )
+
+
+def _build_client_otp_html(otp: str, requester_ip: str, display_name: str) -> str:
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;background:#0f172a;color:#f1f5f9;border-radius:12px;">
+      <h2 style="margin:0 0 8px 0;color:#38bdf8;">Envirolytics — Password reset</h2>
+      <p style="margin:0 0 6px 0;color:#e2e8f0;font-size:14px;">Hi {display_name or 'there'},</p>
+      <p style="margin:0 0 18px 0;color:#94a3b8;font-size:13px;">Someone (IP <code style="color:#f59e0b;">{requester_ip}</code>) requested a password reset for your Envirolytics account. If this was you, use the code below.</p>
+      <div style="background:#1e293b;padding:20px;border-radius:8px;text-align:center;margin:16px 0;">
+        <div style="font-size:11px;letter-spacing:2px;color:#94a3b8;text-transform:uppercase;">Your one-time code</div>
+        <div style="font-size:36px;font-weight:700;letter-spacing:8px;color:#38bdf8;margin-top:8px;font-family:'Courier New',monospace;">{otp}</div>
+      </div>
+      <p style="margin:0 0 8px 0;font-size:13px;">This code expires in <strong>{OTP_TTL_MINUTES} minutes</strong> and can only be used once.</p>
+      <p style="margin:0;font-size:12px;color:#94a3b8;">If you didn't request this, ignore this email — your password stays unchanged.</p>
+    </div>
+    """
+
+
+@router.post("/password-recovery/request-otp")
+async def request_client_otp(req: RequestClientOTP, request: Request):
+    """Client self-serve — send a 6-digit OTP to the registered email.
+
+    Response is intentionally identical whether the account exists or not,
+    so an attacker can't enumerate valid usernames/emails.
+    """
+    client_ip = _get_client_ip(request)
+    user = await _find_client_by_identifier(req.identifier)
+    generic_ack = {"success": True, "message": "If an account matches, an OTP has been sent to its registered email."}
+
+    if not user:
+        # Log the attempt against the requester's IP so blind spam is
+        # still rate-limited even when no target exists.
+        await db.client_password_otp.insert_one({
+            "kind": "request",
+            "client_ip": client_ip,
+            "target_email": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return generic_ack
+
+    email = (user.get("email") or "").strip()
+    if not email:
+        return generic_ack  # no address to send to; still act generic
+    await _throttle_client_otp_requests(client_ip, email)
+
+    # Invalidate any prior unused OTPs for this user
+    await db.client_password_otp.update_many(
+        {"kind": "otp", "user_id": user["id"], "used": False},
+        {"$set": {"used": True, "invalidated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    otp_digest = hashlib.sha256(otp.encode()).hexdigest()
+    now = datetime.now(timezone.utc)
+    await db.client_password_otp.insert_one({
+        "kind": "otp",
+        "user_id": user["id"],
+        "otp_hash": otp_digest,
+        "expires_at": (now + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
+        "created_at": now.isoformat(),
+        "used": False,
+        "client_ip": client_ip,
+    })
+    await db.client_password_otp.insert_one({
+        "kind": "request",
+        "client_ip": client_ip,
+        "target_email": email,
+        "created_at": now.isoformat(),
+    })
+
+    result = await _send_email(
+        [email],
+        "Envirolytics — Password reset code",
+        _build_client_otp_html(otp, client_ip, user.get("full_name") or ""),
+    )
+    if not result.get("sent"):
+        # Still ack generically — but log server-side for ops.
+        print(f"[password-recovery] send failed for {email}: {result.get('reason')}")
+    return generic_ack
+
+
+@router.post("/password-recovery/verify-otp")
+async def verify_client_otp(req: VerifyClientOTP, request: Request):
+    """Verify a client's OTP and set a new password."""
+    client_ip = _get_client_ip(request)
+    lock_id = f"client_otp:{client_ip}"
+    if await _is_locked_out(lock_id):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed attempts. Try again in {LOCKOUT_MINUTES} minutes.",
+        )
+    if not req.otp or not req.otp.isdigit() or len(req.otp) != 6:
+        await _record_failed(lock_id)
+        raise HTTPException(status_code=400, detail="Invalid OTP format")
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    user = await _find_client_by_identifier(req.identifier)
+    if not user:
+        await _record_failed(lock_id)
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    record = await db.client_password_otp.find_one(
+        {"kind": "otp", "user_id": user["id"], "used": False, "expires_at": {"$gt": now_iso}},
+        sort=[("created_at", -1)],
+    )
+    if not record or hashlib.sha256(req.otp.encode()).hexdigest() != record.get("otp_hash", ""):
+        await _record_failed(lock_id)
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
+
+    await db.client_password_otp.update_one({"_id": record["_id"]}, {"$set": {"used": True, "used_at": now_iso}})
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": hash_password(req.new_password)}},
+    )
+    await _clear_attempts(lock_id)
+    return {"success": True, "message": "Password updated. You can now sign in."}
+
+
+# ============================
 # Seed admin (idempotent)
 # ============================
 async def seed_admin(database):

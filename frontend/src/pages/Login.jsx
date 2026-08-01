@@ -90,6 +90,63 @@ const Login = () => {
     // `navigate` is stable per react-router. Effect only needs to run once on mount.
   }, [navigate]);
 
+  // Client self-serve password recovery (email OTP)
+  const [showClientRecover, setShowClientRecover] = useState(false);
+  const [clientRecoverStep, setClientRecoverStep] = useState(1);
+  const [clientIdent, setClientIdent] = useState('');
+  const [clientOtp, setClientOtp] = useState('');
+  const [clientNewPass, setClientNewPass] = useState('');
+  const [clientRecoverBusy, setClientRecoverBusy] = useState(false);
+  const [clientRecoverErr, setClientRecoverErr] = useState('');
+  const [clientRecoverMsg, setClientRecoverMsg] = useState('');
+
+  const openClientRecover = () => {
+    setShowClientRecover(true);
+    setClientRecoverStep(1);
+    setClientIdent(email || '');
+    setClientOtp('');
+    setClientNewPass('');
+    setClientRecoverErr('');
+    setClientRecoverMsg('');
+  };
+
+  const requestClientOtp = async () => {
+    setClientRecoverErr('');
+    setClientRecoverMsg('');
+    if (!clientIdent.trim()) { setClientRecoverErr('Enter your username or email.'); return; }
+    setClientRecoverBusy(true);
+    try {
+      await api.post('/api/auth/password-recovery/request-otp', { identifier: clientIdent.trim() });
+      setClientRecoverMsg('If the account exists, an OTP has been sent to its registered email. Check the inbox.');
+      setClientRecoverStep(2);
+    } catch (e) {
+      setClientRecoverErr(e?.response?.data?.detail || 'Could not send OTP. Try again shortly.');
+    } finally {
+      setClientRecoverBusy(false);
+    }
+  };
+
+  const submitClientOtp = async () => {
+    setClientRecoverErr('');
+    setClientRecoverMsg('');
+    if (!/^\d{6}$/.test(clientOtp)) { setClientRecoverErr('Enter the 6-digit OTP.'); return; }
+    if (clientNewPass.length < 8) { setClientRecoverErr('New password must be at least 8 characters.'); return; }
+    setClientRecoverBusy(true);
+    try {
+      await api.post('/api/auth/password-recovery/verify-otp', {
+        identifier: clientIdent.trim(),
+        otp: clientOtp,
+        new_password: clientNewPass,
+      });
+      setClientRecoverMsg('Password updated. You can sign in now.');
+      setTimeout(() => setShowClientRecover(false), 2000);
+    } catch (e) {
+      setClientRecoverErr(e?.response?.data?.detail || 'Invalid or expired OTP.');
+    } finally {
+      setClientRecoverBusy(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     setError('');
@@ -339,18 +396,27 @@ const Login = () => {
               </div>
             </form>
 
-            <div className="text-center mb-3 relative z-[1] flex items-center justify-center gap-4">
+            <div className="text-center mb-3 relative z-[1] flex items-center justify-center gap-3 flex-wrap">
               <Link to="/policies" className="text-white/85 text-sm inline-flex items-center gap-1 hover:text-white hover:underline transition-colors">
                 <FileText size={14} /> Policies
               </Link>
               <span className="text-white/40 text-sm">·</span>
               <button
                 type="button"
-                onClick={openRecover}
+                onClick={openClientRecover}
                 className="text-white/85 text-sm inline-flex items-center gap-1 hover:text-white hover:underline transition-colors bg-transparent border-0 cursor-pointer p-0"
+                data-testid="forgot-password-link"
+              >
+                <KeyRound size={14} /> Forgot password?
+              </button>
+              <span className="text-white/40 text-sm">·</span>
+              <button
+                type="button"
+                onClick={openRecover}
+                className="text-white/60 text-xs inline-flex items-center gap-1 hover:text-white hover:underline transition-colors bg-transparent border-0 cursor-pointer p-0"
                 data-testid="forgot-admin-password-link"
               >
-                <KeyRound size={14} /> Forgot admin password?
+                Admin recovery
               </button>
             </div>
 
@@ -361,6 +427,125 @@ const Login = () => {
           </p>
         </div>
       </div>
+
+      {/* Client self-serve password recovery modal (OTP to registered email) */}
+      {showClientRecover && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          data-testid="client-recovery-modal"
+        >
+          <div className="w-full max-w-md mx-4 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-6 text-white relative">
+            <button
+              type="button"
+              onClick={() => setShowClientRecover(false)}
+              className="absolute top-3 right-3 text-white/60 hover:text-white bg-transparent border-0 cursor-pointer"
+              data-testid="client-recovery-close"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+            <div className="flex items-center gap-2 mb-2">
+              <KeyRound size={18} className="text-sky-400" />
+              <h3 className="text-lg font-semibold">Reset Your Password</h3>
+            </div>
+            <p className="text-white/70 text-xs mb-4">
+              Enter your username or the email on your Envirolytics account. A
+              6-digit code will be sent to your registered email.
+            </p>
+
+            {clientRecoverStep === 1 && (
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs uppercase tracking-wider text-white/80 mb-1 block">Username or Email</Label>
+                  <Input
+                    type="text"
+                    value={clientIdent}
+                    onChange={(e) => setClientIdent(e.target.value)}
+                    placeholder="e.g. lakecity-stp or rajiv.kumar@shalimar.org"
+                    className="text-white"
+                    data-testid="client-recovery-ident-input"
+                    autoFocus
+                  />
+                </div>
+                <Button
+                  type="button"
+                  onClick={requestClientOtp}
+                  disabled={clientRecoverBusy}
+                  className="w-full bg-sky-500 hover:bg-sky-400 text-white"
+                  data-testid="client-recovery-request-otp"
+                >
+                  {clientRecoverBusy ? <span className="flex items-center gap-2 justify-center"><Loader2 className="w-4 h-4 animate-spin" />Sending…</span> : 'Send OTP to my email'}
+                </Button>
+              </div>
+            )}
+
+            {clientRecoverStep === 2 && (
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs uppercase tracking-wider text-white/80 mb-1 block">6-digit OTP</Label>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={clientOtp}
+                    onChange={(e) => setClientOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="123456"
+                    className="text-center text-lg tracking-[0.5em] font-mono text-white"
+                    data-testid="client-recovery-otp-input"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs uppercase tracking-wider text-white/80 mb-1 block">New password</Label>
+                  <Input
+                    type="password"
+                    value={clientNewPass}
+                    onChange={(e) => setClientNewPass(e.target.value)}
+                    placeholder="Min 8 characters"
+                    className="text-white"
+                    data-testid="client-recovery-newpass-input"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  onClick={submitClientOtp}
+                  disabled={clientRecoverBusy}
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-white"
+                  data-testid="client-recovery-verify-otp"
+                >
+                  {clientRecoverBusy ? <span className="flex items-center gap-2 justify-center"><Loader2 className="w-4 h-4 animate-spin" />Verifying…</span> : 'Reset password'}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => { setClientRecoverStep(1); setClientOtp(''); setClientNewPass(''); setClientRecoverErr(''); setClientRecoverMsg(''); }}
+                  className="text-xs text-white/60 hover:text-white underline bg-transparent border-0 cursor-pointer w-full text-center"
+                  data-testid="client-recovery-resend"
+                >
+                  Didn&apos;t get it? Send a new OTP
+                </button>
+              </div>
+            )}
+
+            {clientRecoverMsg && (
+              <div
+                className="mt-3 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-3 py-2"
+                data-testid="client-recovery-message"
+              >
+                {clientRecoverMsg}
+              </div>
+            )}
+            {clientRecoverErr && (
+              <div
+                className="mt-3 text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2"
+                data-testid="client-recovery-error"
+              >
+                {clientRecoverErr}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Admin recovery modal (OTP to pre-configured recovery mailbox) */}
       {showRecover && createPortal(
