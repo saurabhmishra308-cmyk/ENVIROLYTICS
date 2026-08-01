@@ -190,9 +190,21 @@ def _dose_recommendation(
 # --------------------------------------------------------------------------- helpers
 
 def _has_wq_permission(user: dict) -> bool:
-    """Admins always pass; clients need the `view_water_quality` flag."""
+    """Admins always pass. Non-admins are granted WQ view when EITHER
+    system says yes:
+      (a) the legacy `permissions.view_water_quality` flag is True, OR
+      (b) the new View Access dialog toggle `view_permissions.water_quality`
+          is True (missing key = True by default, matching the admin UI).
+    Rule from the product owner: "when admin has permitted the tab, the
+    client must see it — no additional gate." So (b) alone is enough.
+    """
     if (user.get("role") or "").lower() == "admin":
         return True
+    # (b) New View Access — the source of truth going forward.
+    vp = user.get("view_permissions") or {}
+    if vp.get("water_quality", True):
+        return True
+    # (a) Legacy per-user permissions map (kept for backward compat).
     perms = user.get("permissions") or []
     if isinstance(perms, dict):
         return bool(perms.get("view_water_quality"))

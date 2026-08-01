@@ -95,6 +95,11 @@ async def get_current_user(request: Request) -> Dict:
         if k not in normalized_perms:
             normalized_perms[k] = bool(v)
     user["permissions"] = normalized_perms
+    # View Access dialog (new source of truth) — expose the client's stored
+    # view_permissions map on the user object so per-page gates can honor
+    # what the admin toggled in the View Access dialog. Missing keys are
+    # deliberately left absent; downstream code defaults missing = visible.
+    user["view_permissions"] = user.get("view_permissions") or {}
     # Admins implicitly have everything.
     if user.get("role") == "admin":
         user["permissions"] = {k: True for k in user["permissions"]}
