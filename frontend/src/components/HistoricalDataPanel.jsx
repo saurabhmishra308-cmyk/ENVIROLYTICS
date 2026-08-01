@@ -23,7 +23,7 @@ const csvEscape = (v) => {
 // a WQ device. Uses `/api/water-quality/history/{hardware_id}?range=…` —
 // `raw` returns a `rows` array (every reading), the others return a
 // `series` array of bucket-averaged values.
-export const HistoricalDataPanel = ({ hardwareId, unit, deviceLabel }) => {
+export const HistoricalDataPanel = ({ hardwareId, unit, deviceLabel, hideParams }) => {
   const [range, setRange] = useState('raw');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -51,7 +51,11 @@ export const HistoricalDataPanel = ({ hardwareId, unit, deviceLabel }) => {
   }, [data, range]);
 
   const isRaw = range === 'raw';
-  const params = data?.params || [];
+  // Drop any param the caller explicitly hid (e.g. DO Tank 1 device should
+  // never show a DO_TANK_2 column — that reading physically doesn't exist
+  // on this device and just adds a column full of "—").
+  const hideSet = useMemo(() => new Set(hideParams || []), [hideParams]);
+  const params = (data?.params || []).filter((p) => !hideSet.has(p));
   const timestampKey = isRaw ? 'received_at' : 'bucket';
   const timestampLabel = isRaw ? 'Timestamp' : 'Bucket';
 

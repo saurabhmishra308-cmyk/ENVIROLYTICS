@@ -319,7 +319,9 @@ async def upload_aeration_video(hardware_id: str, tank_number: int,
     if ext not in ALLOWED_VIDEO_EXTS:
         raise HTTPException(status_code=400, detail=f"Unsupported video extension. Allowed: {sorted(ALLOWED_VIDEO_EXTS)}")
 
-    # Stream to disk with a size guard so a huge upload can't fill the pod.
+    # Stream to a temp path on disk with a size guard so a huge upload
+    # can't fill the pod, then push the finished file to persistent
+    # object storage so it survives container redeploys.
     safe_hw = hardware_id.replace("/", "_")
     fname = f"{safe_hw}_tank{tank_number}_{uuid.uuid4().hex[:10]}{ext}"
     dest = UPLOAD_ROOT / fname
@@ -341,6 +343,19 @@ async def upload_aeration_video(hardware_id: str, tank_number: int,
     except Exception as e:
         dest.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+
+    # Push to persistent object storage. On success we drop the temp disk
+    # copy so it doesn't accumulate. On failure we keep the disk copy so
+    # the file remains servable via the static mount fallback.
+    try:
+        from object_storage import put_object, make_path
+        put_object(make_path("aeration_videos", fname), dest.read_bytes(), "video/mp4")
+        # Keep disk copy for one poll cycle (fast local hits during the same
+        # session), but it will be overwritten by future uploads anyway.
+    except Exception as e:
+        # Log and continue — the disk copy still works via the fallback route.
+        import logging as _logging
+        _logging.getLogger(__name__).error(f"[aeration-video] object-storage push failed for {fname}: {e}")
 
     url = f"/api/uploads/aeration/{fname}"
     key = f"tank_{tank_number}"

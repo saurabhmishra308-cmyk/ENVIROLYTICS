@@ -23,9 +23,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from auth import get_current_user, require_admin
+from object_storage import put_object, get_object, make_path
 
 logger = logging.getLogger(__name__)
 
@@ -117,9 +118,21 @@ async def upload_photo(
 
     photo_id = f"iph_{uuid.uuid4().hex[:12]}"
     safe_name = f"{photo_id}.jpg"
-    dest = os.path.join(PHOTO_DIR, safe_name)
-    with open(dest, "wb") as f:
-        f.write(content)
+
+    # Persistent object storage — survives container redeploys. Fall back
+    # to a local-disk write only if object storage is unreachable, so the
+    # upload doesn't fail outright during a storage outage.
+    storage_path: Optional[str] = None
+    disk_path: Optional[str] = None
+    try:
+        obj_path = make_path("instrument_photos", safe_name)
+        result = put_object(obj_path, content, "image/jpeg")
+        storage_path = result.get("path") or obj_path
+    except Exception as e:
+        logger.error(f"[photo-upload] object storage failed: {e}; falling back to local disk")
+        disk_path = os.path.join(PHOTO_DIR, safe_name)
+        with open(disk_path, "wb") as f:
+            f.write(content)
 
     doc = {
         "id": photo_id,
@@ -133,7 +146,11 @@ async def upload_photo(
         "landmark": landmark.strip() or None,
         "caption": caption.strip() or None,
         "file_name": safe_name,
-        "file_path": dest,
+        # `storage_path` is the source of truth for new uploads.
+        # `file_path` is kept for legacy on-disk photos and only used
+        # when object storage isn't available.
+        "storage_path": storage_path,
+        "file_path": disk_path,
         "size_bytes": len(content),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": admin.get("id"),
@@ -161,7 +178,17 @@ async def serve_photo(photo_id: str, user: dict = Depends(get_current_user)):
     if user.get("role") != "admin":
         if doc.get("owner_user_id") != user.get("id"):
             raise HTTPException(status_code=403, detail="Not permitted to view this photo")
+    # Prefer persistent object storage.
+    storage_path = doc.get("storage_path")
+    if storage_path:
+        try:
+            data, ct = get_object(storage_path)
+            return Response(content=data, media_type=ct or "image/jpeg")
+        except Exception as e:
+            logger.error(f"[photo-serve] object storage read failed for {photo_id}: {e}")
+            # Fall through to disk (may still exist for very recent uploads)
+    # Legacy fallback — photos uploaded before object storage was wired.
     file_path = doc.get("file_path")
-    if not file_path or not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Photo file missing on disk")
-    return FileResponse(file_path, media_type="image/jpeg", filename=doc.get("file_name") or "photo.jpg")
+    if file_path and os.path.exists(file_path):
+        return FileResponse(file_path, media_type="image/jpeg", filename=doc.get("file_name") or "photo.jpg")
+    raise HTTPException(status_code=404, detail="Photo file no longer available. Please re-upload.")

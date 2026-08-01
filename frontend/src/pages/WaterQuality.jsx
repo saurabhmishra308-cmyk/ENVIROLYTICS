@@ -549,7 +549,20 @@ const WaterQuality = () => {
               />
             </CardContent>
           </Card>
-          <HistoricalDataPanel hardwareId={selectedHw} unit={unit} deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)} />
+          <HistoricalDataPanel
+            hardwareId={selectedHw}
+            unit={unit}
+            deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)}
+            hideParams={(() => {
+              // A physical DO analyzer only measures ONE tank. Hide the
+              // other tank's column so it doesn't pollute the table
+              // with a full column of "—".
+              const tn = currentDevice?._registry?.aeration_tank_number;
+              if (tn === 1) return ['DO_TANK_2'];
+              if (tn === 2) return ['DO_TANK_1'];
+              return [];
+            })()}
+          />
         </>
       ) : (
         <>

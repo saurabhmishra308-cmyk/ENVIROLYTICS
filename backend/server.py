@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
@@ -172,12 +172,41 @@ app.include_router(water_quality_router)
 from api_wq_config import router as wq_config_router  # noqa: E402
 app.include_router(wq_config_router)
 
-# Serve uploaded aeration videos as static files under /api/uploads/aeration
+# Serve uploaded aeration videos + camera snaps.
+# New uploads go to Emergent object storage (persistent across redeploys);
+# legacy files that still live on the ephemeral container disk are served
+# via the StaticFiles mount as a fallback. The custom /api/uploads/{path}
+# route below runs BEFORE the mount and prefers object storage.
 from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.responses import Response as _Response  # noqa: E402
 from pathlib import Path as _Path  # noqa: E402
+from object_storage import get_object as _get_object, make_path as _make_path  # noqa: E402
+
 _UPLOADS_DIR = _Path(__file__).parent / "uploads"
 (_UPLOADS_DIR / "aeration").mkdir(parents=True, exist_ok=True)
 (_UPLOADS_DIR / "camera").mkdir(parents=True, exist_ok=True)
+
+
+@app.get("/api/uploads/aeration/{filename:path}")
+async def _serve_aeration_video(filename: str):
+    """Aeration tank video — pulled from persistent object storage, with
+    a disk fallback for legacy uploads. Kept unauthenticated because the
+    video is embedded in an HTML5 <video> tag which cannot send Bearer
+    headers, and the content itself carries no PII."""
+    # 1) Persistent object storage
+    try:
+        data, ct = _get_object(_make_path("aeration_videos", filename))
+        return _Response(content=data, media_type=ct or "video/mp4")
+    except Exception:
+        pass
+    # 2) Legacy on-disk fallback (files uploaded before object-storage migration)
+    disk = _UPLOADS_DIR / "aeration" / filename
+    if disk.exists() and disk.is_file():
+        return _Response(content=disk.read_bytes(), media_type="video/mp4")
+    raise HTTPException(status_code=404, detail="Aeration video not found")
+
+
+# Camera snaps + other legacy uploads still use the static mount.
 app.mount("/api/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
 
 # Live camera streams (per-device video widget on Water Quality page)
@@ -203,6 +232,14 @@ logger = logging.getLogger(__name__)
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting Envirolytics Monitor API...")
+    # Initialize Emergent object storage for photo/video uploads. Non-fatal
+    # on failure — the app still boots (uploads will 503 until storage
+    # becomes reachable).
+    try:
+        from object_storage import init_storage
+        init_storage()
+    except Exception as e:
+        logger.error(f"[startup] object_storage init failed: {e}")
     # Seed admin user
     await seed_admin(db)
     # God-mode migration: strip any expiry fields from every existing admin

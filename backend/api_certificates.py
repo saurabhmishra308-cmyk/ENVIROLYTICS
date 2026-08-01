@@ -99,8 +99,22 @@ async def upload_certificate(
     target_dir = STORAGE_ROOT / t / str(year)
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / safe_name
-    with target_path.open("wb") as f:
-        f.write(contents)
+
+    # Persistent object storage — new uploads survive container redeploys.
+    storage_path: Optional[str] = None
+    try:
+        from object_storage import put_object, make_path
+        result = put_object(
+            make_path(f"certificates/{t}/{year}", safe_name),
+            contents,
+            file.content_type or "application/pdf",
+        )
+        storage_path = result.get("path")
+    except Exception as e:
+        import logging as _logging
+        _logging.getLogger(__name__).error(f"[cert-upload] object storage push failed: {e}; falling back to disk")
+        with target_path.open("wb") as f:
+            f.write(contents)
 
     doc = {
         "id": cert_id,
@@ -113,7 +127,8 @@ async def upload_certificate(
         "notes": notes,
         "original_filename": file.filename,
         "stored_filename": safe_name,
-        "stored_path": str(target_path),
+        "stored_path": str(target_path) if storage_path is None else None,
+        "storage_path": storage_path,
         "size_bytes": len(contents),
         "content_type": file.content_type or "application/octet-stream",
         "uploaded_by": admin["id"],
@@ -157,14 +172,32 @@ async def download_certificate(cert_id: str, user: dict = Depends(get_current_us
     # Non-admins can only download their own
     if user.get("role") != "admin" and doc.get("client_id") and doc["client_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
-    path = Path(doc["stored_path"])
-    if not path.exists():
-        raise HTTPException(status_code=410, detail="File missing from storage")
-    return FileResponse(
-        path=str(path),
-        media_type=doc.get("content_type", "application/octet-stream"),
-        filename=doc.get("original_filename") or doc.get("stored_filename"),
-    )
+    # Prefer persistent object storage for new uploads
+    from fastapi.responses import Response as _Response
+    storage_path = doc.get("storage_path")
+    if storage_path:
+        try:
+            from object_storage import get_object
+            data, ct = get_object(storage_path)
+            return _Response(
+                content=data,
+                media_type=doc.get("content_type") or ct or "application/octet-stream",
+                headers={"Content-Disposition": f'inline; filename="{doc.get("original_filename") or doc.get("stored_filename")}"'},
+            )
+        except Exception as e:
+            import logging as _logging
+            _logging.getLogger(__name__).error(f"[cert-download] object storage read failed for {cert_id}: {e}")
+    # Legacy on-disk fallback
+    disk_path = doc.get("stored_path")
+    if disk_path:
+        path = Path(disk_path)
+        if path.exists():
+            return FileResponse(
+                path=str(path),
+                media_type=doc.get("content_type", "application/octet-stream"),
+                filename=doc.get("original_filename") or doc.get("stored_filename"),
+            )
+    raise HTTPException(status_code=410, detail="File missing from storage. Please re-upload.")
 
 
 @router.delete("/{cert_id}")
@@ -172,12 +205,15 @@ async def delete_certificate(cert_id: str, admin: dict = Depends(require_admin))
     doc = await db.certificates.find_one({"id": cert_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Certificate not found")
-    path = Path(doc.get("stored_path", ""))
-    if path.exists():
-        try:
-            path.unlink()
-        except Exception:
-            pass
+    disk = doc.get("stored_path")
+    if disk:
+        path = Path(disk)
+        if path.exists():
+            try:
+                path.unlink()
+            except Exception:
+                pass
+    # Object-storage blobs are left as orphans (no delete API — per playbook).
     await db.certificates.delete_one({"id": cert_id})
     return {"success": True}
 
