@@ -76,8 +76,13 @@ STP_PARAMS = {
     "CHLORINE":  {"unit_default": "mg/L", "min": 0.0,  "max": 5.0,   "safe_min": 0.2, "safe_max": 2.0},
 }
 DO_PARAMS = {
-    "DO_TANK_1": {"unit_default": "mg/L", "min": 0.0, "max": 20.0, "safe_min": 2.0, "safe_max": 8.0},
-    "DO_TANK_2": {"unit_default": "mg/L", "min": 0.0, "max": 20.0, "safe_min": 2.0, "safe_max": 8.0},
+    "DO_TANK_1":     {"unit_default": "mg/L", "min": 0.0, "max": 20.0, "safe_min": 2.0, "safe_max": 8.0},
+    "DO_TANK_2":     {"unit_default": "mg/L", "min": 0.0, "max": 20.0, "safe_min": 2.0, "safe_max": 8.0},
+    # Device-reported water temperature (from QESPL param `Temperature`).
+    # Wide safe band — the aeration alerts key off DO, not temperature.
+    "TEMPER":        {"unit_default": "°C",   "min": 0.0, "max": 60.0, "safe_min": 5.0, "safe_max": 45.0},
+    # Dissolved-oxygen saturation percent — from QESPL param `Saturation`.
+    "DO_SATURATION": {"unit_default": "%",    "min": 0.0, "max": 200.0, "safe_min": 40.0, "safe_max": 120.0},
 }
 # Dedicated chlorine-analyser device. Emits `CHLORINE` (free residual, mg/L)
 # and optionally `CHLORINE_DOSE` (setpoint the dosing pump is currently

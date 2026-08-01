@@ -62,7 +62,7 @@ export const Gauge2D = ({ value, min = 0, max = 100, unit = '', label = '', safe
 };
 
 // ------------------------- Aeration tank visualisation (video-driven) -------------------------
-export const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, safeMax = 8, unit = 'mg/L', capacityKld, videoSrc, isCustomVideo }) => {
+export const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, safeMax = 8, unit = 'mg/L', capacityKld, videoSrc, isCustomVideo, temperatureC, saturationPct }) => {
   const v = typeof doValue === 'number' ? doValue : null;
   const videoRef = React.useRef(null);
   // "Aeration active" = DO reading above the low-oxygen threshold. Below that,
@@ -125,6 +125,32 @@ export const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin =
           </div>
           <div className="text-[9px] uppercase tracking-widest text-white/70">{unit}</div>
         </div>
+        {/* Device-reported water temperature + DO saturation (from QESPL). */}
+        {(typeof temperatureC === 'number' || typeof saturationPct === 'number') && (
+          <div
+            className="absolute bottom-3 left-3 bg-black/70 rounded-md px-3 py-2 backdrop-blur"
+            data-testid={`aeration-tank-${tankNumber}-temp`}
+          >
+            {typeof temperatureC === 'number' && (
+              <div className="flex items-baseline gap-1">
+                <span className="text-[9px] uppercase tracking-widest text-white/70">Temp</span>
+                <span className="text-base font-mono font-bold text-amber-300 tabular-nums">
+                  {temperatureC.toFixed(1)}
+                </span>
+                <span className="text-[9px] text-white/70">°C</span>
+              </div>
+            )}
+            {typeof saturationPct === 'number' && (
+              <div className="flex items-baseline gap-1">
+                <span className="text-[9px] uppercase tracking-widest text-white/70">Sat</span>
+                <span className="text-base font-mono font-bold text-sky-300 tabular-nums">
+                  {saturationPct.toFixed(1)}
+                </span>
+                <span className="text-[9px] text-white/70">%</span>
+              </div>
+            )}
+          </div>
+        )}
         {/* Status badge */}
         <div className="absolute top-3 right-3">
           <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${aerationActive ? 'bg-emerald-500 text-white animate-pulse' : 'bg-gray-500 text-white'}`}

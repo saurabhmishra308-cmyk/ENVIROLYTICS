@@ -504,6 +504,8 @@ const WaterQuality = () => {
                       capacityKld={cap}
                       videoSrc={vidPath ? backendAssetUrl(vidPath) : null}
                       isCustomVideo={Boolean(vidPath)}
+                      temperatureC={typeof currentValues.TEMPER === 'number' ? currentValues.TEMPER : null}
+                      saturationPct={typeof currentValues.DO_SATURATION === 'number' ? currentValues.DO_SATURATION : null}
                     />
                     <AerationVideoUploader
                       hardwareId={selectedHw}
