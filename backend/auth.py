@@ -107,17 +107,27 @@ async def get_current_user(request: Request) -> Dict:
 
 
 async def require_admin(request: Request) -> Dict:
+    """Elevated-privilege guard. Accepts both admin (god mode) and staff
+    (IT operator). Staff have the same API surface as admin except that
+    endpoints in `api_admin.py` shield the admin user (and other staff)
+    from any staff caller via `_staff_can_see()`."""
     user = await get_current_user(request)
-    if user.get("role") != "admin":
+    if user.get("role") not in ("admin", "staff"):
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
 
 async def require_operator(request: Request) -> Dict:
-    """Admin OR staff. Staff have full read/write on clients and devices
-    but the 'admin' account is shielded (invisible) from them at every
-    endpoint. Enforced individually per handler that operates on users."""
+    """Alias of require_admin — kept for readability at call sites that
+    want to signal 'admin OR staff' explicitly."""
+    return await require_admin(request)
+
+
+async def require_super_admin(request: Request) -> Dict:
+    """Strictly admin-only — staff cannot pass. Use this for endpoints
+    that must never be delegated (e.g. anything that mutates the admin
+    account itself)."""
     user = await get_current_user(request)
-    if user.get("role") not in ("admin", "staff"):
-        raise HTTPException(status_code=403, detail="Operator access required")
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
     return user

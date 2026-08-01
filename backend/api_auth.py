@@ -214,11 +214,23 @@ async def change_password(
 
 @router.post("/admin/change-user-password")
 async def admin_change_user_password(
-    req: AdminChangeUserPasswordRequest, admin: dict = Depends(require_admin)
+    req: AdminChangeUserPasswordRequest, caller: dict = Depends(require_admin)
 ):
-    """Admin-only: change any user's password without knowing the old one."""
+    """Admin/staff: change any user's password without knowing the old one.
+
+    Staff cannot target the admin account (shielded — returns 404) nor any
+    other staff account (also 404). Admin can target anyone.
+    """
     if len(req.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    target = await db.users.find_one({"id": req.user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Staff shield: staff cannot reset admin's password nor another staff's.
+    if (caller.get("role") or "").lower() == "staff":
+        t_role = (target.get("role") or "").lower()
+        if t_role == "admin" or (t_role == "staff" and target.get("id") != caller.get("id")):
+            raise HTTPException(status_code=404, detail="User not found")
     result = await db.users.update_one(
         {"id": req.user_id},
         {"$set": {"password_hash": hash_password(req.new_password)}},
@@ -227,9 +239,7 @@ async def admin_change_user_password(
         raise HTTPException(status_code=404, detail="User not found")
     # Also mail admin a copy — helps when admin resets on behalf of a client
     # and then the ticket is picked up by another admin later.
-    target = await db.users.find_one({"id": req.user_id})
-    if target:
-        await _notify_admin_of_client_password_change(target, req.new_password, source="admin-reset")
+    await _notify_admin_of_client_password_change(target, req.new_password, source="admin-reset")
     return {"success": True, "message": "Password reset by admin"}
 
 

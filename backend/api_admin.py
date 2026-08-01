@@ -25,6 +25,34 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9._!$@\-+]{3,30}$")
 
 
 # ============================
+# Shield helper — enforces admin/staff invisibility to staff callers
+# ============================
+def _staff_can_see(caller: dict, target: dict) -> bool:
+    """A staff caller cannot see or act on the admin, nor any OTHER staff.
+    They CAN act on themselves and on clients. Admin sees everything."""
+    if not target:
+        return False
+    if (caller.get("role") or "").lower() == "admin":
+        return True
+    target_role = (target.get("role") or "").lower()
+    if target_role == "admin":
+        return False
+    if target_role == "staff" and target.get("id") != caller.get("id"):
+        return False
+    return True
+
+
+async def _shield_target(user_id: str, caller: dict) -> dict:
+    """Fetch the target user OR 404. When the caller is staff and the
+    target is admin/other-staff, we return 404 (not 403) so the endpoint
+    never leaks the target's existence."""
+    target = await db.users.find_one({"id": user_id})
+    if not target or not _staff_can_see(caller, target):
+        raise HTTPException(status_code=404, detail="User not found")
+    return target
+
+
+# ============================
 # Models
 # ============================
 class AdminCreateUserRequest(BaseModel):
@@ -109,7 +137,7 @@ class ActivateSiteRequest(BaseModel):
 # User Management
 # ============================
 @router.post("/users/create")
-async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require_admin)):
+async def create_user(req: AdminCreateUserRequest, caller: dict = Depends(require_operator)):
     email = req.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email already exists")
@@ -127,22 +155,22 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
     final_username = candidate
 
     now_dt = datetime.now(timezone.utc)
-    # 365-day service term is a CLIENT concept — admins are "god mode" and
-    # never expire. We only stamp expiry for non-admin roles.
-    role = req.role if req.role in ("admin", "client") else "client"
+    # Roles allowed: 'admin' (blocked below — single-instance policy),
+    # 'staff' (elevated operator), or 'client' (default).
+    role = req.role if req.role in ("admin", "client", "staff") else "client"
     # Single-admin policy: an admin is seeded at boot; no additional admins
     # may ever be created. Attempts to escalate a new user to admin are
-    # silently downgraded to `client` so the requester gets a working
-    # account without accidentally spawning a second super-admin.
+    # rejected so the caller doesn't accidentally spawn a second super-admin.
     if role == "admin":
         raise HTTPException(
             status_code=403,
-            detail="Only one admin account is permitted. Create a client instead and grant per-page permissions.",
+            detail="Only one admin account is permitted. Create a client or staff account instead.",
         )
-    # Only apply service-term expiry to non-admin (i.e. clients) — same as before.
+    # Service-term expiry applies to clients only. Staff (like admin) never
+    # expire and never receive renewal reminder emails.
     term_years = None
     service_expiry = None
-    if role != "admin":
+    if role == "client":
         term_years = 1.0
         service_expiry = (now_dt + timedelta(days=term_years * 365.25)).isoformat()
 
@@ -160,7 +188,7 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
         "latitude": req.latitude,
         "longitude": req.longitude,
         "created_at": now_dt.isoformat(),
-        "created_by": admin["id"],
+        "created_by": caller["id"],
         "service_term_years": term_years,
         "service_expiry_date": service_expiry,
         "notification_emails": req.notification_emails or [],
@@ -172,9 +200,12 @@ async def create_user(req: AdminCreateUserRequest, admin: dict = Depends(require
 
 
 @router.get("/users/list")
-async def list_users(admin: dict = Depends(require_admin)):
+async def list_users(caller: dict = Depends(require_operator)):
     cursor = db.users.find({}, {"password_hash": 0, "_id": 0})
     users = await cursor.to_list(length=500)
+    # Staff callers never see the admin, and never see OTHER staff either.
+    if (caller.get("role") or "").lower() == "staff":
+        users = [u for u in users if _staff_can_see(caller, u)]
     return {"users": users, "count": len(users)}
 
 
@@ -191,10 +222,8 @@ async def list_locations(user: dict = Depends(get_current_user)):
 
 
 @router.put("/users/{user_id}/status")
-async def toggle_user_status(user_id: str, is_active: bool, admin: dict = Depends(require_admin)):
-    target = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1})
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+async def toggle_user_status(user_id: str, is_active: bool, caller: dict = Depends(require_operator)):
+    target = await _shield_target(user_id, caller)
     if target.get("role") == "admin" and not is_active:
         raise HTTPException(status_code=400, detail="Admin accounts cannot be deactivated")
     await db.users.update_one({"id": user_id}, {"$set": {"is_active": is_active}})
@@ -202,19 +231,16 @@ async def toggle_user_status(user_id: str, is_active: bool, admin: dict = Depend
 
 
 @router.put("/users/{user_id}")
-async def update_user(user_id: str, req: AdminUpdateUserRequest, admin: dict = Depends(require_admin)):
-    """Admin — update user profile (location, contact info, role, notification_emails)."""
-    # `exclude_unset` lets an admin explicitly clear notification_emails by
-    # sending an empty list — while `role: None` won't accidentally wipe the
-    # role because it stays "unset" if the client omits the key.
+async def update_user(user_id: str, req: AdminUpdateUserRequest, caller: dict = Depends(require_operator)):
+    """Update user profile (location, contact info, role, notification_emails)."""
+    target = await _shield_target(user_id, caller)
     updates = req.model_dump(exclude_unset=True)
-    if "role" in updates and updates["role"] not in ("admin", "client"):
+    if "role" in updates and updates["role"] not in ("admin", "client", "staff"):
         raise HTTPException(status_code=400, detail="Invalid role")
     if "role" in updates:
-        target = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1})
-        if target and target.get("role") == "admin" and updates["role"] != "admin":
+        if target.get("role") == "admin" and updates["role"] != "admin":
             raise HTTPException(status_code=400, detail="Admin role cannot be changed — admin is always god mode")
-        if target and target.get("role") != "admin" and updates["role"] == "admin":
+        if target.get("role") != "admin" and updates["role"] == "admin":
             raise HTTPException(status_code=403, detail="Only one admin account is permitted")
     if "username" in updates and updates["username"]:
         clash = await db.users.find_one({"username": updates["username"], "id": {"$ne": user_id}})
@@ -229,11 +255,11 @@ async def update_user(user_id: str, req: AdminUpdateUserRequest, admin: dict = D
 
 
 @router.delete("/users/{user_id}")
-async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
-    if user_id == admin["id"]:
+async def delete_user(user_id: str, caller: dict = Depends(require_operator)):
+    if user_id == caller["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete self")
-    target = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1})
-    if target and target.get("role") == "admin":
+    target = await _shield_target(user_id, caller)
+    if target.get("role") == "admin":
         raise HTTPException(status_code=400, detail="Admin accounts cannot be deleted")
     result = await db.users.delete_one({"id": user_id})
     if result.deleted_count == 0:
@@ -301,10 +327,8 @@ def _default_client_permissions() -> Dict[str, bool]:
 
 
 @router.get("/users/{user_id}/view-permissions")
-async def get_view_permissions(user_id: str, admin: dict = Depends(require_admin)):
-    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "role": 1, "view_permissions": 1})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+async def get_view_permissions(user_id: str, caller: dict = Depends(require_operator)):
+    user = await _shield_target(user_id, caller)
     perms = user.get("view_permissions") or _default_client_permissions()
     # Ensure every current key is present (older users may lack newly-added keys).
     for k in VIEW_PERMISSION_KEYS:
@@ -313,10 +337,8 @@ async def get_view_permissions(user_id: str, admin: dict = Depends(require_admin
 
 
 @router.put("/users/{user_id}/view-permissions")
-async def update_view_permissions(user_id: str, req: ViewPermissionsRequest, admin: dict = Depends(require_admin)):
-    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "role": 1})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+async def update_view_permissions(user_id: str, req: ViewPermissionsRequest, caller: dict = Depends(require_operator)):
+    user = await _shield_target(user_id, caller)
     if user.get("role") == "admin":
         raise HTTPException(status_code=400, detail="Admins have full access — view permissions do not apply")
     # Merge with current so partial payloads don't wipe untouched keys.
@@ -331,7 +353,7 @@ async def update_view_permissions(user_id: str, req: ViewPermissionsRequest, adm
 # Site Activation
 # ============================
 @router.post("/site/activate")
-async def activate_site(req: ActivateSiteRequest, admin: dict = Depends(require_admin)):
+async def activate_site(req: ActivateSiteRequest, admin: dict = Depends(require_operator)):
     start = datetime.now(timezone.utc)
     days = {"monthly": 30, "quarterly": 90, "yearly": 365}[req.subscription_type.value]
     end = start + timedelta(days=days)
@@ -379,7 +401,7 @@ async def check_site_status(user_id: str):
 
 
 @router.get("/site/activations")
-async def list_activations(admin: dict = Depends(require_admin)):
+async def list_activations(admin: dict = Depends(require_operator)):
     cursor = db.site_activations.find({}, {"_id": 0}).sort("created_at", -1)
     items = await cursor.to_list(length=500)
     return {"activations": items, "count": len(items)}
@@ -394,7 +416,7 @@ async def export_data(
     hardware_id: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    admin: dict = Depends(require_admin),
+    admin: dict = Depends(require_operator),
 ):
     query = {}
     if hardware_id:
@@ -436,7 +458,7 @@ async def export_data(
 @router.get("/data/template")
 async def data_template(
     instrument_type: str = Query("flowmeter", regex="^(flowmeter|dwlr)$"),
-    admin: dict = Depends(require_admin),
+    admin: dict = Depends(require_operator),
 ):
     """Download a starter CSV template with the exact columns expected by the importer."""
     if instrument_type == "dwlr":
@@ -456,7 +478,7 @@ async def data_template(
 async def import_data(
     file: UploadFile = File(...),
     instrument_type: str = Query("flowmeter", regex="^(flowmeter|dwlr)$"),
-    admin: dict = Depends(require_admin),
+    admin: dict = Depends(require_operator),
 ):
     """Manual data ingestion for admins. Supports both CSV and Excel files.
 
@@ -625,7 +647,7 @@ async def generate_calibration_cert(
     instrument_type: str,
     serial_number: str,
     calibrated_by: str = "Envirolytics Team",
-    admin: dict = Depends(require_admin),
+    admin: dict = Depends(require_operator),
 ):
     now = datetime.now(timezone.utc)
     cert_data = {
@@ -663,7 +685,7 @@ async def generate_installation_cert(
     client_name: str,
     location: str,
     installed_by: str = "Envirolytics Team",
-    admin: dict = Depends(require_admin),
+    admin: dict = Depends(require_operator),
 ):
     now = datetime.now(timezone.utc)
     cert_data = {

@@ -399,6 +399,7 @@ const UserPage = () => {
   }
 
   const adminCount = users.filter((u) => u.role === 'admin').length;
+  const staffCount = users.filter((u) => u.role === 'staff').length;
   const activeCount = users.filter((u) => u.is_active).length;
   const clientCount = users.filter((u) => u.role === 'client').length;
 
@@ -454,7 +455,7 @@ const UserPage = () => {
                         {u.username && <div className="font-mono text-xs text-blue-700">{u.username}</div>}
                         <div className="text-[11px] text-gray-500">{u.email}</div>
                       </td>
-                      <td className="p-3"><Badge className={u.role === 'admin' ? 'bg-purple-500' : 'bg-blue-500'}>{u.role}</Badge></td>
+                      <td className="p-3"><Badge className={u.role === 'admin' ? 'bg-purple-500' : (u.role === 'staff' ? 'bg-amber-500' : 'bg-blue-500')}>{u.role}</Badge></td>
                       <td className="p-3 text-gray-600 text-xs">
                         {u.location_name ? <span className="font-medium">{u.location_name}</span> : <span className="text-gray-400">—</span>}
                         {u.latitude != null && u.longitude != null && (
@@ -555,6 +556,7 @@ const UserPage = () => {
                   <Label>Role</Label>
                   <select className="w-full border rounded px-3 py-2" value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })} data-testid="new-user-role">
                     <option value="client">Client</option>
+                    <option value="staff">Staff (IT operator)</option>
                     <option value="admin">Admin</option>
                   </select>
                 </div>
@@ -663,6 +665,7 @@ const UserPage = () => {
                 <Label>Role</Label>
                 <select className="w-full border rounded px-3 py-2" value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} data-testid="edit-user-role" disabled={editTarget?.id === me?.id}>
                   <option value="client">Client</option>
+                  <option value="staff">Staff (IT operator)</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
