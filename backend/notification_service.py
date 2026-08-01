@@ -440,6 +440,204 @@ async def check_and_notify(db) -> dict:
     }
 
 
+# ============================
+# DO Analyzer out-of-range alerting
+# ============================
+# Fires when the latest DO reading on any DO analyzer breaches the
+# configured safe band (2..8 mg/L by default — matches DO_PARAMS in
+# api_water_quality.py). Recipients are the same recipe as the offline
+# alerts (owner + admin-configured extras + global ops). A per-device
+# per-direction cooldown prevents email spam every 5-minute poll cycle.
+#
+# Alert email is FROM `info@envirolytics.in` (SMTP_FROM in backend/.env)
+# and TO the operators. When DO is LOW it explicitly tells them to
+# "increase the blower to raise aeration"; when DO is HIGH it advises
+# reducing blower output.
+DO_ALERT_COOLDOWN_HOURS = float(os.environ.get("DO_ALERT_COOLDOWN_HOURS", "1"))
+DO_SAFE_MIN = float(os.environ.get("DO_SAFE_MIN", "2.0"))
+DO_SAFE_MAX = float(os.environ.get("DO_SAFE_MAX", "8.0"))
+
+
+def _build_do_alert_html(breaches: List[dict]) -> str:
+    rows = []
+    for b in breaches:
+        direction = b["direction"]  # "low" or "high"
+        colour = "#dc2626" if direction == "low" else "#f59e0b"
+        advice = (
+            "Increase blower output to raise aeration in this tank."
+            if direction == "low" else
+            "Reduce blower output — over-aeration is wasting energy and may stress biology."
+        )
+        rows.append(f"""
+        <tr>
+          <td style="padding:10px 14px;border-top:1px solid #334155;font-size:13px;">
+            <strong>{b['label']}</strong><br>
+            <span style="color:#94a3b8;font-size:11px;">Tank {b['tank_number']} · {b['hardware_id']}</span>
+          </td>
+          <td style="padding:10px 14px;border-top:1px solid #334155;text-align:center;">
+            <div style="font-size:22px;font-weight:700;color:{colour};font-family:'Courier New',monospace;">{b['value']:.2f}</div>
+            <div style="font-size:10px;color:#94a3b8;">mg/L</div>
+          </td>
+          <td style="padding:10px 14px;border-top:1px solid #334155;text-align:center;color:#94a3b8;font-size:12px;">
+            {b['safe_min']:.1f} – {b['safe_max']:.1f}<br>
+            <span style="color:{colour};font-weight:700;text-transform:uppercase;">{direction}</span>
+          </td>
+          <td style="padding:10px 14px;border-top:1px solid #334155;font-size:12px;color:#e2e8f0;">
+            {advice}
+          </td>
+        </tr>
+        """)
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;padding:24px;background:#0f172a;color:#f1f5f9;border-radius:12px;">
+      <h2 style="margin:0 0 8px 0;color:#f59e0b;">Envirolytics — DO Analyzer out of range</h2>
+      <p style="margin:0 0 14px 0;color:#94a3b8;font-size:13px;">The following aeration tank(s) have dissolved-oxygen readings outside the safe operating band. Please take action promptly.</p>
+      <table style="width:100%;border-collapse:collapse;background:#1e293b;border-radius:8px;overflow:hidden;">
+        <thead>
+          <tr style="background:#334155;">
+            <th style="padding:10px 14px;text-align:left;font-size:11px;color:#cbd5e1;text-transform:uppercase;letter-spacing:1px;">Device</th>
+            <th style="padding:10px 14px;text-align:center;font-size:11px;color:#cbd5e1;text-transform:uppercase;letter-spacing:1px;">DO reading</th>
+            <th style="padding:10px 14px;text-align:center;font-size:11px;color:#cbd5e1;text-transform:uppercase;letter-spacing:1px;">Safe band</th>
+            <th style="padding:10px 14px;text-align:left;font-size:11px;color:#cbd5e1;text-transform:uppercase;letter-spacing:1px;">Recommended action</th>
+          </tr>
+        </thead>
+        <tbody>{''.join(rows)}</tbody>
+      </table>
+      <p style="margin:16px 0 0 0;font-size:11px;color:#94a3b8;">Alert generated automatically by Envirolytics from the QESPL vendor feed. If the reading is stale, check that the analyzer + probe are online.</p>
+    </div>
+    """
+
+
+async def _do_alert_recently_sent(db, hardware_id: str, direction: str, recipient: str) -> bool:
+    """Return True if the same (device, direction, recipient) was alerted
+    inside the cooldown window."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=DO_ALERT_COOLDOWN_HOURS)
+    doc = await db.do_alert_history.find_one({
+        "hardware_id": hardware_id,
+        "direction": direction,
+        "recipient": recipient.lower(),
+    })
+    if not doc:
+        return False
+    last = _parse_iso(doc.get("last_sent"))
+    return bool(last and last >= cutoff)
+
+
+async def _record_do_alert(db, hardware_id: str, direction: str, recipient: str):
+    await db.do_alert_history.update_one(
+        {"hardware_id": hardware_id, "direction": direction, "recipient": recipient.lower()},
+        {"$set": {"last_sent": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+
+
+async def check_and_notify_do_alerts(db) -> dict:
+    """Scan every DO analyzer's latest reading. Fire an alert email for
+    any device whose DO_TANK_N value is outside DO_SAFE_MIN..DO_SAFE_MAX.
+    Same recipient recipe as the offline alerts. Per (device, direction,
+    recipient) cooldown prevents email spam."""
+    global_recipients = await get_recipients(db)
+    breaches: List[dict] = []
+    async for d in db.instrument_latest.find(
+        {"instrument_type": "do_meter", "_dummy": {"$ne": True}},
+        {"_id": 0},
+    ):
+        values = d.get("values") or {}
+        hw = d.get("hardware_id")
+        # Find whichever tank number this device reports on (from registry).
+        reg = await db.instrument_registry.find_one({"hardware_id": hw})
+        if not reg:
+            continue
+        tn = reg.get("aeration_tank_number")
+        do_val = None
+        if tn in (1, 2):
+            do_val = values.get(f"DO_TANK_{tn}")
+        # Fallback: some legacy records may still store as "DO".
+        if do_val is None:
+            do_val = values.get("DO")
+        if do_val is None:
+            continue
+        try:
+            v = float(do_val)
+        except (TypeError, ValueError):
+            continue
+        direction = None
+        if v < DO_SAFE_MIN:
+            direction = "low"
+        elif v > DO_SAFE_MAX:
+            direction = "high"
+        if not direction:
+            continue
+        owner_id, owner_email, extras = await _owner_email_for(db, hw)
+        breaches.append({
+            "hardware_id": hw,
+            "label": reg.get("label") or hw,
+            "tank_number": tn,
+            "value": v,
+            "direction": direction,
+            "safe_min": DO_SAFE_MIN,
+            "safe_max": DO_SAFE_MAX,
+            "owner_email": owner_email,
+            "extra_emails": extras,
+        })
+
+    if not breaches:
+        return {"checked": True, "breaches": 0, "emailed": 0}
+
+    # Group by (owner_email) so one owner gets one email covering all
+    # their breaching tanks.
+    groups: Dict[Optional[str], List[dict]] = {}
+    for b in breaches:
+        groups.setdefault(b.get("owner_email"), []).append(b)
+
+    total_sent = 0
+    sent_results: List[dict] = []
+    for owner_email, group in groups.items():
+        recipients: List[str] = []
+        if owner_email:
+            recipients.append(owner_email)
+        seen_extras: set = set()
+        for b in group:
+            for e in (b.get("extra_emails") or []):
+                el = (e or "").strip().lower()
+                if el and el not in seen_extras and el not in {r.lower() for r in recipients}:
+                    seen_extras.add(el)
+                    recipients.append(el)
+                    if len(seen_extras) >= 2:
+                        break
+            if len(seen_extras) >= 2:
+                break
+        for r in global_recipients:
+            if r and r not in recipients:
+                recipients.append(r)
+        if not recipients:
+            continue
+
+        # Filter out (device, direction, recipient) pairs still in cooldown.
+        fresh: List[dict] = []
+        deliver_pairs: List[tuple] = []  # (hw, direction, recipient)
+        for b in group:
+            eligible_recipients: List[str] = []
+            for r in recipients:
+                if not await _do_alert_recently_sent(db, b["hardware_id"], b["direction"], r):
+                    eligible_recipients.append(r)
+                    deliver_pairs.append((b["hardware_id"], b["direction"], r))
+            if eligible_recipients:
+                fresh.append(b)
+        if not fresh:
+            continue
+
+        html = _build_do_alert_html(fresh)
+        subject = f"Envirolytics DO Alert — {len(fresh)} tank{'' if len(fresh)==1 else 's'} out of range"
+        result = await _send(recipients, subject, html)
+        sent_results.append({"owner": owner_email, "recipients": recipients, "count": len(fresh), "result": result})
+        if result.get("sent"):
+            total_sent += len(fresh)
+            for hw, direction, r in deliver_pairs:
+                await _record_do_alert(db, hw, direction, r)
+
+    return {"checked": True, "breaches": len(breaches), "emailed": total_sent, "results": sent_results}
+
+
 async def background_loop(db):
     """Endless loop — runs every OFFLINE_ALERT_INTERVAL_MIN minutes."""
     interval_min = float(os.environ.get("OFFLINE_ALERT_INTERVAL_MIN", "10"))
@@ -449,6 +647,7 @@ async def background_loop(db):
         try:
             await asyncio.sleep(sleep_s)
             await check_and_notify(db)
+            await check_and_notify_do_alerts(db)
         except asyncio.CancelledError:
             raise
         except Exception as e:
