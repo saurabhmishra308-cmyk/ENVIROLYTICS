@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"hardware_id":{"$numberInt":"1"}},"name":"hardware_id_1","unique":true}],"uuid":"dfea0319377d45d8a29d72611b564c7a","collectionName":"camera_streams","type":"collection"}

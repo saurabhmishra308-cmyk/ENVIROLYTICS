@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"}],"uuid":"4f76e172b54f48079e3535adff9b7c3d","collectionName":"renewal_reminders_state","type":"collection"}
