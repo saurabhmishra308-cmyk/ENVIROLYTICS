@@ -1,0 +1,31 @@
+[Unit]
+Description=Envirolytics FastAPI backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=envirolytics
+Group=envirolytics
+WorkingDirectory=/opt/envirolytics/backend
+EnvironmentFile=/opt/envirolytics/backend/.env
+# Gunicorn with uvicorn workers — 4 workers is a good default on a
+# 2 vCPU VM. Tune UPPER value if you scale the VM size.
+ExecStart=/opt/envirolytics/venv/bin/gunicorn server:app \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --workers 4 \
+    --bind 127.0.0.1:8001 \
+    --timeout 120 \
+    --access-logfile /var/log/envirolytics/backend-access.log \
+    --error-logfile /var/log/envirolytics/backend-error.log
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/envirolytics/backend.log
+StandardError=append:/var/log/envirolytics/backend.log
+
+# Persistent uploads must survive service restarts. The uploads dir
+# lives on the VM's OS disk which is persistent by default on Azure.
+ReadWritePaths=/opt/envirolytics/backend/uploads /var/log/envirolytics
+
+[Install]
+WantedBy=multi-user.target

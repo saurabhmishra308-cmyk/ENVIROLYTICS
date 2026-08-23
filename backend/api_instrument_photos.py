@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, Response
 
 from auth import get_current_user, require_admin
-from object_storage import put_object, get_object, make_path
+from object_storage import put_object, get_object, make_path, ObjectStorageDisabled
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,11 @@ async def upload_photo(
         obj_path = make_path("instrument_photos", safe_name)
         result = put_object(obj_path, content, "image/jpeg")
         storage_path = result.get("path") or obj_path
+    except ObjectStorageDisabled:
+        # Self-hosted (Azure VM / bare metal) — use local persistent disk.
+        disk_path = os.path.join(PHOTO_DIR, safe_name)
+        with open(disk_path, "wb") as f:
+            f.write(content)
     except Exception as e:
         logger.error(f"[photo-upload] object storage failed: {e}; falling back to local disk")
         disk_path = os.path.join(PHOTO_DIR, safe_name)

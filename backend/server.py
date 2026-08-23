@@ -120,6 +120,18 @@ async def root():
     return {"message": "Envirolytics Monitor API"}
 
 
+@api_router.get("/health")
+async def health():
+    """Lightweight uptime probe — used by nginx, Azure Monitor,
+    external status pages, etc. Returns 200 as long as the process
+    is up and can reach Mongo."""
+    try:
+        await db.command("ping")
+        return {"status": "ok", "db": "reachable"}
+    except Exception as e:
+        return {"status": "degraded", "db": "unreachable", "detail": str(e)}
+
+
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
     status_dict = input.model_dump()

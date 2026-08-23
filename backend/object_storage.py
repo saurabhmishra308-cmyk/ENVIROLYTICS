@@ -1,26 +1,14 @@
-"""Emergent Object Storage helper.
+"""Emergent Object Storage helper (optional).
 
-Fixes the "photos disappear after redeploy" bug — Kubernetes container
-disks are ephemeral, so anything written to /app/backend/uploads/ is lost
-on every redeploy. All uploads now go through the Emergent object store
-which persists across deployments and is shared between preview and
-production environments.
+On Emergent's managed hosting, container disks are ephemeral so uploaded
+photos/videos are pushed to Emergent's object storage. On self-hosted
+deployments (Azure VM, bare metal, etc.) the VM disk is persistent so
+local-disk storage is safe and this module simply becomes a no-op —
+callers automatically fall back to writing under /app/backend/uploads/.
 
-Usage pattern (single init at startup, reused per request):
-
-    from object_storage import put_object, get_object, storage_ready
-
-    @app.on_event("startup")
-    async def _startup():
-        init_storage()   # non-fatal on failure
-
-    # Upload
-    result = put_object(f"envirolytics/photos/{user_id}/{uuid.uuid4()}.jpg",
-                        raw_bytes, "image/jpeg")
-    storage_path = result["path"]
-
-    # Download
-    data, content_type = get_object(storage_path)
+Toggle: set EMERGENT_LLM_KEY in backend/.env to enable the Emergent
+object store. Leave it unset (or blank) on Azure/self-hosted to keep
+uploads purely on the local persistent disk.
 """
 
 from __future__ import annotations
@@ -36,9 +24,17 @@ STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY", "").strip()
 APP_NAME = "envirolytics"
 
-# Session-scoped storage key — set once by init_storage(), reused on
-# every request. Re-init on 403 (expired key).
+# When True, uploads/downloads go through Emergent. When False, this
+# module raises so callers fall back to local disk. Set on first
+# successful init.
+_enabled = bool(EMERGENT_KEY)
 _storage_key: str | None = None
+_log_disabled_once = False
+
+
+class ObjectStorageDisabled(RuntimeError):
+    """Raised when object storage isn't configured — callers should
+    catch this and fall back to local disk quietly."""
 
 
 def storage_ready() -> bool:
@@ -46,16 +42,26 @@ def storage_ready() -> bool:
     return _storage_key is not None
 
 
+def _disabled_note():
+    global _log_disabled_once
+    if not _log_disabled_once:
+        logger.info(
+            "[object_storage] disabled — EMERGENT_LLM_KEY not set. "
+            "Using local persistent disk for photo/video/cert uploads. "
+            "This is the recommended setup for Azure VM / bare-metal hosts."
+        )
+        _log_disabled_once = True
+
+
 def init_storage() -> str | None:
-    """Acquire (or reuse) the session storage key. Safe to call at
-    startup; failures are logged and swallowed so the app can still boot
-    if object storage is unavailable (uploads will 503 in that case)."""
+    """Acquire (or reuse) the session storage key. On Emergent this
+    enables the persistent object store; anywhere else it's a no-op."""
     global _storage_key
+    if not _enabled:
+        _disabled_note()
+        return None
     if _storage_key:
         return _storage_key
-    if not EMERGENT_KEY:
-        logger.error("[object_storage] EMERGENT_LLM_KEY missing from env")
-        return None
     try:
         resp = requests.post(
             f"{STORAGE_URL}/init",
@@ -65,26 +71,22 @@ def init_storage() -> str | None:
         resp.raise_for_status()
         _storage_key = resp.json().get("storage_key")
         if _storage_key:
-            logger.info("[object_storage] initialized ok")
+            logger.info("[object_storage] initialized ok (Emergent object store)")
         return _storage_key
     except Exception as e:
-        logger.error(f"[object_storage] init failed: {e}")
+        logger.warning(f"[object_storage] init failed: {e}. Falling back to local disk.")
         return None
 
 
-def _headers() -> dict:
-    key = init_storage()
-    if not key:
-        raise RuntimeError("Object storage is not initialized")
-    return {"X-Storage-Key": key}
-
-
 def put_object(path: str, data: bytes, content_type: str) -> dict:
-    """Upload bytes to `path`. Returns the storage server's response
-    (contains the canonical `path`, `size`, `etag`)."""
+    """Upload bytes to `path`. On self-hosted deployments where the
+    Emergent object store isn't configured, raises ObjectStorageDisabled
+    so the caller cleanly falls back to local disk."""
+    if not _enabled:
+        raise ObjectStorageDisabled("Emergent object storage is disabled on this host")
     key = init_storage()
     if not key:
-        raise RuntimeError("Object storage is not initialized")
+        raise ObjectStorageDisabled("Object storage init failed")
     resp = requests.put(
         f"{STORAGE_URL}/objects/{path}",
         headers={"X-Storage-Key": key, "Content-Type": content_type},
@@ -92,12 +94,11 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
         timeout=180,
     )
     if resp.status_code == 403:
-        # Storage key expired — re-init once and retry.
         global _storage_key
         _storage_key = None
         key = init_storage()
         if not key:
-            raise RuntimeError("Object storage reinit failed")
+            raise ObjectStorageDisabled("Object storage reinit failed")
         resp = requests.put(
             f"{STORAGE_URL}/objects/{path}",
             headers={"X-Storage-Key": key, "Content-Type": content_type},
@@ -109,10 +110,13 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
 
 
 def get_object(path: str) -> Tuple[bytes, str]:
-    """Download bytes from `path`. Returns (data, content_type)."""
+    """Download bytes from `path`. On self-hosted deployments raises
+    ObjectStorageDisabled so the caller falls back to local disk."""
+    if not _enabled:
+        raise ObjectStorageDisabled("Emergent object storage is disabled on this host")
     key = init_storage()
     if not key:
-        raise RuntimeError("Object storage is not initialized")
+        raise ObjectStorageDisabled("Object storage init failed")
     resp = requests.get(
         f"{STORAGE_URL}/objects/{path}",
         headers={"X-Storage-Key": key},
@@ -123,7 +127,7 @@ def get_object(path: str) -> Tuple[bytes, str]:
         _storage_key = None
         key = init_storage()
         if not key:
-            raise RuntimeError("Object storage reinit failed")
+            raise ObjectStorageDisabled("Object storage reinit failed")
         resp = requests.get(
             f"{STORAGE_URL}/objects/{path}",
             headers={"X-Storage-Key": key},
@@ -135,8 +139,7 @@ def get_object(path: str) -> Tuple[bytes, str]:
 
 def make_path(subdir: str, filename: str) -> str:
     """Build a canonical object-storage path. `subdir` groups files by
-    domain (e.g. "instrument_photos", "certificates", "aeration_videos").
-    Filenames should be UUID-based to avoid collisions."""
+    domain (e.g. "instrument_photos", "certificates", "aeration_videos")."""
     subdir = subdir.strip("/")
     filename = filename.lstrip("/")
     return f"{APP_NAME}/{subdir}/{filename}"

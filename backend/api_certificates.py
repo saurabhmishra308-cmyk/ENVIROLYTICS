@@ -103,13 +103,17 @@ async def upload_certificate(
     # Persistent object storage — new uploads survive container redeploys.
     storage_path: Optional[str] = None
     try:
-        from object_storage import put_object, make_path
-        result = put_object(
-            make_path(f"certificates/{t}/{year}", safe_name),
-            contents,
-            file.content_type or "application/pdf",
-        )
-        storage_path = result.get("path")
+        from object_storage import put_object, make_path, ObjectStorageDisabled
+        try:
+            result = put_object(
+                make_path(f"certificates/{t}/{year}", safe_name),
+                contents,
+                file.content_type or "application/pdf",
+            )
+            storage_path = result.get("path")
+        except ObjectStorageDisabled:
+            with target_path.open("wb") as f:
+                f.write(contents)
     except Exception as e:
         import logging as _logging
         _logging.getLogger(__name__).error(f"[cert-upload] object storage push failed: {e}; falling back to disk")

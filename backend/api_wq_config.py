@@ -348,10 +348,12 @@ async def upload_aeration_video(hardware_id: str, tank_number: int,
     # copy so it doesn't accumulate. On failure we keep the disk copy so
     # the file remains servable via the static mount fallback.
     try:
-        from object_storage import put_object, make_path
-        put_object(make_path("aeration_videos", fname), dest.read_bytes(), "video/mp4")
-        # Keep disk copy for one poll cycle (fast local hits during the same
-        # session), but it will be overwritten by future uploads anyway.
+        from object_storage import put_object, make_path, ObjectStorageDisabled
+        try:
+            put_object(make_path("aeration_videos", fname), dest.read_bytes(), "video/mp4")
+        except ObjectStorageDisabled:
+            # Self-hosted — the disk copy IS the persistent copy on Azure VM.
+            pass
     except Exception as e:
         # Log and continue — the disk copy still works via the fallback route.
         import logging as _logging
