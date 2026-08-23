@@ -185,3 +185,69 @@ Compared to the Emergent-managed setup, you can safely leave these blank:
 **CORS errors from the browser** – make sure `REACT_APP_BACKEND_URL` in `frontend/.env` matches the domain the browser is hitting. If they mismatch the browser will block XHRs.
 
 **"Invalid username/email or password" on a known account** – you're on a fresh DB with only the seed admin. Restore from the Emergent dump (step 8) before creating users manually.
+
+---
+
+## 12. Auto-deploy from GitHub (CI/CD)
+
+The `.github/workflows/deploy-azure-vm.yml` workflow already lives in this repo. On every push to `main` it will:
+
+1. Sanity-check the backend imports + build the React bundle in a clean Ubuntu runner.
+2. SSH into your VM, `git pull`, install any new deps, rebuild the frontend, restart the backend, reload nginx.
+3. Curl `/api/health` up to 10× until the backend reports "ok" — if not, the workflow fails visibly and prints the last 80 lines of systemd logs.
+
+### One-time setup — takes about 3 minutes
+
+**Step A — generate an SSH deploy keypair.** (An ed25519 pair was already generated for you during the initial deploy conversation; use that one. Otherwise regenerate locally: `ssh-keygen -t ed25519 -C envirolytics-github-deploy -N "" -f envirolytics_deploy_ed25519`)
+
+**Step B — install the PUBLIC key on the VM.** SSH in as `envirolytics` (or as `azureuser` and `sudo -u envirolytics`), then:
+
+```bash
+sudo -u envirolytics -H mkdir -p /opt/envirolytics/.ssh
+echo "<paste-public-key-here>" | sudo -u envirolytics tee -a /opt/envirolytics/.ssh/authorized_keys
+sudo -u envirolytics chmod 700 /opt/envirolytics/.ssh
+sudo -u envirolytics chmod 600 /opt/envirolytics/.ssh/authorized_keys
+```
+
+**Step C — grant `envirolytics` sudo for the exact commands the workflow runs.** Create `/etc/sudoers.d/envirolytics-deploy`:
+
+```
+envirolytics ALL=(root) NOPASSWD: /usr/bin/rsync -a --delete --exclude .env --exclude uploads/ backend/ /opt/envirolytics/backend/, \
+                                   /usr/bin/rsync -a --delete --exclude .env --exclude build/ --exclude node_modules/ frontend/ /opt/envirolytics/frontend/, \
+                                   /usr/bin/rsync -a /opt/envirolytics/src/deploy/azure-vm/nginx.conf /etc/nginx/sites-available/envirolytics, \
+                                   /usr/bin/rsync -a /opt/envirolytics/src/deploy/azure-vm/envirolytics-backend.service /etc/systemd/system/envirolytics-backend.service, \
+                                   /usr/bin/chown -R envirolytics:envirolytics /opt/envirolytics/backend, \
+                                   /usr/bin/chown -R envirolytics:envirolytics /opt/envirolytics/frontend, \
+                                   /usr/bin/systemctl daemon-reload, \
+                                   /usr/bin/systemctl restart envirolytics-backend, \
+                                   /usr/sbin/nginx -t, \
+                                   /usr/bin/systemctl reload nginx, \
+                                   /usr/bin/journalctl -u envirolytics-backend *
+```
+
+Then `sudo visudo -c` to validate.
+
+**Step D — add GitHub Actions secrets.** In your repo → *Settings → Secrets and variables → Actions → New repository secret*:
+
+| Name | Value |
+|---|---|
+| `AZURE_VM_HOST` | VM public IP or DNS (e.g. `40.121.x.x`) |
+| `AZURE_VM_USER` | `envirolytics` (or `azureuser` — must match Step B) |
+| `AZURE_VM_SSH_KEY` | **The entire PRIVATE key**, `-----BEGIN OPENSSH PRIVATE KEY-----` through `-----END OPENSSH PRIVATE KEY-----` |
+| `AZURE_VM_PORT` | `22` (only set if you changed the default SSH port) |
+
+**Step E — verify.** Trigger a manual run: repo → *Actions → Deploy to Azure VM → Run workflow*. Expect ~3-4 min end-to-end. The health check should pass on the first attempt.
+
+### After that
+
+Every merge to `main` triggers a fresh deploy. No manual VM touching, no ssh sessions, no forgotten `yarn build`. If a deploy fails, GitHub Actions shows you exactly which command failed and prints the backend logs from that moment.
+
+### Rolling back a bad deploy
+
+```bash
+# From your laptop
+git revert <bad-commit-sha> && git push origin main
+```
+
+The workflow triggers automatically on the revert commit and puts the previous known-good state live within ~3 min.
+

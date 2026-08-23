@@ -80,7 +80,16 @@ def _l_to_kl(litres: Optional[float]) -> float:
 
 class IngestFlowmeterReading(BaseModel):
     hardware_id: str
-    flow_rate_lph: float
+    # Preferred canonical unit — if you have it, send this and leave the
+    # legacy fields blank. Everything else is derived from it.
+    flow_rate_m3h: Optional[float] = None
+    # Legacy — kept for backward compat with older ingest scripts. If
+    # only `flow_rate_lph` is provided we auto-convert to m³/h.
+    flow_rate_lph: Optional[float] = None
+    # Universal fallback: pass any raw value + a unit code (1..12 per
+    # get_unit_name); we normalise to m³/h at persist time.
+    flow_rate_raw: Optional[float] = None
+    flow_unit_code: Optional[int] = None
     forward_totalizer: float = 0
     reverse_totalizer: float = 0
     temperature: float = 0
@@ -89,17 +98,39 @@ class IngestFlowmeterReading(BaseModel):
 
 @router.post("/ingest")
 async def ingest_flowmeter(req: IngestFlowmeterReading, admin: dict = Depends(require_admin)):
-    """Admin — store a flowmeter reading directly (for demos / when MQTT broker is offline)."""
+    """Admin — store a flowmeter reading directly (for demos / when
+    MQTT broker is offline). The value is coerced to canonical m³/h
+    at persist time regardless of the incoming unit."""
+    # Import here to avoid a circular top-level import
+    from mqtt_utils import convert_flow_to_m3h, m3h_to_lph as _m3h_to_lph
+
+    # Resolve the canonical value in this order of preference.
+    if req.flow_rate_m3h is not None:
+        flow_m3h = round(float(req.flow_rate_m3h), 4)
+        unit_code = 6           # M3/H (canonical)
+    elif req.flow_rate_raw is not None and req.flow_unit_code is not None:
+        flow_m3h = convert_flow_to_m3h(req.flow_rate_raw, req.flow_unit_code)
+        unit_code = int(req.flow_unit_code)
+    elif req.flow_rate_lph is not None:
+        # Legacy behaviour — treat as L/H.
+        flow_m3h = round(float(req.flow_rate_lph) / 1000.0, 4)
+        unit_code = 3           # L/H
+    else:
+        raise HTTPException(status_code=400, detail="Must supply flow_rate_m3h, flow_rate_lph, or (flow_rate_raw + flow_unit_code)")
+
+    flow_lph = _m3h_to_lph(flow_m3h)
     now_iso = (req.timestamp or datetime.now(timezone.utc).isoformat())
     doc = {
         "hardware_id": req.hardware_id,
-        "flow_rate_lph": req.flow_rate_lph,
-        "flow_rate_lpm": req.flow_rate_lph / 60.0,
+        "flow_rate_m3h": flow_m3h,
+        "flow_rate_lph": flow_lph,
+        "flow_rate_lpm": flow_lph / 60.0,
         "forward_totalizer": req.forward_totalizer,
         "reverse_totalizer": req.reverse_totalizer,
         "temperature": req.temperature,
-        "unit_code": 2,
-        "unit_name": "L",
+        "unit_code": unit_code,
+        "unit_name": "m3/h",
+        "canonical_unit": "m3/h",
         "timestamp": now_iso,
         "received_at": datetime.now(timezone.utc).isoformat(),
     }

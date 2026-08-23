@@ -145,20 +145,30 @@ class ExcelImportService:
     def validate_flowmeter_data(data: List[Dict]) -> tuple[List[Dict], List[str]]:
         """Validate imported flowmeter rows.
 
-        Required columns: hardware_id, timestamp, flow_rate_lpm.
-        Optional columns: flow_rate_lph, tot1, tot2, rtot1, rtot2, forward_totalizer,
-                          reverse_totalizer, temperature, unit_name, unit_code,
-                          signal_strength, imei, imsi, firmware_version.
-        Missing optional numerics default to 0.
+        Required columns: hardware_id, timestamp, and ONE of
+          - flow_rate_m3h   (canonical unit — preferred)
+          - flow_rate_lpm   (legacy — L/M)
+          - flow_rate_lph   (legacy — L/H)
+        Optional columns: the other two flow columns, tot1..2, rtot1..2,
+            forward_totalizer, reverse_totalizer, temperature, unit_name,
+            unit_code, signal_strength, imei, imsi, firmware_version.
+        Missing optional numerics default to 0. Whatever flow unit the CSV
+        supplies is coerced into all three canonical fields at write time.
         """
         valid_data = []
         errors = []
+        flow_cols = ("flow_rate_m3h", "flow_rate_lpm", "flow_rate_lph")
 
-        required_fields = ["hardware_id", "timestamp", "flow_rate_lpm"]
         for idx, row in enumerate(data, start=2):  # spreadsheet rows start at 2 (header = row 1)
-            missing = [f for f in required_fields if row.get(f) in (None, "")]
-            if missing:
-                errors.append(f"Row {idx}: missing required column(s) {missing}")
+            for base in ("hardware_id", "timestamp"):
+                if row.get(base) in (None, ""):
+                    errors.append(f"Row {idx}: missing required column '{base}'")
+                    row["_bad"] = True
+                    break
+            if row.get("_bad"):
+                continue
+            if not any(row.get(c) not in (None, "") for c in flow_cols):
+                errors.append(f"Row {idx}: must supply one of {flow_cols}")
                 continue
             ts = ExcelImportService._normalize_ts(row.get("timestamp"))
             if not ts:
@@ -166,11 +176,24 @@ class ExcelImportService:
                 continue
             row["timestamp"] = ts
             try:
-                row["flow_rate_lpm"] = float(row["flow_rate_lpm"])
+                # Parse whichever flow columns are present
+                for c in flow_cols:
+                    if row.get(c) not in (None, ""):
+                        row[c] = float(row[c])
+                # Derive the two missing flow columns from the one that was
+                # supplied. m³/h is the source of truth.
+                if row.get("flow_rate_m3h") is not None:
+                    m3h = float(row["flow_rate_m3h"])
+                elif row.get("flow_rate_lph") is not None:
+                    m3h = float(row["flow_rate_lph"]) / 1000.0
+                else:
+                    m3h = float(row["flow_rate_lpm"]) * 0.06  # L/M → m³/h
+                row["flow_rate_m3h"] = round(m3h, 4)
+                row["flow_rate_lph"] = round(m3h * 1000.0, 4)
+                row["flow_rate_lpm"] = round(row["flow_rate_lph"] / 60.0, 4)
                 # Fill optional numerics with 0 if missing
                 for col in ("tot1", "tot2", "rtot1", "rtot2", "forward_totalizer",
-                            "reverse_totalizer", "temperature", "signal_strength",
-                            "flow_rate_lph"):
+                            "reverse_totalizer", "temperature", "signal_strength"):
                     if row.get(col) not in (None, ""):
                         row[col] = float(row[col])
                     else:
@@ -178,11 +201,9 @@ class ExcelImportService:
             except (ValueError, TypeError) as e:
                 errors.append(f"Row {idx}: invalid numeric value — {e}")
                 continue
-            # Compute flow_rate_lph from lpm if not provided
-            if not row.get("flow_rate_lph"):
-                row["flow_rate_lph"] = row["flow_rate_lpm"] * 60.0
-            row.setdefault("unit_code", 2)
-            row.setdefault("unit_name", "L/M")
+            row.setdefault("unit_code", 6)      # M3/H
+            row.setdefault("unit_name", "m3/h")
+            row["canonical_unit"] = "m3/h"
             row["hardware_id"] = str(row["hardware_id"]).strip()
             valid_data.append(row)
         return valid_data, errors
@@ -232,16 +253,23 @@ class ExcelImportService:
     def flowmeter_template_csv() -> bytes:
         """Sample CSV template with one example row for the admin to fill."""
         cols = [
-            "hardware_id", "timestamp", "flow_rate_lpm", "flow_rate_lph",
+            "hardware_id", "timestamp",
+            # Canonical unit — the ONE column you must fill. The other
+            # two flow columns are optional; when omitted we compute
+            # them from m³/h automatically.
+            "flow_rate_m3h",
+            "flow_rate_lpm", "flow_rate_lph",
             "tot1", "tot2", "rtot1", "rtot2", "forward_totalizer",
             "reverse_totalizer", "temperature", "signal_strength",
             "unit_code", "unit_name", "imei", "imsi", "firmware_version",
         ]
         sample = [
-            "FM_PLANT_A_01", "2026-07-01 09:00:00", "40.97", "2458.2",
+            "FM_PLANT_A_01", "2026-07-01 09:00:00",
+            "2.4582",           # m³/h — canonical
+            "40.97", "2458.2",  # legacy L/M + L/H (derived)
             "40.97", "0", "0", "0", "40.97",
             "0", "22.5", "13",
-            "2", "L/M", "860738070478155", "404980524791050", "4G-1",
+            "6", "m3/h", "860738070478155", "404980524791050", "4G-1",
         ]
         buf = io.StringIO()
         w = pd.DataFrame([dict(zip(cols, sample))], columns=cols)

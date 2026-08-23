@@ -83,6 +83,7 @@ async def list_reading_edits(
                 "edited_at": d.get("edited_at"),
                 "edited_by": d.get("edited_by"),
                 "values_snapshot": {
+                    "flow_rate_m3h": d.get("flow_rate_m3h"),
                     "flow_rate_lph": d.get("flow_rate_lph"),
                     "forward_totalizer": d.get("forward_totalizer"),
                     "reverse_totalizer": d.get("reverse_totalizer"),

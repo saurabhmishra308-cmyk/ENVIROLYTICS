@@ -96,12 +96,17 @@ async def flow_vs_level(
     fm_cursor = db.flowmeter_readings.find(
         {"hardware_id": hardware_id, "timestamp": {"$gte": start.isoformat()},
          "_dummy": {"$ne": True}},
-        {"_id": 0, "timestamp": 1, "flow_rate_lph": 1},
+        {"_id": 0, "timestamp": 1, "flow_rate_lph": 1, "flow_rate_m3h": 1},
     ).limit(10000)
     async for r in fm_cursor:
         b = _bucket_hourly(r["timestamp"])
         agg = flow_buckets.setdefault(b, {"sum": 0.0, "n": 0})
-        agg["sum"] += float(r.get("flow_rate_lph", 0))
+        # Prefer canonical m³/h when present, fall back to L/H ÷ 1000 for
+        # legacy readings ingested before the unit normalisation.
+        m3h = r.get("flow_rate_m3h")
+        if m3h is None:
+            m3h = float(r.get("flow_rate_lph", 0)) / 1000.0
+        agg["sum"] += float(m3h)
         agg["n"] += 1
 
     # DWLR readings (hourly averaged level)
@@ -131,7 +136,7 @@ async def flow_vs_level(
         lvl = level_buckets.get(k)
         series.append({
             "bucket": k,
-            "flow_m3h": round((f["sum"] / f["n"]) / 1000.0, 3) if f else None,
+            "flow_m3h": round((f["sum"] / f["n"]), 3) if f else None,
             "level_m":  round(lvl["sum"] / lvl["n"], 3) if lvl else None,
         })
 

@@ -32,6 +32,8 @@ from mqtt_utils import (
     calculate_reverse_totalizer,
     get_unit_name,
     convert_flow_to_lpm,
+    convert_flow_to_m3h,
+    m3h_to_lph,
 )
 
 
@@ -460,7 +462,20 @@ class MQTTFlowmeterService:
 
     async def process_flowmeter_data(self, hardware_id: str, data: Dict):
         try:
-            flow_lph = float(data.get("FLOW", 0) or 0)
+            raw_flow = float(data.get("FLOW", 0) or 0)
+            # Device sends UNT (or older UNIT). Accept both. Coerce float→int.
+            unit_raw = data.get("UNT", data.get("UNIT", 3))
+            try:
+                unit_code = int(float(unit_raw))
+            except (TypeError, ValueError):
+                unit_code = 3  # L/H — most common default
+            unit_name = get_unit_name(unit_code)
+            # Normalise EVERY flow reading to canonical m³/h at persist
+            # time so downstream code (UI, reports, alerts) reads one
+            # consistent unit. The original raw value + unit stay on
+            # the doc for audit but must never be used for reports.
+            flow_m3h = convert_flow_to_m3h(raw_flow, unit_code)
+            flow_lph = m3h_to_lph(flow_m3h)
             flow_lpm = convert_flow_to_lpm(flow_lph)
 
             tot1 = float(data.get("TOT1", 0) or 0)
@@ -470,14 +485,6 @@ class MQTTFlowmeterService:
 
             forward_totalizer = calculate_forward_totalizer(tot1, tot2)
             reverse_totalizer = calculate_reverse_totalizer(rtot1, rtot2)
-
-            # Device sends UNT (or older UNIT). Accept both. Coerce float→int.
-            unit_raw = data.get("UNT", data.get("UNIT", 2))
-            try:
-                unit_code = int(float(unit_raw))
-            except (TypeError, ValueError):
-                unit_code = 2
-            unit_name = get_unit_name(unit_code)
 
             timestamp = parse_timestamp(data.get("TIME", ""))
             if isinstance(timestamp, datetime) and timestamp.tzinfo is None:
@@ -490,6 +497,11 @@ class MQTTFlowmeterService:
                 "imsi": str(data.get("IMSI", "") or "").strip(),
                 "signal_strength": int(float(data.get("SIGNAL", 0) or 0)),
                 "timestamp": timestamp_iso,
+                # Canonical unit — every downstream consumer reads this.
+                "flow_rate_m3h": flow_m3h,
+                # Legacy fields kept for backward-compat with older reports
+                # + admin panel charts. Both derived from flow_rate_m3h so
+                # they remain internally consistent.
                 "flow_rate_lph": flow_lph,
                 "flow_rate_lpm": flow_lpm,
                 "tot1": tot1,
@@ -498,8 +510,12 @@ class MQTTFlowmeterService:
                 "rtot2": rtot2,
                 "forward_totalizer": forward_totalizer,
                 "reverse_totalizer": reverse_totalizer,
+                # Preserve what the device actually said, so an audit
+                # can trace whether the coercion was correct.
+                "raw_flow": raw_flow,
                 "unit_code": unit_code,
                 "unit_name": unit_name,
+                "canonical_unit": "m3/h",
                 "power_status": int(float(data.get("POW", 0) or 0)),
                 "temperature": float(data.get("TEMPER", 0) or 0),
                 "firmware_version": data.get("VER", ""),
