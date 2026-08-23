@@ -95,3 +95,13 @@ export function backendAssetUrl(pathOrUrl) {
   return `${base}${p}`;
 }
 
+// Build a fully-qualified backend URL for raw fetch() / <a href> / window.open
+// calls. Guarantees the URL never becomes "undefined/api/..." when
+// REACT_APP_BACKEND_URL is missing at build time (e.g. Azure VM without an
+// .env file) — falls back to same-origin so nginx routes /api/* to FastAPI.
+export function apiUrl(path) {
+  const base = (API_BASE || "").replace(/\/$/, "");
+  const p = path ? (path.startsWith("/") ? path : `/${path}`) : "";
+  return `${base}${p}`;
+}
+

@@ -10,7 +10,7 @@ import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Activity, Download, Droplets, CloudRain, GaugeCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import api, { formatApiError } from '../lib/api';
+import api, { formatApiError, apiUrl } from '../lib/api';
 import { getToken, getCurrentUser } from '../mockData';
 import LimitsCard from './LimitsCard';
 import { cleanLabel } from '../utils/labels';
@@ -177,7 +177,7 @@ const AllBorewellsReport = ({ days }) => {
         end:    end.toISOString().slice(0, 10),
         format: 'csv',
       });
-      const url = `${process.env.REACT_APP_BACKEND_URL}/api/reports/borewell-consumption?${params.toString()}`;
+      const url = apiUrl(`/api/reports/borewell-consumption?${params.toString()}`);
       const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
       if (!res.ok) throw new Error(`Download failed: ${res.status}`);
       const blob = await res.blob();

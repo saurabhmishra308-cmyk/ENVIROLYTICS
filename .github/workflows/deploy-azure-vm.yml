@@ -113,6 +113,16 @@ jobs:
               --exclude "node_modules/" \
               frontend/ /opt/envirolytics/frontend/
             sudo chown -R envirolytics:envirolytics /opt/envirolytics/frontend
+            # Guarantee the frontend .env exists on the VM BEFORE yarn build.
+            # If REACT_APP_BACKEND_URL is missing during the build, every raw
+            # fetch() falls back to same-origin (nginx proxies /api/* to :8001),
+            # but we prefer an explicit URL so tools like WebSocket clients also
+            # resolve correctly. An empty file works too — the frontend's
+            # apiUrl() helper will emit relative /api/... paths.
+            if [ ! -f /opt/envirolytics/frontend/.env ]; then
+              echo "→ frontend/.env missing — creating with same-origin default"
+              echo "REACT_APP_BACKEND_URL=" | sudo -u envirolytics tee /opt/envirolytics/frontend/.env > /dev/null
+            fi
             cd /opt/envirolytics/frontend
             sudo -u envirolytics -H yarn install --frozen-lockfile
             sudo -u envirolytics -H yarn build

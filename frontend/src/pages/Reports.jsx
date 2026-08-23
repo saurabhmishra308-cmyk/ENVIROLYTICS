@@ -8,7 +8,7 @@ import { Calendar } from '../components/ui/calendar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
 import { Download, FileSpreadsheet, FileText, Upload, Loader2, Filter, CalendarIcon, Pencil, Trash2, AlertCircle } from 'lucide-react';
-import api, { formatApiError } from '../lib/api';
+import api, { formatApiError, apiUrl } from '../lib/api';
 import { isAdmin, getToken, getCurrentUser } from '../mockData';
 import { toast } from 'sonner';
 import ReportsCharts from '../components/ReportsCharts';
@@ -360,7 +360,7 @@ const Reports = () => {
       if (hardwareId) params.append('hardware_id', hardwareId);
       if (startDate) params.append('start_date', formatDate(startDate));
       if (endDate) params.append('end_date', formatDate(endDate));
-      const url = `${process.env.REACT_APP_BACKEND_URL}/api/flowmeter-mgmt/export?${params.toString()}`;
+      const url = apiUrl(`/api/flowmeter-mgmt/export?${params.toString()}`);
       const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
       if (!res.ok) {
         const errJson = await res.json().catch(() => null);
@@ -416,7 +416,7 @@ const Reports = () => {
   const downloadTemplate = async () => {
     try {
       const iType = (section === 'dwlr') ? 'dwlr' : 'flowmeter';
-      const url = `${process.env.REACT_APP_BACKEND_URL}/api/admin/data/template?instrument_type=${iType}`;
+      const url = apiUrl(`/api/admin/data/template?instrument_type=${iType}`);
       const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
       if (!res.ok) throw new Error(`Template download failed: ${res.status}`);
       const blob = await res.blob();

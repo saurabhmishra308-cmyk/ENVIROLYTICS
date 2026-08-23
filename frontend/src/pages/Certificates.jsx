@@ -7,7 +7,7 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { Award, Upload, Download, Trash2, Loader2, FileText, Droplets, Wrench, FlaskConical } from 'lucide-react';
-import api, { formatApiError } from '../lib/api';
+import api, { formatApiError, apiUrl } from '../lib/api';
 import { isAdmin, getToken } from '../mockData';
 import { toast } from 'sonner';
 
@@ -106,7 +106,7 @@ const Certificates = () => {
 
   const handleDownload = async (cert) => {
     try {
-      const url = `${process.env.REACT_APP_BACKEND_URL}/api/certificates/download/${cert.id}`;
+      const url = apiUrl(`/api/certificates/download/${cert.id}`);
       const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
