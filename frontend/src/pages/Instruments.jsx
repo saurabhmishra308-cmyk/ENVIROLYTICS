@@ -624,17 +624,15 @@ const Instruments = () => {
   const doSaveFrequency = async () => {
     if (!freqTarget?.device) return;
     const minutes = parseInt(freqTarget.minutes, 10) || 0;
-    const retention_days = parseInt(freqTarget.retention_days, 10) || 0;
     setSavingFreq(true);
     try {
+      // Lifetime retention: `retention_days` is sent as 0 for backward
+      // compat but the backend ignores it and always keeps data forever.
       await api.put(
         `/api/instrument-registry/${encodeURIComponent(freqTarget.device.hardware_id)}/data-frequency`,
-        { minutes, retention_days },
+        { minutes, retention_days: 0 },
       );
-      const bits = [];
-      if (minutes) bits.push(`freq ${minutes} min`);
-      if (retention_days) bits.push(`retention ${retention_days} d`);
-      toast.success(bits.length ? `Saved — ${bits.join(', ')}` : 'Throttling & retention disabled');
+      toast.success(minutes ? `Saved — freq ${minutes} min · lifetime retention` : 'Throttling disabled · lifetime retention');
       setFreqTarget(null);
       refresh();
     } catch (e) {
@@ -1198,12 +1196,12 @@ const Instruments = () => {
                           <Button size="sm" variant="outline" onClick={() => setRenameTarget({ device: it, new_id: '' })} data-testid={`rename-instrument-${it.hardware_id}`} title="Rename this device's hardware ID across every collection">
                             <Hash className="h-3 w-3 mr-1" /> Rename ID
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => setFreqTarget({ device: it, minutes: it.data_frequency_minutes || 0, retention_days: it.data_retention_days || 0 })} data-testid={`freq-instrument-${it.hardware_id}`} title="How often incoming readings should be stored + auto-purge retention">
-                            <Clock className="h-3 w-3 mr-1" /> Data freq{it.data_frequency_minutes ? ` (${it.data_frequency_minutes}m)` : ''}{it.data_retention_days ? ` · ${it.data_retention_days}d` : ''}
+                          <Button size="sm" variant="outline" onClick={() => setFreqTarget({ device: it, minutes: it.data_frequency_minutes || 0 })} data-testid={`freq-instrument-${it.hardware_id}`} title="How often incoming readings should be stored — lifetime retention">
+                            <Clock className="h-3 w-3 mr-1" /> Data freq{it.data_frequency_minutes ? ` (${it.data_frequency_minutes}m)` : ''}
                           </Button>
                           {it.retention_purge_count > 0 && (
-                            <Badge variant="outline" className="text-amber-700 border-amber-300" title={`${it.retention_purge_count} readings older than ${it.data_retention_days} days — will be purged on the next daily tick`}>
-                              <Eraser className="h-3 w-3 mr-1" /> {it.retention_purge_count.toLocaleString()} will be purged today
+                            <Badge variant="outline" className="text-emerald-700 border-emerald-300" title="Lifetime retention is now enforced — nothing is being purged">
+                              <Eraser className="h-3 w-3 mr-1" /> Lifetime retention (no purge)
                             </Badge>
                           )}
                           <Button size="sm" variant="outline" className="text-red-600" onClick={() => setClearTarget({ device: it, from: '', to: '' })} data-testid={`clear-history-${it.hardware_id}`} title="Delete historical readings for this device">

@@ -43,24 +43,9 @@ export const DataFrequencyDialog = ({ freqTarget, setFreqTarget, onClose, saving
                 Any reading arriving within this window of the last stored one will be dropped from history.
               </p>
             </div>
-            <div>
-              <Label>Auto-purge readings older than</Label>
-              <select
-                className="w-full border rounded px-3 py-2"
-                value={freqTarget.retention_days}
-                onChange={(e) => setFreqTarget({ ...freqTarget, retention_days: parseInt(e.target.value, 10) })}
-                data-testid="retention-select"
-              >
-                <option value={0}>Keep forever</option>
-                {[7, 30, 60, 90, 180, 365, 730, 1095, 1825, 3650].map((d) => (
-                  <option key={d} value={d}>
-                    {d < 30 ? `${d} days` : d < 365 ? `${d} days (~${Math.round(d/30)} months)` : `${Math.round(d/365 * 10) / 10} year${d === 365 ? '' : 's'}`}
-                  </option>
-                ))}
-              </select>
-              <p className="text-[11px] text-gray-500 mt-1">
-                A daily background job removes readings older than this to keep the database lean.
-              </p>
+            <div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-[12px] text-emerald-900" data-testid="lifetime-retention-note">
+              <strong>Lifetime retention.</strong> Every stored reading is kept
+              forever — clients can pull any historical range on demand.
             </div>
           </div>
         )}

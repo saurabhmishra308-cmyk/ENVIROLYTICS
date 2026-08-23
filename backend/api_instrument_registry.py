@@ -637,8 +637,12 @@ async def rename_hardware_id(
 class DataFrequencyRequest(BaseModel):
     minutes: int = Field(..., ge=0, le=1440,
                          description="Minutes between stored readings (5..1440). 0 disables throttling.")
+    # LIFETIME RETENTION: field kept in the model for backward compat with
+    # older clients that still send it, but always ignored by the server.
+    # Every instrument reading is retained forever so clients can recall
+    # historical data at any point.
     retention_days: Optional[int] = Field(None, ge=0, le=3650,
-                                          description="Auto-purge readings older than this. 0 = keep forever.")
+                                          description="[DEPRECATED — ignored] Data is retained for lifetime.")
 
 
 @router.put("/{hardware_id}/data-frequency")
@@ -654,6 +658,9 @@ async def set_data_frequency(
     readings that arrive within the interval since the last stored reading.
     The `_latest` collections are always updated so the live dashboard tile
     reflects the most recent value.
+
+    NOTE: `retention_days` is intentionally ignored — every reading is
+    kept for lifetime so clients can query any historical range.
     """
     if req.minutes and (req.minutes < 5 or req.minutes > 1440):
         raise HTTPException(status_code=400, detail="Frequency must be 0, or between 5 and 1440 minutes")
@@ -664,7 +671,7 @@ async def set_data_frequency(
         {"hardware_id": hardware_id},
         {"$set": {
             "data_frequency_minutes": int(req.minutes) or None,
-            "data_retention_days": int(req.retention_days) if req.retention_days else None,
+            "data_retention_days": None,      # Force lifetime retention.
             "data_frequency_updated_at": datetime.now(timezone.utc).isoformat(),
             "data_frequency_updated_by": admin.get("id"),
         }},
@@ -673,7 +680,8 @@ async def set_data_frequency(
         "success": True,
         "hardware_id": hardware_id,
         "data_frequency_minutes": int(req.minutes) or None,
-        "data_retention_days": int(req.retention_days) if req.retention_days else None,
+        "data_retention_days": None,
+        "retention_policy": "lifetime",
     }
 
 

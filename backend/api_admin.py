@@ -428,8 +428,9 @@ async def export_data(
         if end_date:
             query["timestamp"]["$lte"] = end_date
 
-    cursor = db.flowmeter_readings.find(query).sort("timestamp", -1).limit(1000)
-    readings = await cursor.to_list(length=1000)
+    # Lifetime retention: allow up to 100k rows per export.
+    cursor = db.flowmeter_readings.find(query).sort("timestamp", -1).limit(100000)
+    readings = await cursor.to_list(length=100000)
     readings = DataExportService.sanitize_flowmeter_rows(readings)
 
     today = datetime.now(timezone.utc).strftime("%Y%m%d")

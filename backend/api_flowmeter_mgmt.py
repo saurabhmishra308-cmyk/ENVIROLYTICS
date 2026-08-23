@@ -472,8 +472,11 @@ async def export_data_scoped(
         if end_date:
             query["timestamp"]["$lte"] = end_date
 
-    cursor = db.flowmeter_readings.find({**query, "_dummy": {"$ne": True}}).sort("timestamp", -1).limit(5000)
-    readings = await cursor.to_list(length=5000)
+    # Lifetime retention: allow up to 100k rows per export (~ 15 years of
+    # hourly data or ~2 years of 15-min data).  Client can further narrow
+    # with hardware_id + start_date/end_date.
+    cursor = db.flowmeter_readings.find({**query, "_dummy": {"$ne": True}}).sort("timestamp", -1).limit(100000)
+    readings = await cursor.to_list(length=100000)
     readings = DataExportService.sanitize_flowmeter_rows(readings)
 
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -498,7 +501,7 @@ async def export_data_scoped(
 @router.get("/dwlr/{hardware_id}/daily")
 async def dwlr_daily(
     hardware_id: str,
-    days: int = Query(30, ge=1, le=365),
+    days: int = Query(30, ge=1, le=3650),
     user: dict = Depends(get_current_user),
 ):
     """Return daily-averaged DWLR level (mWC) + temperature for the given hardware_id."""
