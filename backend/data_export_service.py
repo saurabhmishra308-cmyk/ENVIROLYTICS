@@ -149,15 +149,37 @@ class ExcelImportService:
           - flow_rate_m3h   (canonical unit — preferred)
           - flow_rate_lpm   (legacy — L/M)
           - flow_rate_lph   (legacy — L/H)
-        Optional columns: the other two flow columns, tot1..2, rtot1..2,
-            forward_totalizer, reverse_totalizer, temperature, unit_name,
-            unit_code, signal_strength, imei, imsi, firmware_version.
+        Preferred totaliser columns (new minimal template):
+          - totaliser_start_reading   (m³ at start of period)
+          - totaliser_end_reading     (m³ at end of period — cumulative)
+        Legacy totaliser columns are still accepted for backward compat:
+          - forward_totalizer, initial_forward_totalizer,
+            final_forward_totalizer, tot1..2, rtot1..2, reverse_totalizer.
+        Optional: temperature, unit_name, unit_code, signal_strength,
+                  imei, imsi, firmware_version.
+
+        DAILY BOOKKEEPING RULE — today's `totaliser_start_reading` must
+        equal yesterday's `totaliser_end_reading` for the same
+        hardware_id. If the CSV leaves `totaliser_start_reading` blank
+        we auto-derive it from the previous row (same hardware_id,
+        immediately-earlier timestamp) inside the same file. If the
+        blank is on the very first row for that device, the API layer
+        (`api_admin.import_data`) fills the gap from the latest
+        historical DB reading.
+
         Missing optional numerics default to 0. Whatever flow unit the CSV
         supplies is coerced into all three canonical fields at write time.
         """
-        valid_data = []
-        errors = []
+        valid_data: List[Dict] = []
+        errors: List[str] = []
         flow_cols = ("flow_rate_m3h", "flow_rate_lpm", "flow_rate_lph")
+
+        # ----- Column name aliases (new template → internal fields) -----
+        def _pick(row: Dict, *names):
+            for n in names:
+                if row.get(n) not in (None, ""):
+                    return row[n]
+            return None
 
         for idx, row in enumerate(data, start=2):  # spreadsheet rows start at 2 (header = row 1)
             for base in ("hardware_id", "timestamp"):
@@ -191,8 +213,35 @@ class ExcelImportService:
                 row["flow_rate_m3h"] = round(m3h, 4)
                 row["flow_rate_lph"] = round(m3h * 1000.0, 4)
                 row["flow_rate_lpm"] = round(row["flow_rate_lph"] / 60.0, 4)
-                # Fill optional numerics with 0 if missing
-                for col in ("tot1", "tot2", "rtot1", "rtot2", "forward_totalizer",
+
+                # ----- Totaliser start / end reading normalization -----
+                # New template column names take precedence, legacy
+                # column names are accepted as fallback.
+                start_raw = _pick(row, "totaliser_start_reading", "initial_forward_totalizer")
+                end_raw = _pick(row, "totaliser_end_reading", "final_forward_totalizer", "forward_totalizer")
+
+                start_val = float(start_raw) if start_raw not in (None, "") else None
+                end_val = float(end_raw) if end_raw not in (None, "") else None
+
+                # Persist the canonical names the reports UI already knows.
+                if start_val is not None:
+                    row["initial_forward_totalizer"] = round(start_val, 4)
+                    row["totaliser_start_reading"] = round(start_val, 4)
+                else:
+                    # Mark for later back-fill from previous row / DB.
+                    row.pop("initial_forward_totalizer", None)
+                    row.pop("totaliser_start_reading", None)
+
+                if end_val is not None:
+                    row["forward_totalizer"] = round(end_val, 4)
+                    row["final_forward_totalizer"] = round(end_val, 4)
+                    row["totaliser_end_reading"] = round(end_val, 4)
+                else:
+                    # No end reading is an error — start alone is useless.
+                    row["forward_totalizer"] = 0.0
+
+                # Fill remaining optional numerics with 0 if missing.
+                for col in ("tot1", "tot2", "rtot1", "rtot2",
                             "reverse_totalizer", "temperature", "signal_strength"):
                     if row.get(col) not in (None, ""):
                         row[col] = float(row[col])
@@ -206,6 +255,27 @@ class ExcelImportService:
             row["canonical_unit"] = "m3/h"
             row["hardware_id"] = str(row["hardware_id"]).strip()
             valid_data.append(row)
+
+        # ----- Back-fill blank totaliser_start_reading from prior row -----
+        # Sort in-file rows per device by timestamp; each row's start
+        # equals the previous row's end. Rows still blank after this pass
+        # are handled by api_admin.import_data via a DB lookup.
+        by_hw: Dict[str, List[Dict]] = {}
+        for r in valid_data:
+            by_hw.setdefault(r["hardware_id"], []).append(r)
+        for hw, rows in by_hw.items():
+            rows.sort(key=lambda x: str(x.get("timestamp") or ""))
+            prev_end = None
+            for r in rows:
+                if r.get("initial_forward_totalizer") is None and prev_end is not None:
+                    r["initial_forward_totalizer"] = prev_end
+                    r["totaliser_start_reading"] = prev_end
+                cur_end = r.get("final_forward_totalizer")
+                if cur_end is None:
+                    cur_end = r.get("forward_totalizer")
+                if cur_end is not None:
+                    prev_end = cur_end
+
         return valid_data, errors
 
     @staticmethod
@@ -251,29 +321,52 @@ class ExcelImportService:
     # --- CSV template builders ---------------------------------------
     @staticmethod
     def flowmeter_template_csv() -> bytes:
-        """Sample CSV template with one example row for the admin to fill."""
+        """Sample CSV template with the minimal columns admins fill by hand.
+
+        Two example rows are included to illustrate the daily rule:
+        each day's `totaliser_start_reading` MUST equal the previous
+        day's `totaliser_end_reading` for the same device. If left
+        blank on import the value is auto-derived from the previous
+        row (either in this same file, or the latest historical reading
+        already stored for that hardware_id).
+        """
         cols = [
-            "hardware_id", "timestamp",
-            # Canonical unit — the ONE column you must fill. The other
-            # two flow columns are optional; when omitted we compute
-            # them from m³/h automatically.
+            "hardware_id",
+            "timestamp",
             "flow_rate_m3h",
-            "flow_rate_lpm", "flow_rate_lph",
-            "tot1", "tot2", "rtot1", "rtot2", "forward_totalizer",
-            "reverse_totalizer", "temperature", "signal_strength",
-            "unit_code", "unit_name", "imei", "imsi", "firmware_version",
+            "totaliser_start_reading",   # m³, cumulative at start of period
+            "totaliser_end_reading",     # m³, cumulative at end of period
+            "signal_strength",
+            "unit_name",
+            "firmware_version",
         ]
-        sample = [
-            "FM_PLANT_A_01", "2026-07-01 09:00:00",
-            "2.4582",           # m³/h — canonical
-            "40.97", "2458.2",  # legacy L/M + L/H (derived)
-            "40.97", "0", "0", "0", "40.97",
-            "0", "22.5", "13",
-            "6", "m3/h", "860738070478155", "404980524791050", "4G-1",
+        samples = [
+            # Day 1 — first row, admin fills the very first opening
+            # reading manually. Start = end at t0 if unknown.
+            {
+                "hardware_id": "FM_PLANT_A_01",
+                "timestamp": "2026-07-01 09:00:00",
+                "flow_rate_m3h": "2.4582",
+                "totaliser_start_reading": "1250.75",
+                "totaliser_end_reading": "1309.75",
+                "signal_strength": "13",
+                "unit_name": "m3/h",
+                "firmware_version": "4G-1",
+            },
+            # Day 2 — start MUST equal previous day's end (1309.75).
+            {
+                "hardware_id": "FM_PLANT_A_01",
+                "timestamp": "2026-07-02 09:00:00",
+                "flow_rate_m3h": "2.6117",
+                "totaliser_start_reading": "1309.75",
+                "totaliser_end_reading": "1372.43",
+                "signal_strength": "13",
+                "unit_name": "m3/h",
+                "firmware_version": "4G-1",
+            },
         ]
         buf = io.StringIO()
-        w = pd.DataFrame([dict(zip(cols, sample))], columns=cols)
-        w.to_csv(buf, index=False)
+        pd.DataFrame(samples, columns=cols).to_csv(buf, index=False)
         return buf.getvalue().encode("utf-8")
 
     @staticmethod

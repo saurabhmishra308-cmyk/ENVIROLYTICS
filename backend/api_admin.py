@@ -575,6 +575,51 @@ async def import_data(
             "inserted_count": 0,
         }
 
+    # -------------------------------------------------------------------
+    # Flowmeter-only: back-fill blank `totaliser_start_reading` on the
+    # FIRST row per device (no prior in-file row) using the latest
+    # historical reading's `forward_totalizer` — enforces the
+    # "today's start = yesterday's end" invariant across files.
+    # -------------------------------------------------------------------
+    if instrument_type == "flowmeter" and valid_data:
+        rows_by_hw: Dict[str, List[Dict]] = {}
+        for r in valid_data:
+            rows_by_hw.setdefault(r["hardware_id"], []).append(r)
+        for hw, rows in rows_by_hw.items():
+            rows.sort(key=lambda x: str(x.get("timestamp") or ""))
+            first = rows[0]
+            if first.get("initial_forward_totalizer") in (None, ""):
+                first_ts = str(first.get("timestamp") or "")
+                prior = await collection.find_one(
+                    {"hardware_id": hw, "timestamp": {"$lt": first_ts}},
+                    {"_id": 0, "forward_totalizer": 1, "final_forward_totalizer": 1, "timestamp": 1},
+                    sort=[("timestamp", -1)],
+                )
+                if prior:
+                    seed = prior.get("final_forward_totalizer")
+                    if seed in (None, ""):
+                        seed = prior.get("forward_totalizer")
+                    if seed not in (None, ""):
+                        try:
+                            seed_f = round(float(seed), 4)
+                            first["initial_forward_totalizer"] = seed_f
+                            first["totaliser_start_reading"] = seed_f
+                        except (TypeError, ValueError):
+                            pass
+                # Now that the head row has a start, cascade it down the
+                # in-memory list so a same-file chain that started blank
+                # is fully sealed.
+                prev_end = first.get("final_forward_totalizer") or first.get("forward_totalizer")
+                for r in rows[1:]:
+                    if r.get("initial_forward_totalizer") in (None, "") and prev_end not in (None, ""):
+                        try:
+                            v = round(float(prev_end), 4)
+                            r["initial_forward_totalizer"] = v
+                            r["totaliser_start_reading"] = v
+                        except (TypeError, ValueError):
+                            pass
+                    prev_end = r.get("final_forward_totalizer") or r.get("forward_totalizer") or prev_end
+
     inserted = 0
     updated = 0
     if valid_data:
