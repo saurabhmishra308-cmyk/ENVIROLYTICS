@@ -8,7 +8,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../components/ui/dialog';
 import {
-  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, RefreshCw, Radio, Activity, CheckCircle2, XCircle, Dices, Hash, Clock, Eraser, Layers,
+  Cpu, Plus, Trash2, Edit3, Shield, RotateCcw, AlertTriangle, KeyRound, RefreshCw, Radio, Activity, CheckCircle2, XCircle, Dices, Hash, Clock, Eraser, Layers, Signal, UserCheck, UserPlus,
 } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin } from '../mockData';
@@ -75,6 +75,9 @@ const Instruments = () => {
   const [esplOpen, setEsplOpen] = useState(true);
   const [espl, setEspl] = useState(null);
   const [esplPolling, setEsplPolling] = useState(false);
+  // "Last data received" per-instrument snapshot panel state
+  const [lastDataOpen, setLastDataOpen] = useState(true);
+  const [lastData, setLastData] = useState(null);
   // Auto-suggest registration — probe an unknown deviceId
   const [probeDeviceId, setProbeDeviceId] = useState('');
   const [probing, setProbing] = useState(false);
@@ -168,6 +171,26 @@ const Instruments = () => {
     const id = setInterval(load, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, [admin, esplOpen]);
+
+  // Poll the per-instrument "last data received" snapshot every 15s while
+  // the panel is open. Combines the registry with the flowmeter_latest /
+  // instrument_latest caches so admins can see which devices are actively
+  // streaming — and quickly assign owners to unassigned instruments.
+  useEffect(() => {
+    if (!lastDataOpen) return undefined;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { data } = await api.get('/api/instrument-registry/last-data');
+        if (!cancelled) setLastData(data);
+      } catch (e) {
+        if (!cancelled) setLastData({ error: formatApiError(e?.response?.data?.detail) });
+      }
+    };
+    load();
+    const id = setInterval(load, 15000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [lastDataOpen]);
 
   const esplPollNow = async () => {
     setEsplPolling(true);
@@ -774,13 +797,33 @@ const Instruments = () => {
       <Card className="border-t-4" style={{ borderTopColor: '#4a9fd8' }} data-testid="mqtt-traffic-card">
         <CardHeader className="cursor-pointer" onClick={() => setTrafficOpen((v) => !v)}>
           <CardTitle className="flex items-center justify-between">
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-2 flex-wrap">
               <Activity className={`h-5 w-5 ${traffic?.connected ? 'text-emerald-500 animate-pulse' : 'text-gray-400'}`} />
               Live MQTT Traffic
               {traffic?.connected ? (
                 <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-medium">Connected</span>
               ) : (
                 <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-medium">Disconnected</span>
+              )}
+              {/* At-a-glance counters — always visible even when the panel
+                  is collapsed. On Azure VM this makes it obvious whether
+                  the broker socket is up but nothing is publishing. */}
+              {traffic && (
+                <>
+                  <span className="text-xs bg-blue-50 text-blue-800 px-2 py-0.5 rounded-full font-medium" data-testid="mqtt-header-received">
+                    {(traffic.total_received ?? 0).toLocaleString()} received
+                  </span>
+                  {(traffic.total_dropped_unknown ?? 0) > 0 && (
+                    <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-medium" data-testid="mqtt-header-dropped">
+                      {traffic.total_dropped_unknown.toLocaleString()} dropped (unknown IMEI)
+                    </span>
+                  )}
+                  {(traffic.subscribed_topics || []).length > 0 && (
+                    <span className="text-xs bg-purple-50 text-purple-800 px-2 py-0.5 rounded-full font-medium" data-testid="mqtt-header-topics" title={(traffic.subscribed_topics || []).join(', ')}>
+                      {(traffic.subscribed_topics || []).length} topic{traffic.subscribed_topics.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </>
               )}
             </span>
             <span className="text-sm font-normal text-gray-500">
@@ -1086,6 +1129,166 @@ const Instruments = () => {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
+
+      {/* ============ LAST DATA RECEIVED — PER INSTRUMENT ============ */}
+      <Card className="border-t-4" style={{ borderTopColor: '#10b981' }} data-testid="last-data-card">
+        <CardHeader className="cursor-pointer" onClick={() => setLastDataOpen((v) => !v)}>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Signal className={`h-5 w-5 ${lastData?.counts?.live > 0 ? 'text-emerald-500 animate-pulse' : 'text-gray-400'}`} />
+              Last data received — per instrument
+              {lastData?.counts && (
+                <>
+                  <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-medium" data-testid="last-data-count-live">Live · {lastData.counts.live}</span>
+                  <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-medium" data-testid="last-data-count-stale">Stale · {lastData.counts.stale}</span>
+                  <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full font-medium" data-testid="last-data-count-silent">Silent · {lastData.counts.silent}</span>
+                  {lastData.counts.unassigned > 0 && (
+                    <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-medium" data-testid="last-data-count-unassigned">Unassigned · {lastData.counts.unassigned}</span>
+                  )}
+                </>
+              )}
+            </span>
+            <span className="text-sm font-normal text-gray-500">
+              {lastDataOpen ? 'Hide ▲' : 'Show ▼'}
+            </span>
+          </CardTitle>
+          <CardDescription>
+            Live snapshot of the newest reading on every registered device. Auto-refreshes every 15&nbsp;seconds. <strong className="text-emerald-700">Live</strong> = data in the last 30 min, <strong className="text-amber-700">Stale</strong> = between 30 min and 24 h, <strong className="text-gray-700">Silent</strong> = older than 24 h. Click <em>Assign owner</em> to attach an unassigned instrument to a client.
+          </CardDescription>
+        </CardHeader>
+        {lastDataOpen && (
+          <CardContent>
+            {lastData?.error ? (
+              <div className="p-3 rounded bg-red-50 text-red-700 text-sm">{lastData.error}</div>
+            ) : !lastData ? (
+              <p className="text-center py-6 text-gray-500 text-sm">Loading last-data snapshot…</p>
+            ) : (lastData.items || []).length === 0 ? (
+              <p className="text-center py-6 text-gray-500 text-sm">No registered instruments yet — create one to see it here.</p>
+            ) : (
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="w-full text-xs" data-testid="last-data-table">
+                  <thead className="bg-gray-50 border-b sticky top-0">
+                    <tr>
+                      <th className="text-left p-2 w-8"></th>
+                      <th className="text-left p-2 w-40">Device</th>
+                      <th className="text-left p-2 w-24">Type</th>
+                      <th className="text-left p-2 w-20">Source</th>
+                      <th className="text-left p-2 w-40">Owner</th>
+                      <th className="text-left p-2 w-36">Last received</th>
+                      <th className="text-left p-2">Latest values</th>
+                      {admin && <th className="text-right p-2 w-32">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(lastData.items || []).map((it) => {
+                      const statusColor =
+                        it.status === 'live' ? 'text-emerald-500'
+                        : it.status === 'stale' ? 'text-amber-500'
+                        : 'text-gray-400';
+                      const statusIcon =
+                        it.status === 'live' ? <CheckCircle2 className={`h-4 w-4 ${statusColor}`} />
+                        : it.status === 'stale' ? <Clock className={`h-4 w-4 ${statusColor}`} />
+                        : <XCircle className={`h-4 w-4 ${statusColor}`} />;
+                      // Compact "X min ago" formatter driven by seconds_since_last
+                      const ago = (() => {
+                        const s = it.seconds_since_last;
+                        if (s == null) return '—';
+                        if (s < 60) return `${s}s ago`;
+                        if (s < 3600) return `${Math.round(s / 60)}m ago`;
+                        if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+                        return `${Math.round(s / 86400)}d ago`;
+                      })();
+                      // Human-friendly rendering of the values payload.
+                      const values = it.last_values || {};
+                      const chips = [];
+                      if (it.instrument_type === 'flowmeter') {
+                        if (values.flow_rate_m3h != null) chips.push({ k: 'flow', v: `${Number(values.flow_rate_m3h).toFixed(3)} m³/h` });
+                        if (values.totaliser_end_reading != null) chips.push({ k: 'totaliser', v: `${Number(values.totaliser_end_reading).toFixed(2)} m³` });
+                        if (values.signal_strength != null) chips.push({ k: 'signal', v: `${values.signal_strength}` });
+                      } else {
+                        Object.entries(values).slice(0, 5).forEach(([k, v]) => {
+                          if (v == null || v === '') return;
+                          const label = k.replace(/_/g, ' ').replace(/ppm|mg l|us cm|mwc|pct/g, (m) => (
+                            { 'ppm': 'ppm', 'mg l': 'mg/L', 'us cm': 'µS/cm', 'mwc': 'mWC', 'pct': '%' }[m] || m
+                          ));
+                          const val = typeof v === 'number' ? Number(v).toFixed(2) : String(v).slice(0, 12);
+                          chips.push({ k: label, v: val });
+                        });
+                      }
+                      return (
+                        <tr key={it.hardware_id} className={`border-b hover:bg-gray-50 ${it.status === 'silent' ? 'bg-gray-50/30' : ''}`} data-testid={`last-data-row-${it.hardware_id}`}>
+                          <td className="p-2" title={it.status}>{statusIcon}</td>
+                          <td className="p-2">
+                            <div className="font-mono font-semibold text-gray-900">{it.hardware_id}</div>
+                            {it.label && <div className="text-[10px] text-gray-500">{cleanLabel(it.label)}</div>}
+                          </td>
+                          <td className="p-2">
+                            <span className="text-gray-800">{it.instrument_type}</span>
+                            {it.category && <div className="text-[10px] text-gray-500">{it.category.replace(/_/g, ' ')}</div>}
+                          </td>
+                          <td className="p-2">
+                            <Badge variant="outline" className={it.source === 'http' ? 'text-orange-700 border-orange-300' : 'text-blue-700 border-blue-300'}>
+                              {it.source === 'http' ? 'HTTP' : 'MQTT'}
+                            </Badge>
+                          </td>
+                          <td className="p-2">
+                            {it.owner_email ? (
+                              <div>
+                                <div className="text-gray-900">{cleanLabel(it.owner_name || it.owner_email)}</div>
+                                <div className="text-[10px] text-gray-500">{it.owner_email}</div>
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-red-700 text-[11px] font-medium">
+                                <AlertTriangle className="h-3 w-3" /> Unassigned
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2">
+                            <div className={`font-medium ${statusColor}`}>{ago}</div>
+                            {it.last_received_at && (
+                              <div className="text-[10px] text-gray-500 font-mono">
+                                {new Date(it.last_received_at).toLocaleString([], { year: '2-digit', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-2">
+                            {chips.length === 0 ? (
+                              <span className="text-gray-400 italic">no data yet</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1">
+                                {chips.map((c) => (
+                                  <span key={c.k} className="inline-flex items-center gap-1 bg-white border border-gray-200 rounded px-2 py-0.5">
+                                    <span className="text-gray-500 text-[10px]">{c.k}</span>
+                                    <span className="font-mono font-semibold text-gray-900">{c.v}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          {admin && (
+                            <td className="p-2 text-right">
+                              {it.owner_user_id ? (
+                                <Button size="sm" variant="outline" onClick={() => openEdit(it)} data-testid={`last-data-reassign-${it.hardware_id}`} title="Reassign owner">
+                                  <UserCheck className="h-3 w-3 mr-1" /> Reassign
+                                </Button>
+                              ) : (
+                                <Button size="sm" onClick={() => openEdit(it)} className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid={`last-data-assign-${it.hardware_id}`} title="Attach this device to a client">
+                                  <UserPlus className="h-3 w-3 mr-1" /> Assign owner
+                                </Button>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </CardContent>

@@ -237,6 +237,202 @@ async def list_instruments(
     return {"instruments": items, "count": len(items)}
 
 
+# ---------------------------------------------------------------- last-data snapshot
+def _summarise_flowmeter_reading(r: dict) -> Dict:
+    """Extract the user-facing values from a live flowmeter reading."""
+    if not r:
+        return {}
+    m3h = r.get("flow_rate_m3h")
+    if m3h is None and r.get("flow_rate_lph") is not None:
+        try:
+            m3h = round(float(r["flow_rate_lph"]) / 1000.0, 4)
+        except (TypeError, ValueError):
+            m3h = None
+    end = r.get("totaliser_end_reading")
+    if end is None:
+        end = r.get("final_forward_totalizer") or r.get("forward_totalizer")
+    start = r.get("totaliser_start_reading")
+    if start is None:
+        start = r.get("initial_forward_totalizer")
+    return {
+        "flow_rate_m3h": m3h,
+        "totaliser_start_reading": start,
+        "totaliser_end_reading": end,
+        "signal_strength": r.get("signal_strength"),
+        "unit_name": r.get("unit_name") or "m3/h",
+    }
+
+
+def _summarise_instrument_reading(r: dict) -> Dict:
+    """Pluck the most useful fields out of a generic instrument reading
+    (DWLR / DO / pH / TDS / conductivity / OCEMS)."""
+    if not r:
+        return {}
+    v = r.get("values") or {}
+    out: Dict = {}
+    # Prefer explicit top-level keys, fall back to values{} bag.
+    for k in ("level_mwc", "temperature", "do_mg_l", "chlorine_ppm",
+              "ph", "tds_ppm", "conductivity_us_cm",
+              "ammonical_nitrogen", "tn", "tp",
+              "saturation_pct", "signal_strength"):
+        val = r.get(k)
+        if val is None:
+            # Case-insensitive lookup on the values dict
+            for candidate_k, candidate_v in v.items():
+                if str(candidate_k).lower() == k:
+                    val = candidate_v
+                    break
+        if val is not None and val != "":
+            out[k] = val
+    return out
+
+
+@router.get("/last-data")
+async def instrument_last_data(user: dict = Depends(get_current_user)):
+    """Snapshot table: every registered instrument the caller can see, merged
+    with its most recent live reading. Powers the "Last data received per
+    instrument" panel on the Instruments page — makes it obvious at a glance
+    which devices are producing data, which are silent, and which are
+    unassigned (so admins can quickly attach them to a client).
+
+    Response payload:
+      {
+        "items": [
+          {
+            "hardware_id": "...", "instrument_type": "...", "label": "...",
+            "source": "mqtt" | "http",
+            "owner_user_id": "...", "owner_email": "...", "owner_name": "...",
+            "last_timestamp": "...", "last_received_at": "...",
+            "seconds_since_last": 300,
+            "status": "live" | "stale" | "silent",
+            "last_values": { ... }        # unit-aware summary of the reading
+          }, ...
+        ],
+        "generated_at": "...",
+        "counts": { "live": 5, "stale": 1, "silent": 2, "unassigned": 1 }
+      }
+
+    Status thresholds:
+      • live    → last reading < 30 min old
+      • stale   → 30 min .. 24 h old
+      • silent  → > 24 h old  OR  no reading has ever landed
+    """
+    # Same visibility rules as list_instruments — admin sees every registered
+    # device, clients see only their own, staff sees clients but not admins.
+    query: Dict = {}
+    hidden: Set[str] = set()
+    if user.get("role") != "admin":
+        query["owner_user_id"] = user.get("id")
+        hidden = await hidden_device_types(user)
+        if hidden:
+            query["instrument_type"] = {"$nin": sorted(hidden)}
+
+    registry = await db.instrument_registry.find(
+        query,
+        {"_id": 0, "hardware_id": 1, "instrument_type": 1, "label": 1,
+         "owner_user_id": 1, "source": 1, "imei": 1, "location_name": 1,
+         "category": 1, "aeration_tank_number": 1},
+    ).sort("created_at", -1).to_list(length=2000)
+
+    if not registry:
+        return {"items": [], "generated_at": datetime.now(timezone.utc).isoformat(),
+                "counts": {"live": 0, "stale": 0, "silent": 0, "unassigned": 0}}
+
+    # Bulk-fetch the latest reading for every visible device.
+    hw_ids = [r["hardware_id"] for r in registry]
+    fm_latest = {
+        d["hardware_id"]: d
+        async for d in db.flowmeter_latest.find({"hardware_id": {"$in": hw_ids}}, {"_id": 0})
+    }
+    inst_latest = {
+        d["hardware_id"]: d
+        async for d in db.instrument_latest.find({"hardware_id": {"$in": hw_ids}}, {"_id": 0})
+    }
+
+    # Owner lookup (email + display name)
+    owner_ids = list({r.get("owner_user_id") for r in registry if r.get("owner_user_id")})
+    owners = {}
+    if owner_ids:
+        owners = {
+            u["id"]: u
+            async for u in db.users.find(
+                {"id": {"$in": owner_ids}},
+                {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company_name": 1},
+            )
+        }
+
+    now = datetime.now(timezone.utc)
+    items = []
+    counts = {"live": 0, "stale": 0, "silent": 0, "unassigned": 0}
+    for reg in registry:
+        hw = reg["hardware_id"]
+        itype = (reg.get("instrument_type") or "").lower()
+        latest_row = fm_latest.get(hw) if itype == "flowmeter" else inst_latest.get(hw)
+
+        last_ts = None
+        last_rx = None
+        seconds_since = None
+        status = "silent"
+        last_values: Dict = {}
+        if latest_row:
+            last_ts = latest_row.get("timestamp")
+            last_rx = latest_row.get("received_at") or last_ts
+            try:
+                # `received_at` is the ingest-time UTC ISO — the authoritative
+                # clock. Fall back to `timestamp` when a source only sets one.
+                ref = last_rx or last_ts
+                dt = datetime.fromisoformat(str(ref).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                seconds_since = max(0, int((now - dt).total_seconds()))
+                if seconds_since < 30 * 60:
+                    status = "live"
+                elif seconds_since < 24 * 3600:
+                    status = "stale"
+                else:
+                    status = "silent"
+            except (TypeError, ValueError):
+                pass
+            if itype == "flowmeter":
+                last_values = _summarise_flowmeter_reading(latest_row)
+            else:
+                last_values = _summarise_instrument_reading(latest_row)
+
+        owner = owners.get(reg.get("owner_user_id"))
+        item = {
+            "hardware_id": hw,
+            "instrument_type": itype,
+            "label": reg.get("label"),
+            "location_name": reg.get("location_name"),
+            "category": reg.get("category"),
+            "aeration_tank_number": reg.get("aeration_tank_number"),
+            "source": reg.get("source") or "mqtt",
+            "imei": reg.get("imei"),
+            "owner_user_id": reg.get("owner_user_id"),
+            "owner_email": owner.get("email") if owner else None,
+            "owner_name": (owner.get("full_name") or owner.get("company_name") or owner.get("email")) if owner else None,
+            "last_timestamp": last_ts,
+            "last_received_at": last_rx,
+            "seconds_since_last": seconds_since,
+            "status": status,
+            "last_values": last_values,
+        }
+        items.append(item)
+        counts[status] = counts.get(status, 0) + 1
+        if not item["owner_user_id"]:
+            counts["unassigned"] += 1
+
+    # Sort: live devices first (fresh signal on top), then stale, then silent.
+    order = {"live": 0, "stale": 1, "silent": 2}
+    items.sort(key=lambda i: (order.get(i["status"], 3), i.get("seconds_since_last") or 10**9))
+
+    return {
+        "items": items,
+        "counts": counts,
+        "generated_at": now.isoformat(),
+    }
+
+
 async def _create_one_instrument(req: "CreateInstrumentRequest", admin: dict) -> dict:
     """Shared create logic — used by both the single-create endpoint and
     the bulk-create endpoint. Returns the persisted registry document."""
