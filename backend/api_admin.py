@@ -430,10 +430,7 @@ async def export_data(
 
     cursor = db.flowmeter_readings.find(query).sort("timestamp", -1).limit(1000)
     readings = await cursor.to_list(length=1000)
-
-    for r in readings:
-        r.pop("_id", None)
-        r.pop("raw_data", None)
+    readings = DataExportService.sanitize_flowmeter_rows(readings)
 
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
     if format == "csv":

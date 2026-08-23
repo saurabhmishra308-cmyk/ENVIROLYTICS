@@ -98,7 +98,7 @@ export const DummyModeDialog = ({
             </div>
             <div className="text-xs text-gray-600 p-3 bg-blue-50 rounded-lg">
               <p><strong>Unit for {dummyTarget?.instrument_type}:</strong> {dummyTarget?.instrument_type === 'flowmeter' ? 'L/H (litres per hour)' : 'mWC (metres of water column)'}</p>
-              <p className="mt-1">Data will be stored with the same wire format as real device payloads (LEVEL / LVL for DWLR, flow_rate_lph + totalizers for Flowmeter). Every dummy row is internally marked <code>_dummy=true</code> for auditability.</p>
+              <p className="mt-1">Data will be stored with the same wire format as real device payloads (LEVEL / LVL for DWLR, flow_rate_m3h + totalizers for Flowmeter). Every dummy row is internally marked <code>_dummy=true</code> for auditability.</p>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={onClose}>Cancel</Button>

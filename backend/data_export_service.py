@@ -11,7 +11,59 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 class DataExportService:
     """Service for exporting data to CSV and PDF formats."""
-    
+
+    # Field-order canonical view for flowmeter downloads (matches the
+    # template columns admins fill by hand).
+    FLOWMETER_EXPORT_COLUMNS = [
+        "hardware_id",
+        "timestamp",
+        "received_at",
+        "flow_rate_m3h",
+        "totaliser_start_reading",
+        "totaliser_end_reading",
+        "temperature",
+        "signal_strength",
+        "unit_name",
+        "imei",
+        "firmware_version",
+    ]
+
+    _EXPORT_DROP_KEYS = {
+        "_id", "raw_data", "canonical_unit",
+        "flow_rate_lph", "flow_rate_lpm",   # L/h + L/M — hide, m³/h is canonical
+        "unit_code",                          # numeric code superseded by unit_name
+        "_import_source", "_imported_by",
+        "reverse_totalizer", "rtot1", "rtot2", "tot1", "tot2",
+    }
+
+    @staticmethod
+    def sanitize_flowmeter_rows(rows: List[Dict]) -> List[Dict]:
+        """Coerce raw MongoDB reading docs into the user-facing shape used
+        by every flowmeter CSV/PDF export. Drops L/h + L/M variants (we
+        display m³/h only), renames totaliser fields to the friendly
+        template names, and orders columns consistently."""
+        cleaned: List[Dict] = []
+        for r in rows or []:
+            row = {k: v for k, v in r.items() if k not in DataExportService._EXPORT_DROP_KEYS}
+            # Rename totaliser fields to the template's friendly names.
+            if "totaliser_start_reading" not in row and "initial_forward_totalizer" in row:
+                row["totaliser_start_reading"] = row.pop("initial_forward_totalizer")
+            row.pop("initial_forward_totalizer", None)
+            if "totaliser_end_reading" not in row and "final_forward_totalizer" in row:
+                row["totaliser_end_reading"] = row.pop("final_forward_totalizer")
+            row.pop("final_forward_totalizer", None)
+            if "totaliser_end_reading" not in row and "forward_totalizer" in row:
+                row["totaliser_end_reading"] = row.pop("forward_totalizer")
+            else:
+                row.pop("forward_totalizer", None)
+            # Column order: canonical fields first (always emitted, so
+            # the CSV/PDF header stays consistent), then any device-specific
+            # fields tail-appended.
+            ordered = {c: row.pop(c, None) for c in DataExportService.FLOWMETER_EXPORT_COLUMNS}
+            ordered.update(row)  # remaining fields
+            cleaned.append(ordered)
+        return cleaned
+
     @staticmethod
     def to_csv(data: List[Dict], filename: str = "export.csv") -> bytes:
         """Convert data to CSV format."""
@@ -175,21 +227,32 @@ class ExcelImportService:
         flow_cols = ("flow_rate_m3h", "flow_rate_lpm", "flow_rate_lph")
 
         # ----- Column name aliases (new template → internal fields) -----
+        def _is_blank(v):
+            # Treat None, empty string, and NaN (pandas leaves NaN in
+            # numeric columns even after .where(notnull, None)) as blank.
+            if v is None or v == "":
+                return True
+            try:
+                import math as _math
+                return isinstance(v, float) and _math.isnan(v)
+            except Exception:  # noqa: BLE001
+                return False
+
         def _pick(row: Dict, *names):
             for n in names:
-                if row.get(n) not in (None, ""):
+                if not _is_blank(row.get(n)):
                     return row[n]
             return None
 
         for idx, row in enumerate(data, start=2):  # spreadsheet rows start at 2 (header = row 1)
             for base in ("hardware_id", "timestamp"):
-                if row.get(base) in (None, ""):
+                if _is_blank(row.get(base)):
                     errors.append(f"Row {idx}: missing required column '{base}'")
                     row["_bad"] = True
                     break
             if row.get("_bad"):
                 continue
-            if not any(row.get(c) not in (None, "") for c in flow_cols):
+            if not any(not _is_blank(row.get(c)) for c in flow_cols):
                 errors.append(f"Row {idx}: must supply one of {flow_cols}")
                 continue
             ts = ExcelImportService._normalize_ts(row.get("timestamp"))
@@ -200,8 +263,10 @@ class ExcelImportService:
             try:
                 # Parse whichever flow columns are present
                 for c in flow_cols:
-                    if row.get(c) not in (None, ""):
+                    if not _is_blank(row.get(c)):
                         row[c] = float(row[c])
+                    else:
+                        row[c] = None
                 # Derive the two missing flow columns from the one that was
                 # supplied. m³/h is the source of truth.
                 if row.get("flow_rate_m3h") is not None:
@@ -220,8 +285,8 @@ class ExcelImportService:
                 start_raw = _pick(row, "totaliser_start_reading", "initial_forward_totalizer")
                 end_raw = _pick(row, "totaliser_end_reading", "final_forward_totalizer", "forward_totalizer")
 
-                start_val = float(start_raw) if start_raw not in (None, "") else None
-                end_val = float(end_raw) if end_raw not in (None, "") else None
+                start_val = float(start_raw) if not _is_blank(start_raw) else None
+                end_val = float(end_raw) if not _is_blank(end_raw) else None
 
                 # Persist the canonical names the reports UI already knows.
                 if start_val is not None:
@@ -243,7 +308,7 @@ class ExcelImportService:
                 # Fill remaining optional numerics with 0 if missing.
                 for col in ("tot1", "tot2", "rtot1", "rtot2",
                             "reverse_totalizer", "temperature", "signal_strength"):
-                    if row.get(col) not in (None, ""):
+                    if not _is_blank(row.get(col)):
                         row[col] = float(row[col])
                     else:
                         row[col] = 0.0 if col != "signal_strength" else 0

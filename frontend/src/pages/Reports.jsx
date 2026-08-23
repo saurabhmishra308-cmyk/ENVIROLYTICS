@@ -230,7 +230,7 @@ const Reports = () => {
         const [key, arr] = ordered[idx];
         const first = arr[0];
         const last = arr[arr.length - 1];
-        const flows = arr.map(({ r }) => pickNum(r, ['flow_rate_lph']) ?? pickNum(r.values || {}, ['FLOW'])).filter((n) => n != null);
+        const flows = arr.map(({ r }) => pickNum(r, ['flow_rate_m3h']) ?? pickNum(r.values || {}, ['FLOW_M3H', 'FLOW'])).filter((n) => n != null);
         const avgFlow = flows.length ? flows.reduce((a, b) => a + b, 0) / flows.length : null;
         const initFwd = fwdTotaliser(first.r);
         const finalFwd = fwdTotaliser(last.r);
@@ -256,8 +256,8 @@ const Reports = () => {
           received_at: last.r.received_at,
           _bucket_start: first.d.toISOString(),
           _bucket_end: last.d.toISOString(),
-          flow_rate_lph_avg: avgFlow,
-          flow_rate_lph_last: pickNum(last.r, ['flow_rate_lph']) ?? pickNum(last.r.values || {}, ['FLOW']),
+          flow_rate_m3h_avg: avgFlow,
+          flow_rate_m3h_last: pickNum(last.r, ['flow_rate_m3h']) ?? pickNum(last.r.values || {}, ['FLOW_M3H', 'FLOW']),
           initial_forward_totalizer: prevFinalFwd != null ? prevFinalFwd : initFwd,
           final_forward_totalizer: finalFwd,
           forward_consumption: forwardConsumption,
@@ -310,7 +310,7 @@ const Reports = () => {
     // Column header — depends on section
     let cols;
     if (section === 'flowmeter') {
-      cols = ['S.No.', 'Site Name', 'Location', 'Device', 'Date', 'Time', 'Flow rate (L/h)', 'Initial Totaliser (KL)', 'Final Totaliser (KL)', 'Consumption (KL)'];
+      cols = ['S.No.', 'Site Name', 'Location', 'Device', 'Date', 'Time', 'Flow rate (m³/h)', 'Initial Totaliser (KL)', 'Final Totaliser (KL)', 'Consumption (KL)'];
     } else if (section === 'dwlr') {
       cols = ['S.No.', 'Site Name', 'Location', 'Device', 'Date', 'Time', 'Water Level (mWC)', 'Temperature (°C)'];
     } else {
@@ -323,7 +323,7 @@ const Reports = () => {
       if (section === 'flowmeter') {
         rows.push([
           ...base,
-          r.flow_rate_lph_avg != null ? Number(r.flow_rate_lph_avg).toFixed(2) : '—',
+          r.flow_rate_m3h_avg != null ? Number(r.flow_rate_m3h_avg).toFixed(3) : '—',
           r.initial_forward_totalizer != null ? Number(r.initial_forward_totalizer).toFixed(2) : '—',
           r.final_forward_totalizer != null ? Number(r.final_forward_totalizer).toFixed(2) : '—',
           r.forward_consumption != null ? Number(r.forward_consumption).toFixed(2) : '—',
@@ -438,7 +438,7 @@ const Reports = () => {
     if (section === 'flowmeter') {
       setEditForm({
         timestamp: row.timestamp || row.received_at || '',
-        flow_rate_lph: row.flow_rate_lph != null ? String(row.flow_rate_lph) : '',
+        flow_rate_m3h: row.flow_rate_m3h != null ? String(row.flow_rate_m3h) : '',
         forward_totalizer: row.forward_totalizer != null ? String(row.forward_totalizer) : '',
         reverse_totalizer: row.reverse_totalizer != null ? String(row.reverse_totalizer) : '',
         temperature: row.temperature != null ? String(row.temperature) : '',
@@ -459,7 +459,7 @@ const Reports = () => {
       if (section === 'flowmeter') {
         const payload = {};
         if (editForm.timestamp) payload.timestamp = editForm.timestamp;
-        ['flow_rate_lph', 'forward_totalizer', 'reverse_totalizer', 'temperature'].forEach((k) => {
+        ['flow_rate_m3h', 'forward_totalizer', 'reverse_totalizer', 'temperature'].forEach((k) => {
           if (editForm[k] !== '' && editForm[k] != null) payload[k] = parseFloat(editForm[k]);
         });
         await api.put(`/api/flowmeter-mgmt/readings/flowmeter/${editTarget._id}`, payload);
@@ -657,7 +657,7 @@ const Reports = () => {
                         <th className="text-left p-2">Time</th>
                         {section === 'flowmeter' ? (
                           <>
-                            <th className="text-right p-2">Flow rate (L/h)</th>
+                            <th className="text-right p-2">Flow rate (m³/h)</th>
                             <th className="text-right p-2">Initial Totaliser (KL)</th>
                             <th className="text-right p-2">Final Totaliser (KL)</th>
                             <th className="text-right p-2">Consumption (KL)</th>
@@ -693,7 +693,7 @@ const Reports = () => {
                             <td className="p-2 whitespace-nowrap font-mono text-xs">{humanTime(d)}</td>
                             {section === 'flowmeter' ? (
                               <>
-                                <td className="p-2 text-right">{r.flow_rate_lph_avg != null ? Number(r.flow_rate_lph_avg).toFixed(2) : '—'}</td>
+                                <td className="p-2 text-right">{r.flow_rate_m3h_avg != null ? Number(r.flow_rate_m3h_avg).toFixed(3) : '—'}</td>
                                 <td className="p-2 text-right">{r.initial_forward_totalizer != null ? Number(r.initial_forward_totalizer).toFixed(2) : '—'}</td>
                                 <td className="p-2 text-right">{r.final_forward_totalizer != null ? Number(r.final_forward_totalizer).toFixed(2) : '—'}</td>
                                 <td className="p-2 text-right font-semibold text-emerald-700">{r.forward_consumption != null ? Number(r.forward_consumption).toFixed(2) : '—'}</td>
@@ -738,7 +738,7 @@ const Reports = () => {
             <div className="space-y-3">
               <div><Label>Timestamp (ISO 8601)</Label><Input value={editForm.timestamp || ''} onChange={(e) => setEditForm({ ...editForm, timestamp: e.target.value })} data-testid="edit-reading-timestamp" /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Flow rate (L/h)</Label><Input type="number" step="0.01" value={editForm.flow_rate_lph || ''} onChange={(e) => setEditForm({ ...editForm, flow_rate_lph: e.target.value })} data-testid="edit-flow-lph" /></div>
+                <div><Label>Flow rate (m³/h)</Label><Input type="number" step="0.001" value={editForm.flow_rate_m3h || ''} onChange={(e) => setEditForm({ ...editForm, flow_rate_m3h: e.target.value })} data-testid="edit-flow-m3h" /></div>
                 <div><Label>Temperature (°C)</Label><Input type="number" step="0.1" value={editForm.temperature || ''} onChange={(e) => setEditForm({ ...editForm, temperature: e.target.value })} /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">

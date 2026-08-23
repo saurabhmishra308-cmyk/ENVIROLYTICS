@@ -88,7 +88,7 @@ const Flowmeter = () => {
   const recentReadings = history.slice(0, 10).map((r, i) => ({
     id: r._id || `reading_${i}`,
     time: new Date(r.timestamp || r.received_at).toLocaleTimeString(),
-    flow: Number(r.flow_rate_lpm || 0).toFixed(2),
+    flow: Number(r.flow_rate_m3h || 0).toFixed(3),
     volume: Number(r.forward_totalizer || 0).toFixed(2),
     status: 'Normal',
   }));
@@ -191,9 +191,9 @@ const Flowmeter = () => {
                     <div className="text-center py-8" data-testid="flowmeter-live-panel">
                       <div className="inline-flex items-baseline gap-2 mb-4">
                         <span className="text-7xl font-bold" style={{ color: '#4a9fd8' }} data-testid="flowmeter-flow-value">
-                          {Number(current?.flow_rate_lpm || 0).toFixed(2)}
+                          {Number(current?.flow_rate_m3h || 0).toFixed(3)}
                         </span>
-                        <span className="text-3xl font-semibold text-gray-600">L/min</span>
+                        <span className="text-3xl font-semibold text-gray-600">m³/h</span>
                       </div>
                       <div className="grid grid-cols-3 gap-4 mt-8">
                         <div className="p-4 bg-blue-50 rounded-lg">
@@ -295,8 +295,8 @@ const Flowmeter = () => {
                           <span className="font-bold text-gray-900">{m.hardware_id}</span>
                           <Badge className="bg-green-500">Active</Badge>
                         </div>
-                        <p className="text-2xl font-bold" style={{ color: '#4a9fd8' }}>{Number(m.flow_rate_lpm || 0).toFixed(2)}</p>
-                        <p className="text-xs text-gray-500">L/min · {Number(m.temperature || 0).toFixed(1)}°C</p>
+                        <p className="text-2xl font-bold" style={{ color: '#4a9fd8' }}>{Number(m.flow_rate_m3h || 0).toFixed(3)}</p>
+                        <p className="text-xs text-gray-500">m³/h · {Number(m.temperature || 0).toFixed(1)}°C</p>
                       </button>
                     );
                   })}

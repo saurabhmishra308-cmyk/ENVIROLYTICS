@@ -39,6 +39,8 @@ class SetCategoryRequest(BaseModel):
 
 class EditFlowmeterReading(BaseModel):
     timestamp: Optional[str] = None
+    # Preferred canonical unit; either field is accepted for backward compat.
+    flow_rate_m3h: Optional[float] = None
     flow_rate_lph: Optional[float] = None
     forward_totalizer: Optional[float] = None
     reverse_totalizer: Optional[float] = None
@@ -342,6 +344,19 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Whenever the flow rate is edited, keep all three canonical units
+    # (m³/h, L/h, L/M) in sync so the reports table stays consistent no
+    # matter which UI wrote the edit.
+    m3h = updates.pop("flow_rate_m3h", None)
+    if m3h is None and updates.get("flow_rate_lph") is not None:
+        m3h = round(float(updates["flow_rate_lph"]) / 1000.0, 4)
+    if m3h is not None:
+        m3h = round(float(m3h), 4)
+        updates["flow_rate_m3h"] = m3h
+        updates["flow_rate_lph"] = round(m3h * 1000.0, 4)
+        updates["flow_rate_lpm"] = round(m3h * 1000.0 / 60.0, 4)
+
     updates["edited_by"] = admin["id"]
     updates["edited_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -459,9 +474,7 @@ async def export_data_scoped(
 
     cursor = db.flowmeter_readings.find({**query, "_dummy": {"$ne": True}}).sort("timestamp", -1).limit(5000)
     readings = await cursor.to_list(length=5000)
-    for r in readings:
-        r.pop("_id", None)
-        r.pop("raw_data", None)
+    readings = DataExportService.sanitize_flowmeter_rows(readings)
 
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
     if format == "csv":
