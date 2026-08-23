@@ -9,22 +9,31 @@ User=envirolytics
 Group=envirolytics
 WorkingDirectory=/opt/envirolytics/backend
 EnvironmentFile=/opt/envirolytics/backend/.env
-# Gunicorn with uvicorn workers — 4 workers is a good default on a
-# 2 vCPU VM. Tune UPPER value if you scale the VM size.
-ExecStart=/opt/envirolytics/venv/bin/gunicorn server:app \
-    --worker-class uvicorn.workers.UvicornWorker \
-    --workers 4 \
-    --bind 127.0.0.1:8001 \
-    --timeout 120 \
-    --access-logfile /var/log/envirolytics/backend-access.log \
-    --error-logfile /var/log/envirolytics/backend-error.log
+# ── Single uvicorn process ────────────────────────────────────
+# All background tasks (MQTT client, ESPL poller, notification
+# scans, DO/chlorine alerts, retention purge, etc.) are launched
+# from FastAPI's `startup_event` and must be singleton. Running
+# multiple gunicorn workers would fork them N times → duplicate
+# emails, duplicate polls, race conditions.
+#
+# uvicorn + asyncio handles thousands of concurrent requests on
+# a single event loop, so throughput is not a concern. If the VM
+# is ever moved behind a load balancer with sticky sessions to
+# multiple VMs, remove the background tasks from startup_event
+# and run them as a *separate* systemd service.
+ExecStart=/opt/envirolytics/venv/bin/uvicorn server:app \
+    --host 127.0.0.1 --port 8001 \
+    --proxy-headers --forwarded-allow-ips "127.0.0.1" \
+    --log-level info \
+    --access-log --no-use-colors
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:/var/log/envirolytics/backend.log
 StandardError=append:/var/log/envirolytics/backend.log
 
-# Persistent uploads must survive service restarts. The uploads dir
-# lives on the VM's OS disk which is persistent by default on Azure.
+# Persistent uploads must survive service restarts + git-pull
+# redeploys. The workflow's rsync already excludes this dir, so
+# photos + certificates + logos + NOC files are safe.
 ReadWritePaths=/opt/envirolytics/backend/uploads /var/log/envirolytics
 
 [Install]

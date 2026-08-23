@@ -223,8 +223,19 @@ async def upload_logo(user_id: str, file: UploadFile = File(...), admin: dict = 
         raise HTTPException(status_code=400, detail="Empty file")
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Logo must be ≤ 5 MB")
-    with open(dest_path, "wb") as f:
-        f.write(content)
+    # Persistent object storage on Emergent — falls back to local disk on
+    # self-hosted / Azure VM (which is also persistent).
+    try:
+        from object_storage import put_object, make_path, ObjectStorageDisabled
+        try:
+            put_object(make_path("logos", safe_name), content, f"image/{ext}")
+        except ObjectStorageDisabled:
+            with open(dest_path, "wb") as f:
+                f.write(content)
+    except Exception as e:
+        logger.error(f"[logo-upload] object storage failed: {e}; falling back to disk")
+        with open(dest_path, "wb") as f:
+            f.write(content)
 
     # Clean up the previous logo so we don't accumulate orphaned files.
     prev = (doc or {}).get("logo_path")
@@ -249,9 +260,6 @@ async def serve_logo(filename: str, user: dict = Depends(get_current_user)):
     # Filename validation — only allow the exact pattern we store.
     if not _LOGO_EXT.match(filename):
         raise HTTPException(status_code=400, detail="Invalid logo filename")
-    path = os.path.join(LOGO_DIR, filename)
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Logo not found")
 
     # Only the owner or admin may fetch a logo (prevents cross-tenant browsing).
     if user.get("role") != "admin":
@@ -261,6 +269,21 @@ async def serve_logo(filename: str, user: dict = Depends(get_current_user)):
         )
         if not owner or owner.get("id") != user.get("id"):
             raise HTTPException(status_code=403, detail="Not permitted to view this logo")
+    # Prefer persistent object storage.
+    try:
+        from object_storage import get_object, make_path, ObjectStorageDisabled
+        from fastapi.responses import Response as _Response
+        try:
+            data, ct = get_object(make_path("logos", filename))
+            return _Response(content=data, media_type=ct or "image/jpeg")
+        except ObjectStorageDisabled:
+            pass
+    except Exception as e:
+        logger.warning(f"[logo-serve] object storage read failed: {e}; trying local disk")
+    # Local disk fallback.
+    path = os.path.join(LOGO_DIR, filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Logo not found")
     return FileResponse(path, media_type="image/jpeg")
 
 
@@ -309,8 +332,20 @@ async def upload_noc_certificate(
 
     safe_name = f"{user_id}_{uuid.uuid4().hex[:12]}.{ext}"
     dest = os.path.join(NOC_DIR, safe_name)
-    with open(dest, "wb") as f:
-        f.write(content)
+    ct_hdr = "application/pdf" if ext == "pdf" else f"image/{ext}"
+    # Persistent object storage on Emergent — falls back to local disk on
+    # self-hosted / Azure VM.
+    try:
+        from object_storage import put_object, make_path, ObjectStorageDisabled
+        try:
+            put_object(make_path("noc_certs", safe_name), content, ct_hdr)
+        except ObjectStorageDisabled:
+            with open(dest, "wb") as f:
+                f.write(content)
+    except Exception as e:
+        logger.error(f"[noc-upload] object storage failed: {e}; falling back to disk")
+        with open(dest, "wb") as f:
+            f.write(content)
 
     now = datetime.now(timezone.utc).isoformat()
 
@@ -351,9 +386,6 @@ async def upload_noc_certificate(
 async def serve_noc_certificate(filename: str, user: dict = Depends(get_current_user)):
     if not _NOC_EXT.match(filename):
         raise HTTPException(status_code=400, detail="Invalid file name")
-    path = os.path.join(NOC_DIR, filename)
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="File not found")
 
     # Ownership check — admin unrestricted, everyone else must own this NOC.
     if user.get("role") != "admin":
@@ -368,4 +400,23 @@ async def serve_noc_certificate(filename: str, user: dict = Depends(get_current_
             raise HTTPException(status_code=403, detail="Not permitted")
 
     media = "application/pdf" if filename.lower().endswith(".pdf") else "image/jpeg"
+    # Prefer persistent object storage.
+    try:
+        from object_storage import get_object, make_path, ObjectStorageDisabled
+        from fastapi.responses import Response as _Response
+        try:
+            data, ct = get_object(make_path("noc_certs", filename))
+            return _Response(
+                content=data,
+                media_type=ct or media,
+                headers={"Content-Disposition": f'inline; filename="{filename}"'},
+            )
+        except ObjectStorageDisabled:
+            pass
+    except Exception as e:
+        logger.warning(f"[noc-serve] object storage read failed: {e}; trying local disk")
+    # Local disk fallback.
+    path = os.path.join(NOC_DIR, filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path, media_type=media, filename=filename)

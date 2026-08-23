@@ -62,7 +62,6 @@ sudo -u envirolytics -H cp -r /opt/envirolytics/src/frontend /opt/envirolytics/f
 sudo -u envirolytics -H python3.11 -m venv /opt/envirolytics/venv
 sudo -u envirolytics -H /opt/envirolytics/venv/bin/pip install --upgrade pip
 sudo -u envirolytics -H /opt/envirolytics/venv/bin/pip install -r /opt/envirolytics/backend/requirements.txt
-sudo -u envirolytics -H /opt/envirolytics/venv/bin/pip install gunicorn
 
 # Configure environment (see .env.example in this directory)
 sudo -u envirolytics -H cp /opt/envirolytics/src/deploy/azure-vm/.env.example \
@@ -148,6 +147,29 @@ mongosh "$MONGO_URL" --eval 'db.getSiblingDB("envirolytics").users.countDocument
 
 ## 9. Operational cheat sheet
 
+### After every deploy — sanity check field-data ingest
+
+Because Azure VM must fetch device data **just as reliably as Emergent did**,
+watch the backend logs for these four one-time confirmations after each
+startup:
+
+```bash
+sudo journalctl -u envirolytics-backend -n 200 --no-pager | grep -E \
+  '\[startup\]|MQTT.*connected|espl.*Background loop started|notify.*Background loop started'
+```
+
+You should see:
+```
+[startup] Backfilled source=http for N DO/Chlorine/OCEMS devices (only when devices are new)
+[mqtt] Connected to broker <host>:<port>
+[espl] Background loop started (tick=30s, interval=300s)
+[notify] Background loop started (interval=10.0 min)
+```
+
+If any of those four is missing, the corresponding data stream is silent.
+`journalctl -u envirolytics-backend -f` shows the live poller hitting each
+device every 5 minutes.
+
 | Task                                | Command                                                     |
 |-------------------------------------|-------------------------------------------------------------|
 | Tail backend logs                    | `sudo journalctl -u envirolytics-backend -f`               |
@@ -167,6 +189,34 @@ Compared to the Emergent-managed setup, you can safely leave these blank:
   and OS reboots automatically. If you ever move to Azure App Service
   (ephemeral disk) or a multi-VM setup, wire in Azure Blob Storage — the
   swap is a single module (`object_storage.py`) so it's a ~1-hour change.
+
+### Photograph + certificate persistence — guaranteed across deploys
+
+Every uploaded file lives under `/opt/envirolytics/backend/uploads/`:
+
+```
+uploads/
+├── aeration/            ← DO analyzer tank videos
+├── camera/              ← Camera snapshot service uploads
+├── certificates/        ← Calibration + installation certificate PDFs
+├── instrument_photos/   ← Client instrument photographs (Cert & Photos tab)
+├── logos/               ← Customer profile logos
+└── noc_certs/           ← Borewell NOC certificates (JPEG + PDF)
+```
+
+The GitHub Actions deploy workflow's rsync **explicitly excludes** this
+directory (`--exclude "uploads/"`), so a `git push origin main`:
+
+- ✔ replaces backend code
+- ✔ replaces frontend build
+- ✖ never touches uploaded files
+
+Snapshot backup command for extra safety:
+
+```bash
+# Nightly cron on the VM
+0 3 * * *  rsync -a /opt/envirolytics/backend/uploads/ /mnt/backup/uploads/
+```
 
 ## 11. Monitoring (optional but recommended)
 
