@@ -54,7 +54,8 @@ async def run_now(admin: dict = Depends(require_admin)):
     """Trigger an immediate offline-check + email pass (also called periodically in background)."""
     offline = await svc.check_and_notify(db)
     do_alerts = await svc.check_and_notify_do_alerts(db)
-    return {"offline_check": offline, "do_range_check": do_alerts}
+    cl_alerts = await svc.check_and_notify_chlorine_alerts(db)
+    return {"offline_check": offline, "do_range_check": do_alerts, "chlorine_range_check": cl_alerts}
 
 
 @router.post("/do-alerts/run-now")
@@ -63,6 +64,14 @@ async def run_do_alerts(admin: dict = Depends(require_admin)):
     reading is below DO_SAFE_MIN (advises increasing blower output) or
     above DO_SAFE_MAX (advises reducing blower)."""
     return await svc.check_and_notify_do_alerts(db)
+
+
+@router.post("/chlorine-alerts/run-now")
+async def run_chlorine_alerts(admin: dict = Depends(require_admin)):
+    """Trigger an immediate chlorine out-of-range scan. Emails ops when
+    free-residual chlorine is below CHLORINE_SAFE_MIN (advises increasing
+    dosing pump) or above CHLORINE_SAFE_MAX (advises reducing dosing)."""
+    return await svc.check_and_notify_chlorine_alerts(db)
 
 
 @router.post("/test-user/{user_id}")

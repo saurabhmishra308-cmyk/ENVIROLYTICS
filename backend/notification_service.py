@@ -638,6 +638,188 @@ async def check_and_notify_do_alerts(db) -> dict:
     return {"checked": True, "breaches": len(breaches), "emailed": total_sent, "results": sent_results}
 
 
+# ============================
+# Chlorine Analyzer out-of-range alerting
+# ============================
+# Same shape as the DO alerts above but for free residual chlorine on
+# the STP effluent line. LOW breach → "Increase dosing pump to raise
+# residual chlorine"; HIGH breach → "Reduce dosing — over-chlorination
+# risk". Configurable via CHLORINE_SAFE_MIN / CHLORINE_SAFE_MAX env
+# vars (defaults 0.2 / 2.0 mg/L match the WQ page's default band).
+CHLORINE_SAFE_MIN = float(os.environ.get("CHLORINE_SAFE_MIN", "0.2"))
+CHLORINE_SAFE_MAX = float(os.environ.get("CHLORINE_SAFE_MAX", "2.0"))
+CHLORINE_ALERT_COOLDOWN_HOURS = float(os.environ.get("CHLORINE_ALERT_COOLDOWN_HOURS", "1"))
+
+
+def _build_chlorine_alert_html(breaches: List[dict]) -> str:
+    rows = []
+    for b in breaches:
+        direction = b["direction"]
+        colour = "#dc2626" if direction == "low" else "#f59e0b"
+        advice = (
+            "Increase dosing pump output to raise residual chlorine on the effluent."
+            if direction == "low" else
+            "Reduce dosing pump output — over-chlorination stresses downstream aquatic life."
+        )
+        rows.append(f"""
+        <tr>
+          <td style="padding:10px 14px;border-top:1px solid #334155;font-size:13px;">
+            <strong>{b['label']}</strong><br>
+            <span style="color:#94a3b8;font-size:11px;">{b['hardware_id']}</span>
+          </td>
+          <td style="padding:10px 14px;border-top:1px solid #334155;text-align:center;">
+            <div style="font-size:22px;font-weight:700;color:{colour};font-family:'Courier New',monospace;">{b['value']:.2f}</div>
+            <div style="font-size:10px;color:#94a3b8;">mg/L</div>
+          </td>
+          <td style="padding:10px 14px;border-top:1px solid #334155;text-align:center;color:#94a3b8;font-size:12px;">
+            {b['safe_min']:.2f} – {b['safe_max']:.2f}<br>
+            <span style="color:{colour};font-weight:700;text-transform:uppercase;">{direction}</span>
+          </td>
+          <td style="padding:10px 14px;border-top:1px solid #334155;font-size:12px;color:#e2e8f0;">
+            {advice}
+          </td>
+        </tr>
+        """)
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;padding:24px;background:#0f172a;color:#f1f5f9;border-radius:12px;">
+      <h2 style="margin:0 0 8px 0;color:#38bdf8;">Envirolytics — Chlorine Analyzer out of range</h2>
+      <p style="margin:0 0 14px 0;color:#94a3b8;font-size:13px;">The following chlorine analyzer(s) have free-residual readings outside the safe operating band. Please adjust dosing promptly.</p>
+      <table style="width:100%;border-collapse:collapse;background:#1e293b;border-radius:8px;overflow:hidden;">
+        <thead>
+          <tr style="background:#334155;">
+            <th style="padding:10px 14px;text-align:left;font-size:11px;color:#cbd5e1;text-transform:uppercase;letter-spacing:1px;">Device</th>
+            <th style="padding:10px 14px;text-align:center;font-size:11px;color:#cbd5e1;text-transform:uppercase;letter-spacing:1px;">Chlorine</th>
+            <th style="padding:10px 14px;text-align:center;font-size:11px;color:#cbd5e1;text-transform:uppercase;letter-spacing:1px;">Safe band</th>
+            <th style="padding:10px 14px;text-align:left;font-size:11px;color:#cbd5e1;text-transform:uppercase;letter-spacing:1px;">Recommended action</th>
+          </tr>
+        </thead>
+        <tbody>{''.join(rows)}</tbody>
+      </table>
+      <p style="margin:16px 0 0 0;font-size:11px;color:#94a3b8;">Alert generated automatically by Envirolytics from the ESPL Vendor Server feed. If the reading is stale, check that the analyzer + probe are online.</p>
+    </div>
+    """
+
+
+async def _chlorine_alert_recently_sent(db, hardware_id: str, direction: str, recipient: str) -> bool:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=CHLORINE_ALERT_COOLDOWN_HOURS)
+    doc = await db.chlorine_alert_history.find_one({
+        "hardware_id": hardware_id, "direction": direction, "recipient": recipient.lower(),
+    })
+    if not doc:
+        return False
+    last = _parse_iso(doc.get("last_sent"))
+    return bool(last and last >= cutoff)
+
+
+async def _record_chlorine_alert(db, hardware_id: str, direction: str, recipient: str):
+    await db.chlorine_alert_history.update_one(
+        {"hardware_id": hardware_id, "direction": direction, "recipient": recipient.lower()},
+        {"$set": {"last_sent": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+
+
+async def check_and_notify_chlorine_alerts(db) -> dict:
+    """Scan every chlorine analyzer's latest reading. Email ops when
+    free-residual chlorine falls outside CHLORINE_SAFE_MIN..MAX.
+    Per (device, direction, recipient) cooldown avoids spam."""
+    global_recipients = await get_recipients(db)
+    breaches: List[dict] = []
+    async for d in db.instrument_latest.find(
+        {"instrument_type": "chlorine_analyzer", "_dummy": {"$ne": True}},
+        {"_id": 0},
+    ):
+        values = d.get("values") or {}
+        hw = d.get("hardware_id")
+        reg = await db.instrument_registry.find_one({"hardware_id": hw})
+        if not reg:
+            continue
+        cl_val = values.get("CHLORINE")
+        if cl_val is None:
+            continue
+        try:
+            v = float(cl_val)
+        except (TypeError, ValueError):
+            continue
+        # Per-device override — registry doc may carry chlorine_min /
+        # chlorine_max (from api_water_quality.CHLORINE_PARAMS or the
+        # admin's config dialog). Fall back to the global env band.
+        safe_min = float(reg.get("chlorine_min", CHLORINE_SAFE_MIN))
+        safe_max = float(reg.get("chlorine_max", CHLORINE_SAFE_MAX))
+        direction = None
+        if v < safe_min:
+            direction = "low"
+        elif v > safe_max:
+            direction = "high"
+        if not direction:
+            continue
+        owner_id, owner_email, extras = await _owner_email_for(db, hw)
+        breaches.append({
+            "hardware_id": hw,
+            "label": reg.get("label") or hw,
+            "value": v,
+            "direction": direction,
+            "safe_min": safe_min,
+            "safe_max": safe_max,
+            "owner_email": owner_email,
+            "extra_emails": extras,
+        })
+
+    if not breaches:
+        return {"checked": True, "breaches": 0, "emailed": 0}
+
+    groups: Dict[Optional[str], List[dict]] = {}
+    for b in breaches:
+        groups.setdefault(b.get("owner_email"), []).append(b)
+
+    total_sent = 0
+    sent_results: List[dict] = []
+    for owner_email, group in groups.items():
+        recipients: List[str] = []
+        if owner_email:
+            recipients.append(owner_email)
+        seen_extras: set = set()
+        for b in group:
+            for e in (b.get("extra_emails") or []):
+                el = (e or "").strip().lower()
+                if el and el not in seen_extras and el not in {r.lower() for r in recipients}:
+                    seen_extras.add(el)
+                    recipients.append(el)
+                    if len(seen_extras) >= 2:
+                        break
+            if len(seen_extras) >= 2:
+                break
+        for r in global_recipients:
+            if r and r not in recipients:
+                recipients.append(r)
+        if not recipients:
+            continue
+
+        fresh: List[dict] = []
+        deliver_pairs: List[tuple] = []
+        for b in group:
+            eligible_recipients: List[str] = []
+            for r in recipients:
+                if not await _chlorine_alert_recently_sent(db, b["hardware_id"], b["direction"], r):
+                    eligible_recipients.append(r)
+                    deliver_pairs.append((b["hardware_id"], b["direction"], r))
+            if eligible_recipients:
+                fresh.append(b)
+        if not fresh:
+            continue
+
+        html = _build_chlorine_alert_html(fresh)
+        subject = f"Envirolytics Chlorine Alert — {len(fresh)} analyzer{'' if len(fresh)==1 else 's'} out of range"
+        result = await _send(recipients, subject, html)
+        sent_results.append({"owner": owner_email, "recipients": recipients, "count": len(fresh), "result": result})
+        if result.get("sent"):
+            total_sent += len(fresh)
+            for hw, direction, r in deliver_pairs:
+                await _record_chlorine_alert(db, hw, direction, r)
+
+    return {"checked": True, "breaches": len(breaches), "emailed": total_sent, "results": sent_results}
+
+
 async def background_loop(db):
     """Endless loop — runs every OFFLINE_ALERT_INTERVAL_MIN minutes."""
     interval_min = float(os.environ.get("OFFLINE_ALERT_INTERVAL_MIN", "10"))
@@ -648,6 +830,7 @@ async def background_loop(db):
             await asyncio.sleep(sleep_s)
             await check_and_notify(db)
             await check_and_notify_do_alerts(db)
+            await check_and_notify_chlorine_alerts(db)
         except asyncio.CancelledError:
             raise
         except Exception as e:
