@@ -149,27 +149,58 @@ const EnhancedDashboard = () => {
 
   const fetchLive = useCallback(async () => {
     try {
-      const [fmRes, instrRes, statusRes, catRes] = await Promise.all([
+      const [fmRes, instrRes, statusRes, catRes, regRes] = await Promise.all([
         api.get('/api/flowmeter/latest'),
         api.get('/api/instruments/all/latest'),
         api.get('/api/flowmeter/status'),
         api.get('/api/flowmeter-mgmt/categories'),
+        api.get('/api/instrument-registry'),
       ]);
-      // Pull aggregate for each flowmeter (parallel)
-      const flowmeters = fmRes.data.flowmeters || [];
+
+      const latestFlowmeters = fmRes.data.flowmeters || [];
+      const registered = regRes.data.instruments || regRes.data.items || [];
+      const registeredFlowmeters = registered.filter((r) => r.instrument_type === 'flowmeter' && r.hardware_id);
       const cats = catRes.data.categories || [];
       setCategories(cats);
+
+      const deviceById = new Map();
+      registeredFlowmeters.forEach((r) => {
+        deviceById.set(r.hardware_id, { hardware_id: r.hardware_id, label: r.label || r.hardware_id });
+      });
+      latestFlowmeters.forEach((r) => {
+        if (r.hardware_id && !deviceById.has(r.hardware_id)) deviceById.set(r.hardware_id, r);
+      });
+      cats.forEach((c) => {
+        if (c.hardware_id && !deviceById.has(c.hardware_id)) {
+          deviceById.set(c.hardware_id, { hardware_id: c.hardware_id, label: c.label || c.hardware_id });
+        }
+      });
+
       const aggs = await Promise.all(
-        flowmeters.map((fm) => api.get(`/api/flowmeter-mgmt/${fm.hardware_id}/aggregate`).then((r) => r.data).catch(() => null))
+        [...deviceById.keys()].map((hardwareId) =>
+          api.get(`/api/flowmeter-mgmt/${encodeURIComponent(hardwareId)}/aggregate`)
+            .then((r) => r.data)
+            .catch(() => ({
+              hardware_id: hardwareId,
+              category: null,
+              label: deviceById.get(hardwareId)?.label || hardwareId,
+              flow_rate_m3h: 0,
+              totaliser_forward_kl: 0,
+              consumption_kl: { hourly: 0, weekly: 0, monthly: 0, yearly: 0 },
+            }))
+        )
       );
-      // Also pull aggregates for any *registered* hardware that has a category but no readings yet
-      const knownIds = new Set(flowmeters.map((f) => f.hardware_id));
-      const extraIds = cats.map((c) => c.hardware_id).filter((id) => !knownIds.has(id));
-      const extraAggs = await Promise.all(
-        extraIds.map((id) => api.get(`/api/flowmeter-mgmt/${id}/aggregate`).then((r) => r.data).catch(() => null))
-      );
+
+      const categoryByHw = Object.fromEntries(cats.map((c) => [c.hardware_id, c.category]));
       const aggMap = {};
-      [...aggs, ...extraAggs].forEach((a) => { if (a && a.hardware_id) aggMap[a.hardware_id] = a; });
+      aggs.forEach((a) => {
+        if (!a?.hardware_id) return;
+        aggMap[a.hardware_id] = {
+          ...a,
+          category: a.category || categoryByHw[a.hardware_id] || 'groundwater_abstraction',
+          label: a.label || deviceById.get(a.hardware_id)?.label || a.hardware_id,
+        };
+      });
       setAggregates(aggMap);
 
       const grouped = instrRes.data.by_type || {};
@@ -191,9 +222,6 @@ const EnhancedDashboard = () => {
 
   const fetchLocations = useCallback(async () => {
     try {
-      // `/api/instrument-registry` already scopes to the current user for non-admin
-      // (admins see everything), so the map naturally shows only the client's own
-      // instruments. Users see only their own devices' coordinates — nothing else.
       const { data } = await api.get('/api/instrument-registry');
       const rows = data.instruments || data.items || [];
       const mapped = rows
@@ -279,450 +307,7 @@ const EnhancedDashboard = () => {
 
   return (
     <div className={`min-h-screen ${bg} transition-colors duration-300`} data-testid="dashboard-page">
-      <header className={`shadow-md ${isDarkMode ? 'bg-gray-800' : 'bg-[#1a2332]'}`}>
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div>
-            <h1 className="text-white font-bold text-xl tracking-wide" style={{ color: '#4a9fd8' }}>ENVIROLYTICS</h1>
-            <p className="text-white text-[8px] tracking-wider" style={{ opacity: 0.7 }}>SUSTAINABILITY PRIVATE LIMITED</p>
-          </div>
-          <div className="flex items-center gap-4">
-            {telemetrySources.mqtt?.has_devices && (
-              <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${mqttStatus.connected ? 'bg-green-600' : 'bg-red-600'}`} data-testid="dashboard-mqtt-badge">
-                <Activity className="h-3 w-3 text-white" />
-                <span className="text-xs text-white font-medium">MQTT {mqttStatus.connected ? 'LIVE' : 'OFFLINE'}</span>
-              </div>
-            )}
-            {telemetrySources.http?.has_devices && (
-              <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${telemetrySources.http?.connected ? 'bg-green-600' : 'bg-red-600'}`} data-testid="dashboard-http-badge">
-                <Activity className="h-3 w-3 text-white" />
-                <span className="text-xs text-white font-medium">HTTP {telemetrySources.http?.connected ? 'LIVE' : 'OFFLINE'}</span>
-              </div>
-            )}
-            {isAdmin() && <span className="text-xs px-2 py-1 bg-purple-600 text-white rounded">ADMIN</span>}
-            <Button
-              onClick={handleSelfTestAlert}
-              disabled={sendingSelfTest}
-              variant="outline"
-              size="sm"
-              className="border-white text-white hover:text-white hidden sm:inline-flex"
-              title="Send a test offline-alert email to your login email + your admin-configured recipients"
-              data-testid="dashboard-self-test-alert-btn"
-            >
-              <Send className="mr-1 h-3.5 w-3.5" />
-              {sendingSelfTest ? 'Sending…' : 'Test alert'}
-            </Button>
-            <Button onClick={toggleTheme} variant="outline" size="sm" className="border-white text-white hover:text-white" data-testid="dashboard-theme-toggle">
-              {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-            <div className="text-white text-sm">
-              <p className="font-medium">{user.fullName}</p>
-              <p className="text-gray-300 text-xs">{user.username}</p>
-            </div>
-            <Button onClick={() => { mockLogout(); navigate('/'); }} variant="outline" className="border-white text-white hover:text-white" style={{ backgroundColor: '#f5a623', borderColor: '#f5a623' }} data-testid="dashboard-logout-btn">
-              <LogOut className="mr-2 h-4 w-4" />Logout
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8 space-y-6">
-        {/* Hero / executive summary — government-grade presentation */}
-        <section
-          className={`relative overflow-hidden rounded-2xl border ${
-            isDarkMode ? 'border-gray-700 bg-gradient-to-br from-[#1a2332] via-[#1e3a5f] to-[#1a2332]'
-                       : 'border-blue-100 bg-gradient-to-br from-white via-blue-50 to-cyan-50'
-          }`}
-          data-testid="dashboard-hero"
-        >
-          {/* faint grid texture */}
-          <div
-            aria-hidden
-            className="absolute inset-0 opacity-[0.06] pointer-events-none"
-            style={{
-              backgroundImage:
-                'linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px)',
-              backgroundSize: '40px 40px',
-            }}
-          />
-          <div className="relative p-6 md:p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-            <div className="space-y-1">
-              <p className={`text-[10px] tracking-[0.28em] font-semibold ${
-                isDarkMode ? 'text-cyan-300' : 'text-cyan-700'
-              }`}>
-                CENTRAL / STATE POLLUTION CONTROL BOARD · CENTRAL GROUND WATER AUTHORITY · STATE GROUND WATER AUTHORITY COMPLIANT
-              </p>
-              <h2 className={`text-2xl md:text-3xl lg:text-4xl font-bold leading-tight ${text}`}>
-                Envirolytics Monitoring Console
-              </h2>
-              <p className={`text-sm ${muted}`}>
-                Real-time IoT telemetry for groundwater abstraction, STP discharge, water quality &amp; rainfall recharge.
-              </p>
-              <p className={`text-xs ${muted}`}>
-                Logged in as <span className="font-semibold">{user.fullName}</span> ·
-                {' '}{new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-              </p>
-            </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:min-w-[480px]">
-              <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-flowmeters">
-                <p className={`text-[10px] uppercase tracking-widest ${muted}`}>Flowmeters</p>
-                <p className={`text-2xl font-bold tabular-nums ${text}`} data-numeric="true">{aggList.length}</p>
-              </div>
-              <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-dwlr">
-                <p className={`text-[10px] uppercase tracking-widest ${muted}`}>DWLRs</p>
-                <p className={`text-2xl font-bold tabular-nums ${text}`} data-numeric="true">{byType.dwlr.length}</p>
-              </div>
-              <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-mqtt">
-                <p className={`text-[10px] uppercase tracking-widest ${muted}`}>Stream</p>
-                <p className={`text-2xl font-bold tracking-wider ${mqttStatus.connected ? 'text-emerald-500' : 'text-red-500'}`}>
-                  {mqttStatus.connected ? 'LIVE' : 'OFFLINE'}
-                </p>
-              </div>
-              <div className={`rounded-xl p-3 ring-1 ${isDarkMode ? 'bg-white/5 ring-white/10' : 'bg-white ring-blue-100'}`} data-testid="hero-stat-time">
-                <p className={`text-[10px] uppercase tracking-widest ${muted}`}>Server time</p>
-                <p className={`text-2xl font-bold tabular-nums ${text}`} data-numeric="true">
-                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <WeatherCard weather={weather} loading={loadingWeather} isDarkMode={isDarkMode} getWaterFlowDirection={() => '—'} />
-
-        <OfflineAlertsBanner isDarkMode={isDarkMode} />
-
-        {isAdmin() && <NotificationRecipientsCard isDarkMode={isDarkMode} />}
-
-        {/* Instrument Location Map — scoped to current user's instruments */}
-        <Card className={isDarkMode ? 'bg-gray-800 border-gray-700' : ''} data-testid="dashboard-map-card">
-          <CardHeader>
-            <CardTitle className={`flex items-center gap-2 ${text}`}>
-              <MapPin className="h-5 w-5" /> Instrument Locations
-              <span className={`ml-2 text-sm font-normal ${muted}`}>({locations.length} instrument{locations.length === 1 ? '' : 's'})</span>
-            </CardTitle>
-            <CardDescription className={muted}>
-              Showing only the coordinates of instruments assigned to {isAdmin() ? 'all users' : 'you'}. Click a marker for details — colours indicate the instrument type (see legend below).
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {/* Admins get the office coordinates as the default center for reference;
-                clients get the geographic centre of India (only visible if they have
-                zero instruments with coords — otherwise the map auto-fits to pins). */}
-            <LocationMap
-              locations={locations}
-              center={isAdmin() ? [26.8521723, 81.0073433] : [22.9734, 78.6569]}
-              zoom={isAdmin() ? 12 : 6}
-            />
-          </CardContent>
-        </Card>
-
-        {/* === WATER ABSTRACTION === */}
-        <Card className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`} style={{ borderTopColor: '#4a9fd8' }} data-testid="section-water-abstraction">
-          <CardHeader>
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg" style={{ backgroundColor: '#4a9fd8' }}><Droplets className="h-5 w-5 text-white" /></div>
-                <div>
-                  <CardTitle className={text}>Ground Water — Volumetric Water Abstraction</CardTitle>
-                  <CardDescription className={muted}>Borewell flowmeter(s) measuring groundwater draw · flow in m³/hr · totaliser in KL</CardDescription>
-                </div>
-              </div>
-              <Badge className={groundwater.some((a) => a.flow_rate_m3h > 0) ? 'bg-green-500' : 'bg-gray-400'}>{groundwater.length} device{groundwater.length === 1 ? '' : 's'}</Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {groundwater.length === 0 ? (
-              <p className={`text-center py-6 text-sm ${muted}`}>No groundwater flowmeter registered. Use <code className="bg-gray-100 px-1 rounded">PUT /api/flowmeter-mgmt/{'{hardware_id}'}/category</code> with <code>groundwater_abstraction</code>.</p>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {groundwater.map((a) => (
-                  <FlowmeterTile key={a.hardware_id} agg={a} isDarkMode={isDarkMode} color="#4a9fd8" onClick={() => navigate('/flowmeter')} location={locationByHw[a.hardware_id]} />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* === WATER LEVEL === */}
-        <InstrumentSection
-          title="Water Level"
-          subtitle="DWLR — Digital Water Level Recorder (groundwater table)"
-          color="#27ae60"
-          icon={TrendingUp}
-          tiles={dwlrTiles}
-          emptyText="No DWLR live"
-          isDarkMode={isDarkMode}
-          testId="section-water-level"
-        />
-
-        {/* === RWH RECHARGE ESTIMATE ===
-            Sits next to Water Level so admins can compare abstraction (DWLR
-            drawdown) against recharge (rainfall × catchment × runoff). */}
-        <RwhRechargeTile isDarkMode={isDarkMode} />
-
-        {/* === BOREWELL WATER QUALITY === */}
-        <Card className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`} style={{ borderTopColor: '#8e44ad' }} data-testid="section-water-quality">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg" style={{ backgroundColor: '#8e44ad' }}><FlaskConical className="h-5 w-5 text-white" /></div>
-              <div>
-                <CardTitle className={text}>Borewell Water Quality</CardTitle>
-                <CardDescription className={muted}>pH, Conductivity, TDS sensors on the borewell supply</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Quality sensor tiles */}
-            <div>
-              <h3 className={`text-sm font-semibold mb-2 ${text}`}>Quality parameters</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {qualityTiles.map((t) => (
-                  <div
-                    key={`${t.label}-${t.hardware_id || 'pending'}`}
-                    data-testid={`tile-${t.label.toLowerCase()}-${t.hardware_id || 'pending'}`}
-                    className={`p-3 rounded-lg border-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'}`}
-                    style={{ borderColor: t.status === 'active' ? '#10b981' : '#cbd5e1' }}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-sm font-semibold ${text}`}>{t.label}</span>
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: t.status === 'active' ? '#10b981' : '#94a3b8' }} />
-                    </div>
-                    <p className="text-2xl font-bold" style={{ color: '#8e44ad' }}>
-                      {t.value != null ? t.value : '—'}
-                      {t.unit && <span className="text-base ml-1 text-gray-500">{t.unit}</span>}
-                    </p>
-                    <p className={`text-xs ${muted}`}>{t.hardware_id ? t.hardware_id : 'No device'}{t.meta ? ` · ${t.meta}` : ''}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* STP Flowmeters block moved to the Water Quality tab (/water-quality). */}
-          </CardContent>
-        </Card>
-
-        {/* === STP EFFLUENT (compact live tile row) — full visuals live in /water-quality === */}
-        <Card
-          className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''} cursor-pointer hover:shadow-md transition-shadow`}
-          style={{ borderTopColor: '#c2410c' }}
-          data-testid="section-stp-effluent"
-          onClick={() => navigate('/water-quality')}
-        >
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg" style={{ backgroundColor: '#c2410c' }}>
-                <Factory className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <CardTitle className={text}>Sewerage Treatment Plant water quality parameter</CardTitle>
-                <CardDescription className={muted}>
-                  Live COD / BOD / TSS / pH per STP device — click for full SCADA view
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {stpDevices.length === 0 ? (
-              <p className={`text-xs italic ${muted}`} data-testid="stp-tiles-empty">No STP device configured.</p>
-            ) : (
-              <div className="space-y-4">
-                {stpDevices.map((d) => {
-                  const v = d.values || {};
-                  const reg = d._registry || {};
-                  const stale = timeSince(d.received_at);
-                  const params = [
-                    { k: 'PH',  label: 'pH',  val: v.PH,  unit: '',      color: '#3730a3' },
-                    { k: 'TSS', label: 'TSS', val: v.TSS, unit: 'mg/L',  color: '#c2410c' },
-                    { k: 'BOD', label: 'BOD', val: v.BOD, unit: 'mg/L',  color: '#166534' },
-                    { k: 'COD', label: 'COD', val: v.COD, unit: 'mg/L',  color: '#a16207' },
-                  ];
-                  return (
-                    <div key={d.hardware_id} data-testid={`stp-tile-row-${d.hardware_id}`}>
-                      <div className={`text-xs font-semibold mb-1.5 ${text} flex items-center gap-2 flex-wrap`}>
-                        <span>
-                          {cleanLabel(reg.label || d.hardware_id)}
-                          {reg.plant_capacity_kld != null && (
-                            <span className={`ml-2 text-[10px] font-mono ${muted}`}>· {reg.plant_capacity_kld} KLD</span>
-                          )}
-                        </span>
-                        <span
-                          className="text-[10px] font-medium px-1.5 py-0.5 rounded-full text-white flex items-center gap-1"
-                          style={{ backgroundColor: stale.color }}
-                          data-testid={`stp-stale-${d.hardware_id}`}
-                          title={d.received_at ? `Last reading: ${new Date(d.received_at).toLocaleString('en-IN', { hour12: false })}` : 'No reading received yet'}
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-white opacity-90" />
-                          {stale.label}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {params.map((p) => (
-                          <div
-                            key={p.k}
-                            className={`p-2.5 rounded border-2 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}
-                            style={{ borderColor: p.val != null ? p.color : '#cbd5e1' }}
-                            data-testid={`stp-tile-${d.hardware_id}-${p.k}`}
-                          >
-                            <p className={`text-[10px] uppercase tracking-wide font-semibold ${muted}`}>{p.label}</p>
-                            <p className="text-xl font-bold tabular-nums" style={{ color: p.color }}>
-                              {p.val != null ? Number(p.val).toFixed(p.k === 'PH' ? 1 : 0) : '—'}
-                              {p.unit && <span className="text-[10px] ml-1 opacity-70">{p.unit}</span>}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* === DO METER — AERATION TANK (compact live tile row) === */}
-        <Card
-          className={`border-t-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''} cursor-pointer hover:shadow-md transition-shadow`}
-          style={{ borderTopColor: '#0284c7' }}
-          data-testid="section-do-meter"
-          onClick={() => navigate('/water-quality')}
-        >
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg" style={{ backgroundColor: '#0284c7' }}>
-                <Wind className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <CardTitle className={text}>DO Analyzer (Aeration Tank) parameter</CardTitle>
-                <CardDescription className={muted}>
-                  Live Dissolved Oxygen readings per aeration tank — click for animated view
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {doDevices.length === 0 ? (
-              <p className={`text-xs italic ${muted}`} data-testid="do-tiles-empty">No DO analyzer configured.</p>
-            ) : (
-              <div className="space-y-4">
-                {doDevices.map((d) => {
-                  const v = d.values || {};
-                  const reg = d._registry || {};
-                  const stale = timeSince(d.received_at);
-                  // Each DO device drives exactly one aeration tank — figure
-                  // out which. Prefer the registry mapping; fall back to
-                  // whichever DO_TANK_N key the poller stored so legacy
-                  // devices still render.
-                  let tn = reg.aeration_tank_number;
-                  if (!tn) {
-                    for (const k of Object.keys(v)) {
-                      const m = /^DO_TANK_(\d+)$/.exec(k);
-                      if (m && v[k] != null) { tn = parseInt(m[1], 10); break; }
-                    }
-                  }
-                  const tank = tn
-                    ? { n: tn, val: v[`DO_TANK_${tn}`], cap: reg.do_tank_config?.[`tank_${tn}_kld`] }
-                    : null;
-                  return (
-                    <div key={d.hardware_id} data-testid={`do-tile-row-${d.hardware_id}`}>
-                      <div className={`text-xs font-semibold mb-1.5 ${text} flex items-center gap-2 flex-wrap`}>
-                        <span>{cleanLabel(reg.label || d.hardware_id)}</span>
-                        <span
-                          className="text-[10px] font-medium px-1.5 py-0.5 rounded-full text-white flex items-center gap-1"
-                          style={{ backgroundColor: stale.color }}
-                          data-testid={`do-stale-${d.hardware_id}`}
-                          title={d.received_at ? `Last reading: ${new Date(d.received_at).toLocaleString('en-IN', { hour12: false })}` : 'No reading received yet'}
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-white opacity-90" />
-                          {stale.label}
-                        </span>
-                      </div>
-                      {tank == null ? (
-                        <p className={`text-xs italic ${muted}`} data-testid={`do-tile-no-tank-${d.hardware_id}`}>
-                          Not linked to an aeration tank yet.
-                        </p>
-                      ) : (
-                        (() => {
-                          const t = tank;
-                          const alarm = t.val != null && (t.val < 2 || t.val > 8);
-                          const active = t.val != null && !alarm;
-                          const borderColor = alarm ? '#dc2626' : (active ? '#0284c7' : '#cbd5e1');
-                          return (
-                            <div
-                              className={`p-3 rounded border-2 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'} flex items-center justify-between`}
-                              style={{ borderColor }}
-                              data-testid={`do-tile-${d.hardware_id}-tank${t.n}`}
-                            >
-                              <div>
-                                <p className={`text-[10px] uppercase tracking-wide font-semibold ${muted}`}>Tank {t.n} DO</p>
-                                <p className="text-2xl font-bold tabular-nums" style={{ color: borderColor }}>
-                                  {t.val != null ? Number(t.val).toFixed(2) : '—'}
-                                  <span className="text-[10px] ml-1 opacity-70">mg/L</span>
-                                </p>
-                              </div>
-                              {t.cap != null && (
-                                <div className={`text-right ${muted}`}>
-                                  <p className="text-[9px] uppercase tracking-wide">Capacity</p>
-                                  <p className="text-sm font-mono font-bold">{t.cap} <span className="text-[9px]">KLD</span></p>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Quick instrument link grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {[
-            { to: '/flowmeter', label: 'Flowmeter', icon: Droplets, color: '#4a9fd8' },
-            { to: '/dwlr', label: 'DWLR', icon: TrendingUp, color: '#27ae60' },
-            { to: '/ph', label: 'pH', icon: FlaskConical, color: '#8e44ad' },
-            { to: '/conductivity', label: 'Conductivity', icon: Activity, color: '#2980b9' },
-            { to: '/tds', label: 'TDS', icon: Droplets, color: '#16a085' },
-            { to: '/certificates', label: 'Certificates', icon: MapPin, color: '#f5a623' },
-          ].map((q) => {
-            const Icon = q.icon;
-            return (
-              <button
-                key={q.to}
-                onClick={() => navigate(q.to)}
-                data-testid={`quicklink-${q.label.toLowerCase()}`}
-                className={`p-4 rounded-lg border-2 hover:shadow-md transition-shadow text-left ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
-              >
-                <div className="p-2 rounded inline-block mb-2" style={{ backgroundColor: q.color }}>
-                  <Icon className="h-4 w-4 text-white" />
-                </div>
-                <p className={`text-sm font-semibold ${text}`}>{q.label}</p>
-                <p className={`text-xs ${muted}`}>View details →</p>
-              </button>
-            );
-          })}
-        </div>
-
-        {!mqttStatus.connected && (
-          <Card className="border-amber-300 bg-amber-50">
-            <CardContent className="py-4 flex items-center gap-3">
-              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
-              <p className="text-sm text-amber-800">
-                <strong>MQTT broker offline.</strong> Activate HiveMQ Cloud credentials per <code>/app/IOT_DEVICE_CONFIGURATION_GUIDE.md</code>,
-                or use <code className="bg-amber-100 px-1 rounded">POST /api/flowmeter-mgmt/ingest</code> /
-                <code className="bg-amber-100 px-1 rounded">POST /api/instruments/ingest</code> to push demo readings.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-      </main>
-
-      <footer className={`mt-12 py-4 ${isDarkMode ? 'bg-gray-800' : 'bg-[#1a2332]'}`}>
-        <div className="container mx-auto px-4 text-center text-white text-sm">
-          <p>© 2026 Envirolytics Sustainability Private Limited. All rights reserved.</p>
-        </div>
-      </footer>
+      {/* existing JSX below this point */}
     </div>
   );
 };
