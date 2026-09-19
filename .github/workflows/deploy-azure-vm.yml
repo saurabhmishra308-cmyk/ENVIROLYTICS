@@ -17,7 +17,7 @@ name: Deploy to Azure VM
 # Required GitHub secrets (Settings → Secrets and variables → Actions):
 #   AZURE_VM_HOST      — public IP or DNS of the VM (e.g. 40.121.x.x)
 #   AZURE_VM_USER      — SSH user with sudo (e.g. azureuser)
-#   AZURE_VM_SSH_KEY   — private half of the deploy keypair (whole PEM,
+#   SSH_PRIVATE_KEY    — private half of the deploy keypair (whole PEM,
 #                        including the BEGIN/END lines)
 #   AZURE_VM_PORT      — optional, defaults to 22
 
@@ -91,7 +91,7 @@ jobs:
         with:
           host: ${{ secrets.AZURE_VM_HOST }}
           username: ${{ secrets.AZURE_VM_USER }}
-          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.AZURE_VM_PORT || 22 }}
           command_timeout: 15m
           script: |
