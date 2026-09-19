@@ -453,11 +453,18 @@ class MQTTFlowmeterService:
             )
             if not exists and await self._should_store_reading("instrument", hardware_id):
                 await self.db.instrument_readings.insert_one(dict(doc))
-            await self.db.instrument_latest.update_one(
+            # Keep the live cache monotonic by device measurement time.
+            current = await self.db.instrument_latest.find_one(
                 {"instrument_type": instrument_type, "hardware_id": hardware_id},
-                {"$set": doc},
-                upsert=True,
+                {"timestamp": 1, "_id": 0},
             )
+            current_ts = str((current or {}).get("timestamp") or "")
+            if not current_ts or ts_iso >= current_ts:
+                await self.db.instrument_latest.update_one(
+                    {"instrument_type": instrument_type, "hardware_id": hardware_id},
+                    {"$set": doc},
+                    upsert=True,
+                )
             print(
                 f"[mqtt] Stored {instrument_type} reading for {hardware_id} "
                 f"(LEVEL={values.get('LEVEL')}, WTEMP={values.get('WTEMP')}, "
