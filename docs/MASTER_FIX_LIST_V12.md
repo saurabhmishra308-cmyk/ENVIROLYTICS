@@ -42,6 +42,18 @@ Permanent production baseline for the fixes previously validated in the #21–#2
    - Existing authentication and ownership filtering are retained.
    - No public-access bypass was introduced.
 
+## V14 / v1.0.3 restoration — PENDING
+
+9. **Version 14 / v1.0.3 UI restoration — NOT YET PASS**
+   - Restore the original **Flowmeter animation** asset: `flowmeter-animation.png`.
+   - Restore the original **DWLR animation** asset: `dwlr-animation.png`.
+   - Restore the associated animation/display behaviour.
+   - Restore the **Flow vs Water Level** graph/report UI.
+   - Restore the **Water Level vs Rainfall** graph/report UI.
+   - Keep these changes strictly in the visual/UI layer.
+   - Do **not** change Flowmeter calculations, DWLR calculations, telemetry, MongoDB processing, or existing APIs while restoring the visual layer.
+   - The original PNG assets are currently absent from `main`; this item must remain **PENDING** until the actual V14 assets/code are restored and verified.
+
 ## Final V12 acceptance gate
 
 Validate end-to-end for Flowmeter, DWLR, WQ/STP, DO and QESPL:
@@ -62,3 +74,5 @@ Acceptance requires:
 ## Git discipline
 
 This file is part of the permanent V12 baseline. Do not mark a fix PASS for production unless the implementation and regression test are committed to GitHub.
+
+**V14/v1.0.3 rule:** do not mark item 9 PASS until the actual original assets/code are restored, tested, and committed to GitHub. If the assets are unavailable, keep the item explicitly PENDING rather than substituting recreated assets without confirmation.
