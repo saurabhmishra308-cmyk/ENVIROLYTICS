@@ -713,10 +713,13 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
 
     cursor = db.instrument_readings.find(
         {"hardware_id": req.hardware_id,
-         "received_at": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()},
+         "$or": [
+             {"measurement_timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}},
+             {"timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}},
+         ],
          "_dummy": {"$ne": True}},
-        {"_id": 0, "values": 1, "received_at": 1},
-    ).sort("received_at", 1)
+        {"_id": 0, "values": 1, "measurement_timestamp": 1, "timestamp": 1, "received_at": 1},
+    ).sort("measurement_timestamp", 1)
 
     fmt = (req.format or "csv").lower()
     if fmt not in ("csv", "pdf"):
