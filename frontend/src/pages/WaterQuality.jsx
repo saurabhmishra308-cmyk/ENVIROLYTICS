@@ -389,7 +389,7 @@ const WaterQuality = () => {
                 unit={unit}
                 plantCapacityKld={currentDevice?._registry?.plant_capacity_kld}
                 deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)}
-                lastReceivedAt={currentDevice?.received_at}
+                lastReceivedAt={currentDevice?.measurement_timestamp || currentDevice?.timestamp || currentDevice?.received_at}
                 stpUnitConfig={currentDevice?._registry?.stp_unit_config}
                 stpDerived={currentDevice?._registry?.stp_derived}
                 canManage={isAdmin}
