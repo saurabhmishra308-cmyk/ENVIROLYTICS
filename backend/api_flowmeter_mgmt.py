@@ -136,11 +136,24 @@ async def ingest_flowmeter(req: IngestFlowmeterReading, admin: dict = Depends(re
         "timestamp": now_iso,
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
-    await db.flowmeter_readings.insert_one(dict(doc))
-    await db.flowmeter_latest.update_one(
-        {"hardware_id": req.hardware_id}, {"$set": doc}, upsert=True
+    # Idempotent historical storage keyed by device measurement timestamp.
+    duplicate = await db.flowmeter_readings.find_one(
+        {"hardware_id": req.hardware_id, "timestamp": now_iso},
+        {"_id": 1},
     )
-    return {"success": True, "stored": doc}
+    if not duplicate:
+        await db.flowmeter_readings.insert_one(dict(doc))
+
+    # Delayed manual/import records must not overwrite a newer live cache.
+    latest = await db.flowmeter_latest.find_one(
+        {"hardware_id": req.hardware_id}, {"timestamp": 1, "_id": 0}
+    )
+    latest_ts = str((latest or {}).get("timestamp") or "")
+    if not latest_ts or now_iso >= latest_ts:
+        await db.flowmeter_latest.update_one(
+            {"hardware_id": req.hardware_id}, {"$set": doc}, upsert=True
+        )
+    return {"success": True, "stored": doc, "duplicate": bool(duplicate)}
 
 
 # ============================
