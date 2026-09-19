@@ -66,8 +66,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: yarn
-          cache-dependency-path: frontend/yarn.lock
 
       - name: Frontend build
         working-directory: frontend
@@ -77,7 +75,7 @@ jobs:
           REACT_APP_BACKEND_URL: "https://placeholder.invalid"
           CI: "false"
         run: |
-          yarn install --frozen-lockfile
+          yarn install --no-lockfile
           yarn build
 
   deploy:
