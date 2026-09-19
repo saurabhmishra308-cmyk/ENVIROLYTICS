@@ -194,25 +194,42 @@ async def _latest_reading(hardware_id: str) -> Optional[dict]:
 
 
 async def _abstraction_between(hardware_id: str, start_dt: datetime, end_dt: datetime) -> float:
-    """Total volume (KL) abstracted between two timestamps using forward_totalizer deltas.
+    """Total volume (KL) from the chronological forward-totaliser chain.
 
-    Uses the first reading at-or-after start, and the last reading at-or-before end.
+    The device's final totaliser is the next chronological reading's initial
+    totaliser. Never use insertion/received order for this calculation.
+    Duplicate timestamps are ignored, and a decreasing totaliser is treated
+    as a meter reset rather than creating negative consumption.
     """
-    first = await _earliest_after(hardware_id, start_dt)
-    if not first:
+    cursor = db.flowmeter_readings.find(
+        {"hardware_id": hardware_id,
+         "timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}},
+        {"_id": 0, "timestamp": 1, "forward_totalizer": 1},
+    ).sort("timestamp", 1)
+    rows = await cursor.to_list(length=20000)
+    if len(rows) < 2:
         return 0.0
-    last_cursor = (
-        db.flowmeter_readings
-        .find({"hardware_id": hardware_id, "timestamp": {"$lte": end_dt.isoformat()}})
-        .sort("timestamp", -1)
-        .limit(1)
-    )
-    last_items = await last_cursor.to_list(length=1)
-    last = last_items[0] if last_items else None
-    if not last:
-        return 0.0
-    delta_l = max(0.0, float(last.get("forward_totalizer", 0)) - float(first.get("forward_totalizer", 0)))
-    return _l_to_kl(delta_l)
+
+    total_l = 0.0
+    prev_ts = None
+    prev_total = None
+    for row in rows:
+        ts = row.get("timestamp")
+        try:
+            total = float(row.get("forward_totalizer", 0))
+        except (TypeError, ValueError):
+            continue
+        if ts == prev_ts:
+            continue
+        if prev_total is not None:
+            delta = total - prev_total
+            if delta >= 0:
+                total_l += delta
+            # A decrease is a meter reset/rollover; start a new chain at
+            # the new final reading instead of fabricating negative usage.
+        prev_ts = ts
+        prev_total = total
+    return _l_to_kl(total_l)
 
 
 @router.get("/{hardware_id}/aggregate")
