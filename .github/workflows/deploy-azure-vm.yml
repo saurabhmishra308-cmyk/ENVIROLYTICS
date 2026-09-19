@@ -55,7 +55,8 @@ jobs:
         run: |
           sudo mkdir -p /app/backend/certificate_files
           sudo chown -R "$USER":"$USER" /app/backend
-          python -c "import server, mqtt_utils, api_flowmeter_mgmt, api_water_quality, espl_poller, notification_service; print('OK')"
+          MONGO_URL="mongodb://127.0.0.1:27017" DB_NAME="envirolytics_ci" \
+            python -c "import server, mqtt_utils, api_flowmeter_mgmt, api_water_quality, espl_poller, notification_service; print('OK')"
 
       - name: Master Fix regression tests
         run: |
