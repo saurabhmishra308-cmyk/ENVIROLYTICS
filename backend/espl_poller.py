@@ -169,17 +169,38 @@ def _values_from_payload(payload: dict) -> Dict[str, float]:
     return values
 
 
+def _parse_iso_utc(value) -> Optional[datetime]:
+    """Parse a device/API timestamp as an aware UTC datetime."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]):
-    """Insert a reading + update the latest cache."""
+    """Persist one QESPL reading without losing device-time history.
+
+    Rules:
+      * measurement_timestamp is the vendor/device timestamp.
+      * received_at is transport/server receipt time only.
+      * history is idempotent on hardware_id + measurement_timestamp.
+      * an older/out-of-order packet can be stored but can never replace a
+        newer latest cache.
+    """
     now_iso = datetime.now(timezone.utc).isoformat()
     ts = payload.get("data_store_time") or payload.get("timestamp") or now_iso
-    # Vendor sends naive "YYYY-MM-DDTHH:MM:SS" — treat as UTC for simplicity.
     if isinstance(ts, str) and "T" in ts and "+" not in ts and "Z" not in ts:
         ts = ts + "Z"
-    # DO Analyzer: QESPL emits a single generic `DO` reading per device.
-    # Our Water Quality dashboard shows Aeration Tank #1 / #2 as separate
-    # tiles keyed on DO_TANK_1 / DO_TANK_2, so we re-label the incoming DO
-    # based on the device's admin-configured `aeration_tank_number`.
+    measurement_dt = _parse_iso_utc(ts)
+    measurement_ts = measurement_dt.isoformat() if measurement_dt else str(ts)
+
+    # DO Analyzer: QESPL emits a generic DO value. Always keep the raw DO
+    # and derive the current tank key from the registry assignment.
     if device.get("instrument_type") == "do_meter" and isinstance(values.get("DO"), (int, float)):
         tank_n = device.get("aeration_tank_number")
         try:
@@ -188,55 +209,69 @@ async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]
             tank_int = None
         if tank_int and tank_int > 0:
             values[f"DO_TANK_{tank_int}"] = values["DO"]
-            # Keep raw DO too — historical reports & other consumers still
-            # rely on the canonical key.
-    # If the vendor sent TSS but not turbidity, derive it now using the
-    # device-level `turbidity_k` (defaults to 0.5 — TSS/2, domestic-sewage
-    # rule of thumb). This mirrors the derivation the /water-quality API
-    # applies at read-time for MQTT devices.
+
     if "TURBIDITY" not in values and isinstance(values.get("TSS"), (int, float)):
         k = device.get("turbidity_k")
         k = float(k) if isinstance(k, (int, float)) else _TURBIDITY_K_DEFAULT
         values["TURBIDITY"] = round(values["TSS"] * k, 2)
+
     reading = {
         "hardware_id": device["hardware_id"],
         "instrument_type": device.get("instrument_type", "do_meter"),
-        "values": values,
-        "timestamp": ts,
+        "values": dict(values),
+        "timestamp": measurement_ts,
+        "measurement_timestamp": measurement_ts,
         "received_at": now_iso,
         "source": "http",
-        "raw": payload,   # kept for admin debugging
+        "raw": payload,
     }
-    # Down-sample HTTPS-polled devices too, per admin-configured
-    # `data_frequency_minutes` on the registry.
-    freq = device.get("data_frequency_minutes")
-    should_store = True
-    try:
-        freq_int = int(freq) if freq is not None else 0
-    except (TypeError, ValueError):
-        freq_int = 0
-    if freq_int > 0:
-        last = await _State.db.instrument_readings.find_one(
-            {"hardware_id": device["hardware_id"]},
-            {"received_at": 1, "_id": 0},
-            sort=[("received_at", -1)],
-        )
-        last_iso = (last or {}).get("received_at")
-        if last_iso:
-            try:
-                last_dt = datetime.fromisoformat(str(last_iso).replace("Z", "+00:00"))
-                if datetime.now(timezone.utc) - last_dt < timedelta(minutes=freq_int):
-                    should_store = False
-            except ValueError:
-                pass
+
+    # Idempotency is based on actual measurement timestamp, never receipt
+    # time. A repeated QESPL response cannot create another history row.
+    duplicate = await _State.db.instrument_readings.find_one(
+        {"hardware_id": device["hardware_id"], "measurement_timestamp": measurement_ts},
+        {"_id": 1},
+    )
+
+    # Preserve the configured history sampling policy, but evaluate it in
+    # measurement time. Out-of-order unique readings are still retained.
+    should_store = duplicate is None
+    if should_store:
+        freq = device.get("data_frequency_minutes")
+        try:
+            freq_int = int(freq) if freq is not None else 0
+        except (TypeError, ValueError):
+            freq_int = 0
+        if freq_int > 0 and measurement_dt is not None:
+            last = await _State.db.instrument_readings.find_one(
+                {"hardware_id": device["hardware_id"]},
+                {"measurement_timestamp": 1, "timestamp": 1, "_id": 0},
+                sort=[("measurement_timestamp", -1), ("timestamp", -1)],
+            )
+            last_dt = _parse_iso_utc(
+                (last or {}).get("measurement_timestamp") or (last or {}).get("timestamp")
+            )
+            if last_dt and measurement_dt > last_dt:
+                should_store = (measurement_dt - last_dt) >= timedelta(minutes=freq_int)
+
     if should_store:
         await _State.db.instrument_readings.insert_one(dict(reading))
-    reading.pop("_id", None)
-    await _State.db.instrument_latest.update_one(
+
+    # Latest cache is monotonic in DEVICE measurement time. A delayed HTTP
+    # response must never make an older reading appear current.
+    current = await _State.db.instrument_latest.find_one(
         {"hardware_id": device["hardware_id"]},
-        {"$set": reading},
-        upsert=True,
+        {"measurement_timestamp": 1, "timestamp": 1, "_id": 0},
     )
+    current_dt = _parse_iso_utc(
+        (current or {}).get("measurement_timestamp") or (current or {}).get("timestamp")
+    )
+    if current_dt is None or measurement_dt is None or measurement_dt >= current_dt:
+        await _State.db.instrument_latest.update_one(
+            {"hardware_id": device["hardware_id"]},
+            {"$set": reading},
+            upsert=True,
+        )
 
 
 async def poll_device(client: httpx.AsyncClient, device: dict) -> dict:

@@ -322,17 +322,25 @@ async def latest_readings(
             raw_vals = r.get("values") or {}
             # Strip any pre-baked DO_TANK_* keys — re-derive from current mapping.
             vals = {k: v for k, v in raw_vals.items() if not k.startswith("DO_TANK_")}
+            # Prefer raw canonical DO, but also recover legacy
+            # DO_TANK_N values already stored by earlier versions. This is
+            # critical during upgrades because old latest documents may not
+            # contain the generic DO key.
             do_val = vals.get("DO")
+            if do_val is None and isinstance(tn, int):
+                do_val = raw_vals.get(f"DO_TANK_{tn}")
+            if do_val is None:
+                for k, v in raw_vals.items():
+                    if k.startswith("DO_TANK_") and v is not None:
+                        do_val = v
+                        break
+
             if isinstance(tn, int) and do_val is not None:
                 vals[f"DO_TANK_{tn}"] = do_val
             elif not isinstance(tn, int):
-                # Safety net for devices that don't have `aeration_tank_number`
-                # set in the registry yet — surface whatever DO_TANK_* the
-                # poller baked in previously so the tank tile still shows
-                # live data instead of going blank. If neither is present,
-                # fall back to Tank 1 using the raw `DO` value so a freshly
-                # provisioned DO Analyzer isn't invisible until an admin
-                # remembers to configure the aeration tank number.
+                # Safety net for devices without an assigned tank. Preserve
+                # an existing tank key or expose the raw DO as Tank 1 rather
+                # than rendering an otherwise valid analyzer as "No data".
                 found_any = False
                 for k, v in raw_vals.items():
                     if k.startswith("DO_TANK_") and v is not None:
@@ -705,10 +713,13 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
 
     cursor = db.instrument_readings.find(
         {"hardware_id": req.hardware_id,
-         "received_at": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()},
+         "$or": [
+             {"measurement_timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}},
+             {"timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}},
+         ],
          "_dummy": {"$ne": True}},
-        {"_id": 0, "values": 1, "received_at": 1},
-    ).sort("received_at", 1)
+        {"_id": 0, "values": 1, "measurement_timestamp": 1, "timestamp": 1, "received_at": 1},
+    ).sort("measurement_timestamp", 1)
 
     fmt = (req.format or "csv").lower()
     if fmt not in ("csv", "pdf"):

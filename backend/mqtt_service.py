@@ -360,13 +360,13 @@ class MQTTFlowmeterService:
         coll = self.db.flowmeter_readings if kind == "flowmeter" else self.db.instrument_readings
         last = await coll.find_one(
             {"hardware_id": hardware_id},
-            {"received_at": 1, "timestamp": 1, "_id": 0},
-            sort=[("received_at", -1)],
+            {"measurement_timestamp": 1, "timestamp": 1, "received_at": 1, "_id": 0},
+            sort=[("measurement_timestamp", -1), ("timestamp", -1), ("received_at", -1)],
         )
         if not last:
             return True
 
-        last_ts_str = last.get("received_at") or last.get("timestamp")
+        last_ts_str = last.get("measurement_timestamp") or last.get("timestamp") or last.get("received_at")
         if not last_ts_str:
             return True
         try:
@@ -441,6 +441,7 @@ class MQTTFlowmeterService:
                 "imei": str(data.get("IMEI") or data.get("imei") or "").strip() or None,
                 "values": values,
                 "timestamp": ts_iso,
+                "measurement_timestamp": ts_iso,
                 "received_at": now_iso,
             }
             # Down-sample: only persist to history if enough time has elapsed
@@ -448,7 +449,7 @@ class MQTTFlowmeterService:
             # Idempotency: one historical row per device + measurement timestamp.
             # Replays of the same device measurement must not create duplicate history.
             exists = await self.db.instrument_readings.find_one(
-                {"hardware_id": hardware_id, "timestamp": ts_iso},
+                {"hardware_id": hardware_id, "measurement_timestamp": ts_iso},
                 {"_id": 1},
             )
             if not exists and await self._should_store_reading("instrument", hardware_id):
@@ -456,9 +457,13 @@ class MQTTFlowmeterService:
             # Keep the live cache monotonic by device measurement time.
             current = await self.db.instrument_latest.find_one(
                 {"instrument_type": instrument_type, "hardware_id": hardware_id},
-                {"timestamp": 1, "_id": 0},
+                {"measurement_timestamp": 1, "timestamp": 1, "_id": 0},
             )
-            current_ts = str((current or {}).get("timestamp") or "")
+            current_ts = str(
+                (current or {}).get("measurement_timestamp")
+                or (current or {}).get("timestamp")
+                or ""
+            )
             if not current_ts or ts_iso >= current_ts:
                 await self.db.instrument_latest.update_one(
                     {"instrument_type": instrument_type, "hardware_id": hardware_id},

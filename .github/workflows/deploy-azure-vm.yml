@@ -53,7 +53,11 @@ jobs:
       - name: Backend import smoke test
         working-directory: backend
         run: |
-          python -c "import server, mqtt_utils, api_flowmeter_mgmt, api_water_quality, notification_service; print('OK')"
+          python -c "import server, mqtt_utils, api_flowmeter_mgmt, api_water_quality, espl_poller, notification_service; print('OK')"
+
+      - name: Master Fix regression tests
+        run: |
+          python -m pytest -q tests/test_master_fix_v12.py tests/test_master_fix_v14.py
 
       - name: Set up Node 20
         uses: actions/setup-node@v4

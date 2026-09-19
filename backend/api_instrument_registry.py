@@ -412,7 +412,7 @@ async def instrument_last_data(user: dict = Depends(get_current_user)):
             "owner_email": owner.get("email") if owner else None,
             "owner_name": (owner.get("full_name") or owner.get("company_name") or owner.get("email")) if owner else None,
             "last_timestamp": last_ts,
-            "last_received_at": last_ts,
+            "last_received_at": last_rx,
             "received_at": last_rx,
             "last_seen": last_ts,
             "seconds_since_last": seconds_since,
