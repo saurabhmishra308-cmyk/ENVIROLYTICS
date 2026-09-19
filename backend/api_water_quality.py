@@ -629,7 +629,7 @@ async def history(
     buckets: dict = {}
     async for row in cursor:
         try:
-            ts = _parse_dt(row.get("received_at") or "")
+            ts = _parse_dt(row.get("measurement_timestamp") or row.get("timestamp") or "")
         except (ValueError, TypeError):
             continue
         key = ts.strftime(bucket_fmt)
