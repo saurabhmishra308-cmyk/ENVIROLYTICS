@@ -375,12 +375,12 @@ async def instrument_last_data(user: dict = Depends(get_current_user)):
         status = "silent"
         last_values: Dict = {}
         if latest_row:
-            last_ts = latest_row.get("timestamp")
-            last_rx = latest_row.get("received_at") or last_ts
+            last_ts = latest_row.get("measurement_timestamp") or latest_row.get("timestamp")
+            last_rx = latest_row.get("received_at")
             try:
-                # `received_at` is the ingest-time UTC ISO — the authoritative
-                # clock. Fall back to `timestamp` when a source only sets one.
-                ref = last_rx or last_ts
+                # Device measurement time is the authoritative freshness clock.
+                # received_at is retained separately for transport diagnostics.
+                ref = last_ts or last_rx
                 dt = datetime.fromisoformat(str(ref).replace("Z", "+00:00"))
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
@@ -412,7 +412,9 @@ async def instrument_last_data(user: dict = Depends(get_current_user)):
             "owner_email": owner.get("email") if owner else None,
             "owner_name": (owner.get("full_name") or owner.get("company_name") or owner.get("email")) if owner else None,
             "last_timestamp": last_ts,
-            "last_received_at": last_rx,
+            "last_received_at": last_ts,
+            "received_at": last_rx,
+            "last_seen": last_ts,
             "seconds_since_last": seconds_since,
             "status": status,
             "last_values": last_values,

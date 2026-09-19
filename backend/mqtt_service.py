@@ -445,13 +445,26 @@ class MQTTFlowmeterService:
             }
             # Down-sample: only persist to history if enough time has elapsed
             # since the last stored reading, per registry.data_frequency_minutes.
-            if await self._should_store_reading("instrument", hardware_id):
-                await self.db.instrument_readings.insert_one(dict(doc))
-            await self.db.instrument_latest.update_one(
-                {"instrument_type": instrument_type, "hardware_id": hardware_id},
-                {"$set": doc},
-                upsert=True,
+            # Idempotency: one historical row per device + measurement timestamp.
+            # Replays of the same device measurement must not create duplicate history.
+            exists = await self.db.instrument_readings.find_one(
+                {"hardware_id": hardware_id, "timestamp": ts_iso},
+                {"_id": 1},
             )
+            if not exists and await self._should_store_reading("instrument", hardware_id):
+                await self.db.instrument_readings.insert_one(dict(doc))
+            # Keep the live cache monotonic by device measurement time.
+            current = await self.db.instrument_latest.find_one(
+                {"instrument_type": instrument_type, "hardware_id": hardware_id},
+                {"timestamp": 1, "_id": 0},
+            )
+            current_ts = str((current or {}).get("timestamp") or "")
+            if not current_ts or ts_iso >= current_ts:
+                await self.db.instrument_latest.update_one(
+                    {"instrument_type": instrument_type, "hardware_id": hardware_id},
+                    {"$set": doc},
+                    upsert=True,
+                )
             print(
                 f"[mqtt] Stored {instrument_type} reading for {hardware_id} "
                 f"(LEVEL={values.get('LEVEL')}, WTEMP={values.get('WTEMP')}, "
@@ -497,6 +510,7 @@ class MQTTFlowmeterService:
                 "imsi": str(data.get("IMSI", "") or "").strip(),
                 "signal_strength": int(float(data.get("SIGNAL", 0) or 0)),
                 "timestamp": timestamp_iso,
+                "measurement_timestamp": timestamp_iso,
                 # Canonical unit — every downstream consumer reads this.
                 "flow_rate_m3h": flow_m3h,
                 # Legacy fields kept for backward-compat with older reports
@@ -522,13 +536,43 @@ class MQTTFlowmeterService:
                 "received_at": datetime.now(timezone.utc).isoformat(),
             }
 
-            if await self._should_store_reading("flowmeter", hardware_id):
-                await self.db.flowmeter_readings.insert_one(dict(reading))
-            await self.db.flowmeter_latest.update_one(
-                {"hardware_id": hardware_id},
-                {"$set": reading},
-                upsert=True,
+            # Derive the totaliser chain in actual device-measurement order.
+            # The previous final totaliser becomes the next reading's initial
+            # totaliser. The aggregation API also recomputes this chain from
+            # timestamp order, so late/out-of-order packets cannot corrupt it.
+            prev = await self.db.flowmeter_readings.find_one(
+                {"hardware_id": hardware_id, "timestamp": {"$lt": timestamp_iso}},
+                {"_id": 0, "forward_totalizer": 1},
+                sort=[("timestamp", -1)],
             )
+            initial_totaliser = float(prev.get("forward_totalizer")) if prev and prev.get("forward_totalizer") is not None else forward_totalizer
+            reading["initial_forward_totalizer"] = initial_totaliser
+            reading["final_forward_totalizer"] = forward_totalizer
+            reading["totaliser_start_reading"] = initial_totaliser
+            reading["totaliser_end_reading"] = forward_totalizer
+            reading["consumption_l"] = round(max(0.0, forward_totalizer - initial_totaliser), 6)
+
+            # Idempotency: never append the same device measurement twice.
+            exists = await self.db.flowmeter_readings.find_one(
+                {"hardware_id": hardware_id, "timestamp": timestamp_iso},
+                {"_id": 1},
+            )
+            if not exists and await self._should_store_reading("flowmeter", hardware_id):
+                await self.db.flowmeter_readings.insert_one(dict(reading))
+
+            # Only move the live cache forward in measurement time. A delayed
+            # packet must never overwrite a newer live reading.
+            current = await self.db.flowmeter_latest.find_one(
+                {"hardware_id": hardware_id},
+                {"timestamp": 1, "_id": 0},
+            )
+            current_ts = str((current or {}).get("timestamp") or "")
+            if not current_ts or timestamp_iso >= current_ts:
+                await self.db.flowmeter_latest.update_one(
+                    {"hardware_id": hardware_id},
+                    {"$set": reading},
+                    upsert=True,
+                )
             print(
                 f"[mqtt] Stored flowmeter {hardware_id}: FLOW={flow_lph}L/H "
                 f"FWD={forward_totalizer} REV={reverse_totalizer}"
@@ -629,7 +673,7 @@ class MQTTFlowmeterService:
         cursor = self.db.flowmeter_readings.find(
             {"hardware_id": hardware_id, "_dummy": {"$ne": True}}
         ).sort(
-            "received_at", -1
+            "timestamp", -1
         ).limit(limit)
         readings = await cursor.to_list(length=limit)
         for r in readings:
