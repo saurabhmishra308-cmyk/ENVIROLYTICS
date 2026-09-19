@@ -42,6 +42,24 @@ Permanent production baseline for the fixes previously validated in the #21–#2
    - Existing authentication and ownership filtering are retained.
    - No public-access bypass was introduced.
 
+## Fresh V14 restoration cycle — IN PROGRESS
+
+The Version 14 screenshots/regression evidence showed that previously implemented
+behaviour cannot be assumed to survive into the current build. Therefore the
+Master Fix items #1–#29 are being re-performed against the current codebase.
+
+Priority restoration already applied on this branch:
+- QESPL/DO now persists the vendor/device measurement timestamp separately from received_at.
+- QESPL/DO history is idempotent on hardware_id + measurement_timestamp.
+- QESPL/DO latest cache cannot move backward when an older HTTP response arrives late.
+- DO API restores legacy DO_TANK_N values when older latest documents do not contain the generic DO field.
+- MQTT DWLR/WQ readings explicitly preserve measurement_timestamp.
+- Instrument registry separates last_seen/last_timestamp from transport received_at.
+- Water Quality reports use measurement time for their date-range query.
+
+These changes are NOT considered final PASS until the complete #1–#29 verification
+and V14/v1.0.3 visual restoration are tested and committed to the production branch.
+
 ## V14 / v1.0.3 restoration — PENDING
 
 9. **Version 14 / v1.0.3 UI restoration — NOT YET PASS**
