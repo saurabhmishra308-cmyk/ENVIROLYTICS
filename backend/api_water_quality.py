@@ -569,9 +569,13 @@ async def history(
         bucket_fmt = "%Y-%m"                # calendar month
 
     cursor = db.instrument_readings.find(
-        {"hardware_id": hardware_id, "received_at": {"$gte": since.isoformat()},
+        {"hardware_id": hardware_id,
+         "$or": [
+             {"timestamp": {"$gte": since.isoformat()}},
+             {"measurement_timestamp": {"$gte": since.isoformat()}},
+         ],
          "_dummy": {"$ne": True}},
-        {"_id": 0, "values": 1, "received_at": 1, "instrument_type": 1},
+        {"_id": 0, "values": 1, "timestamp": 1, "measurement_timestamp": 1, "received_at": 1, "instrument_type": 1},
     )
 
     # Determine parameter keys based on the first row (or the registry type).
@@ -589,8 +593,18 @@ async def history(
     # ---- raw path: return every reading, timestamped, newest first ----
     if range == "raw":
         rows: List[dict] = []
-        async for row in cursor.sort("received_at", -1).limit(limit):
-            entry = {"received_at": row.get("received_at")}
+        rows_seen = set()
+        async for row in cursor.sort("timestamp", -1).limit(limit * 2):
+            measurement_ts = row.get("measurement_timestamp") or row.get("timestamp")
+            # Guard against duplicate historical rows from older ingestion paths.
+            if measurement_ts in rows_seen:
+                continue
+            rows_seen.add(measurement_ts)
+            entry = {
+                "timestamp": measurement_ts,
+                "measurement_timestamp": measurement_ts,
+                "received_at": row.get("received_at"),
+            }
             vals = row.get("values") or {}
             for p in param_keys:
                 v = vals.get(p)
@@ -713,11 +727,11 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
         w.writerow(["To:", to_dt.isoformat()])
         w.writerow(["Unit:", req.unit])
         w.writerow([])
-        w.writerow(["Received At (UTC)"] + param_keys)
+        w.writerow(["Measurement Timestamp (UTC)", "Received At (UTC)"] + param_keys)
         n = 0
         async for row in cursor:
             vals = row.get("values") or {}
-            data_row = [row.get("received_at")]
+            data_row = [row.get("measurement_timestamp") or row.get("timestamp"), row.get("received_at")]
             for p in param_keys:
                 v = vals.get(p)
                 if v is None:
