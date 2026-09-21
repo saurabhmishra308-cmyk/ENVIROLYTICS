@@ -12,6 +12,18 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 class DataExportService:
     """Service for exporting data to CSV and PDF formats."""
 
+    # Production totaliser unit transition: m³ before 27-Aug-2026, litres
+    # from 27-Aug-2026 onward. User-facing cumulative volumes are always KL.
+    TOTALISER_LITRE_CUTOFF = "2026-08-27T00:00:00+00:00"
+
+    @staticmethod
+    def _totaliser_to_kl(value, timestamp):
+        try:
+            v = float(value or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        return v / 1000.0 if str(timestamp or "") >= DataExportService.TOTALISER_LITRE_CUTOFF else v
+
     # Field-order canonical view for flowmeter downloads (matches the
     # template columns admins fill by hand).
     FLOWMETER_EXPORT_COLUMNS = [
@@ -21,6 +33,7 @@ class DataExportService:
         "flow_rate_m3h",
         "totaliser_start_reading",
         "totaliser_end_reading",
+        "consumption_kl",
         "temperature",
         "signal_strength",
         "unit_name",
@@ -62,6 +75,36 @@ class DataExportService:
             ordered = {c: row.pop(c, None) for c in DataExportService.FLOWMETER_EXPORT_COLUMNS}
             ordered.update(row)  # remaining fields
             cleaned.append(ordered)
+
+        # Rebuild the canonical cumulative-volume chain per device in
+        # chronological order. This is important at the 27-Aug-2026 unit
+        # transition: the first post-transition reading's initial totaliser
+        # can still point to a pre-transition m³ reading.
+        groups = {}
+        for row in cleaned:
+            groups.setdefault(str(row.get("hardware_id") or ""), []).append(row)
+        for rows_for_device in groups.values():
+            rows_for_device.sort(key=lambda r: str(r.get("measurement_timestamp") or r.get("timestamp") or r.get("received_at") or ""))
+            previous_end_kl = None
+            for row in rows_for_device:
+                ts = row.get("measurement_timestamp") or row.get("timestamp") or row.get("received_at")
+                end_raw = row.get("totaliser_end_reading")
+                start_raw = row.get("totaliser_start_reading")
+                end_kl = None if end_raw in (None, "") else DataExportService._totaliser_to_kl(end_raw, ts)
+                if previous_end_kl is not None:
+                    start_kl = previous_end_kl
+                elif start_raw not in (None, ""):
+                    start_kl = DataExportService._totaliser_to_kl(start_raw, ts)
+                else:
+                    start_kl = end_kl
+                row["totaliser_start_reading"] = None if start_kl is None else round(start_kl, 6)
+                row["totaliser_end_reading"] = None if end_kl is None else round(end_kl, 6)
+                row["consumption_kl"] = (
+                    None if start_kl is None or end_kl is None
+                    else round(max(0.0, end_kl - start_kl), 6)
+                )
+                if end_kl is not None:
+                    previous_end_kl = end_kl
         return cleaned
 
     @staticmethod
@@ -202,8 +245,9 @@ class ExcelImportService:
           - flow_rate_lpm   (legacy — L/M)
           - flow_rate_lph   (legacy — L/H)
         Preferred totaliser columns (new minimal template):
-          - totaliser_start_reading   (m³ at start of period)
-          - totaliser_end_reading     (m³ at end of period — cumulative)
+          - totaliser_start_reading   (KL at start of period)
+          - totaliser_end_reading     (KL at end of period — cumulative)
+          - consumption_kl            (KL consumed during the period)
         Legacy totaliser columns are still accepted for backward compat:
           - forward_totalizer, initial_forward_totalizer,
             final_forward_totalizer, tot1..2, rtot1..2, reverse_totalizer.
@@ -399,8 +443,8 @@ class ExcelImportService:
             "hardware_id",
             "timestamp",
             "flow_rate_m3h",
-            "totaliser_start_reading",   # m³, cumulative at start of period
-            "totaliser_end_reading",     # m³, cumulative at end of period
+            "totaliser_start_reading",   # KL, cumulative at start of period
+            "totaliser_end_reading",     # KL, cumulative at end of period
             "signal_strength",
             "unit_name",
             "firmware_version",
