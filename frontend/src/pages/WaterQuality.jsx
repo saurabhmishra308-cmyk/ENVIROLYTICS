@@ -23,6 +23,13 @@ import { Gauge2D, AerationTank, DoseRecommendation } from '../components/wq/WQWi
 import { STPPlantDiagram } from '../components/wq/STPPlantDiagram';
 import { DoTankLinker } from '../components/wq/DoTankLinker';
 
+const DO_HISTORICAL_HIDDEN_PARAMS = [
+  'DO_SATURATION_MG_L',
+  'DO_SATURATION_VENDOR',
+  'DO_SATURATION_PRESSURE_KPA',
+  'DO_SATURATION_SALINITY_PPT',
+];
+
 const WaterQuality = () => {
   const isAdmin = _isAdmin();
   const [tab, setTab] = useState('stp'); // 'stp' | 'do'
@@ -557,12 +564,13 @@ const WaterQuality = () => {
             deviceLabel={cleanLabel(currentDevice?._registry?.label || selectedHw)}
             hideParams={(() => {
               // A physical DO analyzer only measures ONE tank. Hide the
-              // other tank's column so it doesn't pollute the table
-              // with a full column of "—".
+              // other tank's column and vendor-calculation fields that are
+              // not required in the customer-facing historical table.
               const tn = currentDevice?._registry?.aeration_tank_number;
-              if (tn === 1) return ['DO_TANK_2'];
-              if (tn === 2) return ['DO_TANK_1'];
-              return [];
+              const hidden = [...DO_HISTORICAL_HIDDEN_PARAMS];
+              if (tn === 1) hidden.push('DO_TANK_2');
+              if (tn === 2) hidden.push('DO_TANK_1');
+              return hidden;
             })()}
           />
         </>
@@ -693,11 +701,13 @@ const WaterQuality = () => {
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
                   <Legend />
-                  {(history.params || []).map((p, idx) => (
-                    <Line key={p} type="monotone" dataKey={p}
-                          stroke={['#0ea5e9', '#f59e0b', '#8b5cf6', '#22c55e'][idx % 4]}
-                          strokeWidth={2} dot={false} connectNulls />
-                  ))}
+                  {(history.params || [])
+                    .filter((p) => tab !== 'do' || !DO_HISTORICAL_HIDDEN_PARAMS.includes(p))
+                    .map((p, idx) => (
+                      <Line key={p} type="monotone" dataKey={p}
+                            stroke={['#0ea5e9', '#f59e0b', '#8b5cf6', '#22c55e'][idx % 4]}
+                            strokeWidth={2} dot={false} connectNulls />
+                    ))}
                 </LineChart>
               </ResponsiveContainer>
             )}
