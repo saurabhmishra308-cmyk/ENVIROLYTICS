@@ -73,9 +73,20 @@ const Analysis = () => {
 
   return (
     <div className="p-6 space-y-6" data-testid="analysis-page">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Data Analysis</h1>
-        <p className="text-gray-600 mt-1">Flowmeter (ground water abstraction) and DWLR (water level) analytics only.</p>
+      <div className="space-y-4">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <img
+            src="/data-analysis-banner.png"
+            alt="Envirolytics Data Analysis — Flowmeter and DWLR analytics"
+            className="block h-auto w-full object-contain"
+            loading="eager"
+            decoding="async"
+          />
+        </div>
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Data Analysis</h1>
+          <p className="text-gray-600 mt-1">Flowmeter (ground water abstraction) and DWLR (water level) analytics only.</p>
+        </div>
       </div>
 
       <HourlyPumpingLevelChart />
