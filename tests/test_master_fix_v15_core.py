@@ -332,3 +332,15 @@ def test_client_dashboard_does_not_require_admin_flowmeter_status():
     assert "if (isAdmin()) {" in src
     assert "liveRequests.push(api.get('/api/flowmeter/status'));" in src
     assert "const [fmRes, instrRes, catRes, regRes, statusRes]" in src
+
+def test_reports_use_measurement_time_and_registry_visibility():
+    src = read("backend/api_reports.py")
+    assert "import api_instrument_registry" in src
+    assert "async def _visible_ids(user: dict" in src
+    assert 'raise HTTPException(status_code=403, detail="Not authorised to view this device")' in src
+    assert "measurement_timestamp" in src
+    assert "def _measurement_range(start: datetime, end: datetime)" in src
+    assert "def _measurement_since(start: datetime)" in src
+    assert "sort=[("measurement_timestamp", -1), ("timestamp", -1)]" in src
+    assert "async def _list_groundwater_borewells(user: dict)" in src
+    assert "_list_groundwater_borewells(user)" in src
