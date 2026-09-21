@@ -190,12 +190,22 @@ async def delete_category(hardware_id: str, admin: dict = Depends(require_admin)
 # ============================
 # Aggregations — totaliser & flow in KL
 # ============================
+async def _assert_flowmeter_visible(hardware_id: str, user: dict):
+    visible = await api_instrument_registry.visible_hardware_ids(user)
+    if visible is not None and hardware_id not in visible:
+        raise HTTPException(status_code=403, detail="Not authorised to view this device")
+
+
 async def _earliest_after(hardware_id: str, after_dt: datetime) -> Optional[dict]:
     """First reading on or after a given datetime."""
     cursor = (
         db.flowmeter_readings
-        .find({"hardware_id": hardware_id, "timestamp": {"$gte": after_dt.isoformat()}})
-        .sort("timestamp", 1)
+        .find({"hardware_id": hardware_id,
+               "$or": [
+                   {"measurement_timestamp": {"$gte": after_dt.isoformat()}},
+                   {"timestamp": {"$gte": after_dt.isoformat()}},
+               ]})
+        .sort([("measurement_timestamp", 1), ("timestamp", 1)])
         .limit(1)
     )
     items = await cursor.to_list(length=1)
@@ -216,9 +226,12 @@ async def _abstraction_between(hardware_id: str, start_dt: datetime, end_dt: dat
     """
     cursor = db.flowmeter_readings.find(
         {"hardware_id": hardware_id,
-         "timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}},
-        {"_id": 0, "timestamp": 1, "forward_totalizer": 1},
-    ).sort("timestamp", 1)
+         "$or": [
+             {"measurement_timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}},
+             {"timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}},
+         ]},
+        {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "forward_totalizer": 1},
+    ).sort([("measurement_timestamp", 1), ("timestamp", 1)])
     rows = await cursor.to_list(length=20000)
     if len(rows) < 2:
         return 0.0
@@ -227,7 +240,7 @@ async def _abstraction_between(hardware_id: str, start_dt: datetime, end_dt: dat
     prev_ts = None
     prev_total = None
     for row in rows:
-        ts = row.get("timestamp")
+        ts = row.get("measurement_timestamp") or row.get("timestamp")
         try:
             total = float(row.get("forward_totalizer", 0))
         except (TypeError, ValueError):
@@ -248,6 +261,7 @@ async def _abstraction_between(hardware_id: str, start_dt: datetime, end_dt: dat
 @router.get("/{hardware_id}/aggregate")
 async def aggregate_volume(hardware_id: str, user: dict = Depends(get_current_user)):
     """Return current flow rate (m³/hr) + hourly/weekly/monthly/yearly consumption in KL."""
+    await _assert_flowmeter_visible(hardware_id, user)
     latest = await _latest_reading(hardware_id)
     now = datetime.now(timezone.utc)
     flow_lph = float(latest.get("flow_rate_lph", 0)) if latest else 0.0
@@ -281,6 +295,7 @@ async def aggregate_volume(hardware_id: str, user: dict = Depends(get_current_us
 @router.get("/{hardware_id}/hourly-buckets")
 async def hourly_buckets(hardware_id: str, hours: int = Query(24, ge=1, le=168), user: dict = Depends(get_current_user)):
     """Bucketed hourly abstraction for the last N hours (KL per hour). Used by Flowmeter detail chart."""
+    await _assert_flowmeter_visible(hardware_id, user)
     now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     buckets = []
     # Pre-fetch boundary reading for each hour
@@ -496,7 +511,7 @@ async def export_data_scoped(
     else:
         query = {"hardware_id": {"$in": list(visible)}}
     if start_date or end_date:
-        query["timestamp"] = {}
+        query["measurement_timestamp"] = {}
         if start_date:
             query["timestamp"]["$gte"] = start_date
         if end_date:
@@ -505,7 +520,7 @@ async def export_data_scoped(
     # Lifetime retention: allow up to 100k rows per export (~ 15 years of
     # hourly data or ~2 years of 15-min data).  Client can further narrow
     # with hardware_id + start_date/end_date.
-    cursor = db.flowmeter_readings.find({**query, "_dummy": {"$ne": True}}).sort("timestamp", -1).limit(100000)
+    cursor = db.flowmeter_readings.find({**query, "_dummy": {"$ne": True}}).sort([("measurement_timestamp", -1), ("timestamp", -1)]).limit(100000)
     readings = await cursor.to_list(length=100000)
     readings = DataExportService.sanitize_flowmeter_rows(readings)
 
