@@ -70,12 +70,14 @@ def test_reports_use_measurement_timestamp_before_receipt_time():
 
 def test_wq_date_filters_do_not_fallback_to_legacy_timestamp_when_measurement_time_exists():
     src = read("backend/api_water_quality.py")
-    assert '"measurement_timestamp": {"exists": False}' in src\n    assert '"timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}' in src
+    assert '"measurement_timestamp": {"exists": False}' in src
+    assert '"timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}' in src
 
 
 def test_flowmeter_date_filters_do_not_fallback_to_legacy_timestamp_when_measurement_time_exists():
     src = read("backend/api_flowmeter_mgmt.py")
-    assert '"measurement_timestamp": {"exists": False}' in src\n    assert '"timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}' in src
+    assert '"measurement_timestamp": {"exists": False}' in src
+    assert '"timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}' in src
 
 
 def test_mqtt_flowmeter_dedup_and_latest_use_measurement_timestamp():
