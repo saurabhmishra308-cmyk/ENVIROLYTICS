@@ -142,6 +142,15 @@ def test_mqtt_flowmeter_dedup_and_latest_use_measurement_timestamp():
     assert '"measurement_timestamp": 1, "timestamp": 1, "_id": 0' in src
     assert '(current or {}).get("measurement_timestamp")' in src
     assert 'sort=[("measurement_timestamp", -1), ("timestamp", -1)]' in src
+def test_flowmeter_all_latest_has_no_arbitrary_100_device_cap():
+    src = read("backend/mqtt_service.py")
+    start = src.index("async def get_all_latest_readings(self)")
+    end = src.index("async def get_readings_history", start)
+    block = src[start:end]
+    assert ".limit(100)" not in block
+    assert "to_list(length=100)" not in block
+    assert "async for r in cursor:" in block
+    assert '[("measurement_timestamp", -1), ("timestamp", -1), ("received_at", -1)]' in block
 
 
 def test_mqtt_flowmeter_totaliser_previous_reading_uses_measurement_time():
