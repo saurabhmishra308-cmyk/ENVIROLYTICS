@@ -141,6 +141,7 @@ jobs:
           ssh-keygen -y -f "$KEY_FILE" > /dev/null
 
           echo "→ connecting to Azure VM"
+          set +e
           ssh \
             -i "$KEY_FILE" \
             -p "${AZURE_VM_PORT:-22}" \
@@ -149,6 +150,7 @@ jobs:
             -o ConnectTimeout=30 \
             "$AZURE_VM_USER@$AZURE_VM_HOST" 'bash -s' <<'REMOTE_SCRIPT'
           set -euo pipefail
+          exec > >(tee -a /tmp/envirolytics_deploy.log) 2>&1
           cd /home/envirolytics/ENVIROLYTICS
           echo "→ pulling latest"
           git fetch --all --prune
@@ -231,5 +233,28 @@ jobs:
           sudo -n journalctl -u envirolytics-backend -n 80 --no-pager
           exit 1
           REMOTE_SCRIPT
+          DEPLOY_RC=$?
+
+          if [ "$DEPLOY_RC" -ne 0 ]; then
+            echo "→ collecting remote deployment log"
+            scp \
+              -i "$KEY_FILE" \
+              -P "${AZURE_VM_PORT:-22}" \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=accept-new \
+              "$AZURE_VM_USER@$AZURE_VM_HOST:/tmp/envirolytics_deploy.log" \
+              "$RUNNER_TEMP/envirolytics_deploy.log" || true
+            if [ -f "$RUNNER_TEMP/envirolytics_deploy.log" ]; then
+              cat "$RUNNER_TEMP/envirolytics_deploy.log"
+              cp "$RUNNER_TEMP/envirolytics_deploy.log" docs/last_azure_deploy_failure.log
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add docs/last_azure_deploy_failure.log
+              git commit -m "ci: record Azure deployment failure"
+              git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+              git push origin HEAD:main || true
+            fi
+          fi
 
           rm -f "$KEY_FILE"
+          exit "$DEPLOY_RC"
