@@ -296,3 +296,13 @@ def test_instrument_registry_has_no_arbitrary_2000_device_caps():
     block = src[start:end]
     assert ".to_list(length=2000)" not in block
     assert "async for item in registry_cursor:" in block
+
+def test_registry_updates_keep_type_category_and_mqtt_mapping_consistent():
+    src = read("backend/api_instrument_registry.py")
+    assert 'effective_type = updates.get("instrument_type", existing.get("instrument_type"))' in src
+    assert 'if effective_type != "flowmeter":' in src
+    assert 'updates["category"] = None' in src
+    assert 'elif existing.get("instrument_type") == "flowmeter" and new_type != "flowmeter":' in src
+    assert 'new_source = updates.get("source", existing.get("source") or "mqtt")' in src
+    assert 'if new_source == "mqtt":' in src
+    assert 'await _subscribe_topic(new_type, hardware_id)' in src
