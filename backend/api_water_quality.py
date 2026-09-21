@@ -740,9 +740,14 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
         w.writerow([])
         w.writerow(["Measurement Timestamp (UTC)", "Received At (UTC)"] + param_keys)
         n = 0
+        seen_measurement_ts = set()
         async for row in cursor:
+            measurement_ts = row.get("measurement_timestamp") or row.get("timestamp")
+            if measurement_ts in seen_measurement_ts:
+                continue
+            seen_measurement_ts.add(measurement_ts)
             vals = row.get("values") or {}
-            data_row = [row.get("measurement_timestamp") or row.get("timestamp"), row.get("received_at")]
+            data_row = [measurement_ts, row.get("received_at")]
             for p in param_keys:
                 v = vals.get(p)
                 if v is None:
@@ -774,7 +779,15 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
     except ImportError:
         raise HTTPException(status_code=500, detail="reportlab not installed; use format=csv")
 
-    rows = await cursor.to_list(length=None)
+    raw_rows = await cursor.to_list(length=None)
+    rows = []
+    seen_measurement_ts = set()
+    for row in raw_rows:
+        measurement_ts = row.get("measurement_timestamp") or row.get("timestamp")
+        if measurement_ts in seen_measurement_ts:
+            continue
+        seen_measurement_ts.add(measurement_ts)
+        rows.append(row)
     pdf_buf = io.BytesIO()
     doc = SimpleDocTemplate(pdf_buf, pagesize=A4, title="Envirolytics Water Quality Report")
     styles = getSampleStyleSheet()
