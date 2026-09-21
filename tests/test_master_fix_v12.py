@@ -28,7 +28,7 @@ def test_flowmeter_ingestion_preserves_measurement_time_and_deduplicates():
 def test_flowmeter_history_is_measurement_time_ordered():
     src = read("backend/mqtt_service.py")
     assert 'get_readings_history' in src
-    assert '.sort(\n            "timestamp", -1' in src
+    assert 'sort([("measurement_timestamp", -1), ("timestamp", -1), ("received_at", -1)])' in src or 'sort([("measurement_timestamp", -1), ("timestamp", -1)])' in src
 
 
 def test_flowmeter_consumption_uses_chronological_chain():
@@ -48,7 +48,7 @@ def test_freshness_uses_device_measurement_timestamp():
 def test_water_quality_history_uses_measurement_timestamp():
     src = read("backend/api_water_quality.py")
     assert '"measurement_timestamp": 1' in src
-    assert 'cursor.sort("timestamp", -1)' in src
+    assert 'cursor.sort([("measurement_timestamp", -1), ("timestamp", -1)])' in src
     assert 'measurement_ts = row.get("measurement_timestamp") or row.get("timestamp")' in src
 
 
