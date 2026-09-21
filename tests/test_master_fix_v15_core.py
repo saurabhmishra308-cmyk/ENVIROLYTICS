@@ -509,3 +509,11 @@ def test_flowmeter_report_carries_previous_final_into_selected_window():
     assert "let prevFinalFwd = flowBoundary ? fwdTotaliser(flowBoundary.r) : null;" in src
     assert "initial_forward_totalizer_kl: prevFinalFwd != null ? prevFinalFwd : initFwd" in src
     assert "final_forward_totalizer_kl: finalFwd" in src
+
+
+def test_flowmeter_exports_prefer_canonical_kl_totalisers_without_double_conversion():
+    src = read("backend/data_export_service.py")
+    assert 'if "final_forward_totalizer_kl" in row:' in src
+    assert 'row["_totaliser_values_are_kl"] = True' in src
+    assert 'float(end_raw) if row.get("_totaliser_values_are_kl")' in src
+    assert 'float(start_raw) if row.get("_totaliser_values_are_kl")' in src
