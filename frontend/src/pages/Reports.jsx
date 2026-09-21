@@ -186,6 +186,8 @@ const Reports = () => {
 
   const fwdTotaliser = (r) => {
     if (r == null) return null;
+    if (typeof r.final_forward_totalizer_kl === 'number') return r.final_forward_totalizer_kl;
+    if (typeof r.totaliser_end_reading === 'number') return r.totaliser_end_reading;
     if (typeof r.forward_totalizer === 'number') return totaliserToKl(r.forward_totalizer, r);
     const v = r.values || {};
     const t1 = pickNum(v, ['TOT1', 'tot1']);
@@ -195,6 +197,7 @@ const Reports = () => {
   };
   const revTotaliser = (r) => {
     if (r == null) return null;
+    if (typeof r.final_reverse_totalizer_kl === 'number') return r.final_reverse_totalizer_kl;
     if (typeof r.reverse_totalizer === 'number') return totaliserToKl(r.reverse_totalizer, r);
     const v = r.values || {};
     const t1 = pickNum(v, ['RTOT1', 'rtot1']);
@@ -275,9 +278,13 @@ const Reports = () => {
           initial_forward_totalizer: prevFinalFwd != null ? prevFinalFwd : initFwd,
           final_forward_totalizer: finalFwd,
           forward_consumption: forwardConsumption,
+          initial_forward_totalizer_kl: prevFinalFwd != null ? prevFinalFwd : initFwd,
+          final_forward_totalizer_kl: finalFwd,
           initial_reverse_totalizer: prevFinalRev != null ? prevFinalRev : initRev,
           final_reverse_totalizer: finalRev,
           reverse_consumption: reverseConsumption,
+          initial_reverse_totalizer_kl: prevFinalRev != null ? prevFinalRev : initRev,
+          final_reverse_totalizer_kl: finalRev,
           _raw: last.r,
         });
         if (finalFwd != null) prevFinalFwd = finalFwd;
@@ -338,8 +345,8 @@ const Reports = () => {
         rows.push([
           ...base,
           r.flow_rate_m3h_avg != null ? Number(r.flow_rate_m3h_avg).toFixed(3) : '—',
-          r.initial_forward_totalizer != null ? Number(r.initial_forward_totalizer).toFixed(2) : '—',
-          r.final_forward_totalizer != null ? Number(r.final_forward_totalizer).toFixed(2) : '—',
+          r.initial_forward_totalizer_kl != null ? Number(r.initial_forward_totalizer_kl).toFixed(3) : '—',
+          r.final_forward_totalizer_kl != null ? Number(r.final_forward_totalizer_kl).toFixed(3) : '—',
           r.forward_consumption != null ? Number(r.forward_consumption).toFixed(2) : '—',
         ]);
       } else if (section === 'dwlr') {
@@ -756,8 +763,8 @@ const Reports = () => {
                 <div><Label>Temperature (°C)</Label><Input type="number" step="0.1" value={editForm.temperature || ''} onChange={(e) => setEditForm({ ...editForm, temperature: e.target.value })} /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Forward Totaliser (L)</Label><Input type="number" step="0.01" value={editForm.forward_totalizer || ''} onChange={(e) => setEditForm({ ...editForm, forward_totalizer: e.target.value })} data-testid="edit-forward-totaliser" /></div>
-                <div><Label>Reverse Totaliser (L)</Label><Input type="number" step="0.01" value={editForm.reverse_totalizer || ''} onChange={(e) => setEditForm({ ...editForm, reverse_totalizer: e.target.value })} data-testid="edit-reverse-totaliser" /></div>
+                <div><Label>Forward Totaliser (KL)</Label><Input type="number" step="0.01" value={editForm.forward_totalizer || ''} onChange={(e) => setEditForm({ ...editForm, forward_totalizer: e.target.value })} data-testid="edit-forward-totaliser" /></div>
+                <div><Label>Reverse Totaliser (KL)</Label><Input type="number" step="0.01" value={editForm.reverse_totalizer || ''} onChange={(e) => setEditForm({ ...editForm, reverse_totalizer: e.target.value })} data-testid="edit-reverse-totaliser" /></div>
               </div>
             </div>
           ) : (
