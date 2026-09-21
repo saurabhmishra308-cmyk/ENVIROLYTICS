@@ -85,11 +85,34 @@ const Flowmeter = () => {
   if (!user) return null;
 
   const current = latest.find((r) => r.hardware_id === selected) || latest[0];
+
+  // Flowmeter totalisers are displayed canonically in KL. Historical device
+  // records before 27-Aug-2026 are m³ (numerically equal to KL); records from
+  // 27-Aug-2026 onward are litres and must be divided by 1000.
+  const totaliserToKl = (r, raw) => {
+    if (raw == null || Number.isNaN(Number(raw))) return 0;
+    if (typeof r?.final_forward_totalizer_kl === 'number' && raw === r.forward_totalizer) {
+      return r.final_forward_totalizer_kl;
+    }
+    const ts = Date.parse(r?.measurement_timestamp || r?.timestamp || r?.received_at || '');
+    return Number(raw) / (Number.isFinite(ts) && ts >= Date.parse('2026-08-27T00:00:00Z') ? 1000 : 1);
+  };
+  const currentForwardKl = current
+    ? (typeof current.final_forward_totalizer_kl === 'number'
+      ? current.final_forward_totalizer_kl
+      : totaliserToKl(current, current.forward_totalizer))
+    : 0;
+  const currentReverseKl = current
+    ? (typeof current.final_reverse_totalizer_kl === 'number'
+      ? current.final_reverse_totalizer_kl
+      : totaliserToKl(current, current.reverse_totalizer))
+    : 0;
+
   const recentReadings = history.slice(0, 10).map((r, i) => ({
     id: r._id || `reading_${i}`,
     time: new Date(r.measurement_timestamp || r.timestamp || r.received_at).toLocaleTimeString(),
     flow: Number(r.flow_rate_m3h || 0).toFixed(3),
-    volume: Number(r.forward_totalizer || 0).toFixed(2),
+    volume: totaliserToKl(r, r.forward_totalizer).toFixed(3),
     status: 'Normal',
   }));
 
@@ -198,8 +221,8 @@ const Flowmeter = () => {
                       <div className="grid grid-cols-3 gap-4 mt-8">
                         <div className="p-4 bg-blue-50 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Forward Totalizer</p>
-                          <p className="text-2xl font-bold text-gray-900" data-testid="flowmeter-forward-total">{Number(current?.forward_totalizer || 0).toFixed(2)}</p>
-                          <p className="text-xs text-gray-500">L</p>
+                          <p className="text-2xl font-bold text-gray-900" data-testid="flowmeter-forward-total">{currentForwardKl.toFixed(3)}</p>
+                          <p className="text-xs text-gray-500">KL</p>
                           <p className="text-[10px] text-gray-400 mt-1">(TOT2×65535)+TOT1</p>
                         </div>
                         <div className="p-4 bg-gray-50 rounded-lg">
@@ -218,16 +241,16 @@ const Flowmeter = () => {
                     <div className="text-center py-8" data-testid="flowmeter-reserve-panel">
                       <div className="inline-flex items-baseline gap-2 mb-2">
                         <span className="text-7xl font-bold text-emerald-600" data-testid="flowmeter-reserve-total-value">
-                          {Number(current?.reverse_totalizer || 0).toFixed(2)}
+                          {currentReverseKl.toFixed(3)}
                         </span>
-                        <span className="text-3xl font-semibold text-gray-600">L</span>
+                        <span className="text-3xl font-semibold text-gray-600">KL</span>
                       </div>
                       <p className="text-sm text-gray-500 mb-6">Reverse Totalizer — cumulative reverse flow</p>
                       <div className="grid grid-cols-3 gap-4 mt-8">
                         <div className="p-4 bg-emerald-50 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Reserve Total</p>
-                          <p className="text-2xl font-bold text-gray-900">{Number(current?.reverse_totalizer || 0).toFixed(2)}</p>
-                          <p className="text-xs text-gray-500">L</p>
+                          <p className="text-2xl font-bold text-gray-900">{currentReverseKl.toFixed(3)}</p>
+                          <p className="text-xs text-gray-500">KL</p>
                           <p className="text-[10px] text-gray-400 mt-1">(RTOT2×65535)+RTOT1</p>
                         </div>
                         <div className="p-4 bg-gray-50 rounded-lg">
