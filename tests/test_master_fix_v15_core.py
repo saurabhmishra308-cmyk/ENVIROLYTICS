@@ -65,14 +65,14 @@ def test_reports_use_measurement_timestamp_before_receipt_time():
     src = read("frontend/src/pages/Reports.jsx")
     assert "r?.measurement_timestamp" in src
     assert "r?.received_at" in src
-    assert src.indexOf("r?.measurement_timestamp") < src.indexOf("r?.received_at")
+    assert src.find("r?.measurement_timestamp") < src.find("r?.received_at")
 
 
 def test_wq_date_filters_do_not_fallback_to_legacy_timestamp_when_measurement_time_exists():
     src = read("backend/api_water_quality.py")
-    assert '"measurement_timestamp": {"exists": False}, "timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}' in src
+    assert '"measurement_timestamp": {"exists": False}' in src\n    assert '"timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}' in src
 
 
 def test_flowmeter_date_filters_do_not_fallback_to_legacy_timestamp_when_measurement_time_exists():
     src = read("backend/api_flowmeter_mgmt.py")
-    assert '"measurement_timestamp": {"exists": False}, "timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}' in src
+    assert '"measurement_timestamp": {"exists": False}' in src\n    assert '"timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}' in src
