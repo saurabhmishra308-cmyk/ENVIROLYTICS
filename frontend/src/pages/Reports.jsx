@@ -219,10 +219,18 @@ const Reports = () => {
     if (!readings?.length) return [];
     const s = startDate ? new Date(new Date(startDate).setHours(0, 0, 0, 0)) : null;
     const e = endDate ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : null;
-    const withDate = readings
+    const allDated = readings
       .map((r) => ({ r, d: parseReadingDate(r) }))
-      .filter(({ d }) => d && (!s || d >= s) && (!e || d <= e))
-      .sort((a, b) => a.d.getTime() - b.d.getTime()); // ascending for correct initial/final assignment
+      .filter(({ d }) => d)
+      .sort((a, b) => a.d.getTime() - b.d.getTime());
+    // For flowmeter reports, retain the last chronological reading before the
+    // selected window as a boundary only. Its final totaliser is the first
+    // displayed day's initial totaliser. This guarantees continuity even when
+    // the user starts a report on 27-Aug or any later date.
+    const flowBoundary = section === 'flowmeter' && s
+      ? [...allDated].reverse().find(({ d }) => d < s)
+      : null;
+    const withDate = allDated.filter(({ d }) => (!s || d >= s) && (!e || d <= e));
 
     if (section === 'flowmeter') {
       // Group by bucket then compute period consumption as the delta between
@@ -241,8 +249,8 @@ const Reports = () => {
       // the delta.
       const ordered = Array.from(groups.entries()).sort((a, b) => (a[0] > b[0] ? 1 : -1));
       const summaries = [];
-      let prevFinalFwd = null;
-      let prevFinalRev = null;
+      let prevFinalFwd = flowBoundary ? fwdTotaliser(flowBoundary.r) : null;
+      let prevFinalRev = flowBoundary ? revTotaliser(flowBoundary.r) : null;
       for (let idx = 0; idx < ordered.length; idx++) {
         const [key, arr] = ordered[idx];
         const first = arr[0];
