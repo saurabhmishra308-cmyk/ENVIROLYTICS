@@ -689,12 +689,12 @@ async def dwlr_daily(
     cursor = db.instrument_readings.find(
         {"instrument_type": "dwlr", "hardware_id": hardware_id,
          "$or": [
-             {"measurement_timestamp": {"$gte": start.isoformat()}},
-             {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": start.isoformat()}},
+             {"measurement_timestamp": {"$gte": start.isoformat(), "$lte": end.isoformat()}},
+             {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": start.isoformat(), "$lte": end.isoformat()}},
          ],
          "_dummy": {"$ne": True}},
         {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "values": 1},
-    ).limit(20000)
+    )
     async for r in cursor:
         ts = r.get("measurement_timestamp") or r.get("timestamp")
         if not isinstance(ts, str):
