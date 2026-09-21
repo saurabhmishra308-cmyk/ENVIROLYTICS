@@ -154,11 +154,13 @@ jobs:
           yarn build
 
           echo "→ publishing frontend build"
-          sudo -n mkdir -p /var/www/envirolytics
-          sudo -n rsync -a --delete \
+          # /var/www/envirolytics is owned by the deployment user.
+          # Keep frontend publication unprivileged; sudo is reserved for
+          # systemd/nginx operations below.
+          mkdir -p /var/www/envirolytics
+          rsync -a --delete \
             /home/envirolytics/ENVIROLYTICS/frontend/build/ \
             /var/www/envirolytics/
-          sudo -n chown -R envirolytics:envirolytics /var/www/envirolytics
 
           echo "→ updating backend systemd unit"
           sudo -n rsync -a /home/envirolytics/ENVIROLYTICS/deploy/azure-vm/envirolytics-backend.service \
