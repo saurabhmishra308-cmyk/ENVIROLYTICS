@@ -500,3 +500,12 @@ def test_flowmeter_totaliser_unit_transition_is_normalized_to_kl():
     assert 'TOTALISER_LITRE_CUTOFF = "2026-08-27T00:00:00+00:00"' in exports
     assert '"consumption_kl"' in exports
     assert "previous_end_kl" in exports
+
+
+def test_flowmeter_report_carries_previous_final_into_selected_window():
+    src = read("frontend/src/pages/Reports.jsx")
+    assert "const flowBoundary = section === 'flowmeter' && s" in src
+    assert "find(({ d }) => d < s)" in src
+    assert "let prevFinalFwd = flowBoundary ? fwdTotaliser(flowBoundary.r) : null;" in src
+    assert "initial_forward_totalizer_kl: prevFinalFwd != null ? prevFinalFwd : initFwd" in src
+    assert "final_forward_totalizer_kl: finalFwd" in src
