@@ -41,11 +41,31 @@ TOTALISER_LITRE_CUTOFF = "2026-08-27T00:00:00+00:00"
 
 
 def _totaliser_to_kl(value: Optional[float], measurement_timestamp: Optional[str]) -> float:
+    """Normalize a flowmeter totaliser to the report/storage unit: KL.
+
+    Devices sent totaliser values in m³ before 27-Aug-2026 and in litres
+    from 27-Aug-2026 onward. Compare actual timestamps rather than ISO
+    strings so timezone offsets cannot change the unit decision.
+    """
     try:
         v = float(value or 0)
     except (TypeError, ValueError):
         return 0.0
-    return v / 1000.0 if str(measurement_timestamp or "") >= TOTALISER_LITRE_CUTOFF else v
+
+    try:
+        ts = datetime.fromisoformat(
+            str(measurement_timestamp or "").replace("Z", "+00:00")
+        )
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        cutoff = datetime.fromisoformat(TOTALISER_LITRE_CUTOFF.replace("Z", "+00:00"))
+        if ts >= cutoff:
+            return v / 1000.0
+    except (TypeError, ValueError):
+        # Preserve the historical behaviour for malformed timestamps.
+        return v / 1000.0 if str(measurement_timestamp or "") >= TOTALISER_LITRE_CUTOFF else v
+
+    return v
 
 
 class MQTTFlowmeterService:
@@ -618,17 +638,36 @@ class MQTTFlowmeterService:
                      {"measurement_timestamp": {"$lt": timestamp_iso}},
                      {"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": timestamp_iso}},
                  ]},
-                {"_id": 0, "forward_totalizer": 1, "measurement_timestamp": 1, "timestamp": 1},
+                {
+                    "_id": 0,
+                    "forward_totalizer": 1,
+                    "final_forward_totalizer_kl": 1,
+                    "measurement_timestamp": 1,
+                    "timestamp": 1,
+                },
                 sort=[("measurement_timestamp", -1), ("timestamp", -1)],
             )
-            initial_totaliser = float(prev.get("forward_totalizer")) if prev and prev.get("forward_totalizer") is not None else forward_totalizer
-            prev_ts = (prev.get("measurement_timestamp") or prev.get("timestamp")) if prev else timestamp_iso
-            initial_kl = _totaliser_to_kl(initial_totaliser, prev_ts)
+
+            # HARD INVARIANT:
+            # Every chronological reading starts exactly where the previous
+            # chronological reading ended. Prefer the previous canonical KL
+            # value so the 27-Aug-2026 litres→KL transition can never break
+            # the chain. Raw totaliser fields remain untouched for audit.
+            if prev and prev.get("final_forward_totalizer_kl") is not None:
+                initial_kl = float(prev["final_forward_totalizer_kl"])
+                initial_totaliser = float(prev.get("forward_totalizer") or 0)
+            elif prev and prev.get("forward_totalizer") is not None:
+                initial_totaliser = float(prev["forward_totalizer"])
+                prev_ts = prev.get("measurement_timestamp") or prev.get("timestamp")
+                initial_kl = _totaliser_to_kl(initial_totaliser, prev_ts)
+            else:
+                initial_totaliser = forward_totalizer
+                initial_kl = _totaliser_to_kl(forward_totalizer, timestamp_iso)
+
             final_kl = _totaliser_to_kl(forward_totalizer, timestamp_iso)
             # The final value of every chronological reading becomes the next
-            # chronological reading's initial value. Store both raw telemetry
-            # and the canonical KL chain so the 27-Aug-2026 unit transition
-            # cannot create a litre-vs-m³ discontinuity in reports.
+            # chronological reading's initial value. Canonical reporting values
+            # are always KL, regardless of the device's raw unit.
             reading["initial_forward_totalizer"] = initial_totaliser
             reading["final_forward_totalizer"] = forward_totalizer
             reading["initial_forward_totalizer_kl"] = round(initial_kl, 6)
