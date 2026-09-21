@@ -511,7 +511,8 @@ def test_flowmeter_totaliser_unit_transition_is_normalized_to_kl():
     exports = Path("backend/data_export_service.py").read_text()
 
     assert 'TOTALISER_LITRE_CUTOFF = "2026-08-27T00:00:00+00:00"' in mgmt
-    assert 'return v / 1000.0 if ts >= TOTALISER_LITRE_CUTOFF else v' in mgmt
+    assert 'cutoff = datetime.fromisoformat(TOTALISER_LITRE_CUTOFF.replace("Z", "+00:00"))' in mgmt
+    assert 'return v / 1000.0 if ts >= cutoff else v' in mgmt
     assert 'total_kl_reading = _totaliser_to_kl(row.get("forward_totalizer", 0), ts)' in mgmt
     assert '"totaliser_forward_kl": _totaliser_to_kl(' in mgmt
     assert 'initial_forward_totalizer_kl' in Path("backend/mqtt_service.py").read_text()
