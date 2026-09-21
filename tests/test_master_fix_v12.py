@@ -5,6 +5,7 @@ They protect the source-level invariants that were previously lost when
 changes were not committed to GitHub.
 """
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -28,7 +29,10 @@ def test_flowmeter_ingestion_preserves_measurement_time_and_deduplicates():
 def test_flowmeter_history_is_measurement_time_ordered():
     src = read("backend/mqtt_service.py")
     assert 'get_readings_history' in src
-    assert 'sort([("measurement_timestamp", -1), ("timestamp", -1), ("received_at", -1)])' in src or 'sort([("measurement_timestamp", -1), ("timestamp", -1)])' in src
+    assert re.search(
+        r'\.sort\(\s*\[\s*\("measurement_timestamp",\s*-1\),\s*\("timestamp",\s*-1\)',
+        src,
+    )
 
 
 def test_flowmeter_consumption_uses_chronological_chain():
