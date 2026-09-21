@@ -653,7 +653,7 @@ const Reports = () => {
                       <Button onClick={() => { const needsBounds=['weekly','monthly','quarterly','yearly'].includes(frequency); if (needsBounds && (!startDate || !endDate)) { toast.error(`${frequency.charAt(0).toUpperCase()+frequency.slice(1)} reports require both a start date and an end date`); return; } fetchReadings(); }} className="h-11 min-w-40 rounded-xl bg-blue-600 px-6 shadow-sm hover:bg-blue-700" disabled={!hardwareId || loading} data-testid="apply-filters-btn">{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Filter className="mr-2 h-4 w-4" />} Apply Filter</Button>
                     </div>
                   </div>
-                  <div className="relative hidden overflow-hidden bg-sky-50 lg:block"><img src="/flowmeter-banner.svg" alt="Envirolytics flowmeter" className="h-full w-full object-cover" /><div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/70 to-transparent px-5 pb-4 pt-16"><div className="text-sm font-semibold text-white">Accurate Flow Monitoring</div><div className="text-xs text-slate-200">Reliable data • Real-time monitoring • Sustainable water management</div></div></div>
+                  <div className="relative hidden overflow-hidden bg-sky-50 lg:block"><img src="/flowmeter-banner.webp" alt="Envirolytics flowmeter" className="h-full w-full object-cover" /><div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/70 to-transparent px-5 pb-4 pt-16"><div className="text-sm font-semibold text-white">Accurate Flow Monitoring</div><div className="text-xs text-slate-200">Reliable data • Real-time monitoring • Sustainable water management</div></div></div>
                 </div>
               </CardContent>
             </Card>
