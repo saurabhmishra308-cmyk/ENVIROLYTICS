@@ -59,7 +59,17 @@ const ViewGate = ({ permission, children }) => {
   const { can, loading } = useViewPermissions();
   if (!isAuthenticated()) return <Navigate to="/" replace />;
   if (isAdmin()) return children;
-  if (loading) return null;
+  if (loading) return (
+    <DashboardLayout>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center" data-testid="page-permission-loading">
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm text-center">
+          <div className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+          <p className="text-sm font-semibold text-slate-700">Loading dashboard…</p>
+          <p className="mt-1 text-xs text-slate-500">Checking page permissions.</p>
+        </div>
+      </div>
+    </DashboardLayout>
+  );
   if (!can(permission)) return <Navigate to="/dashboard" replace />;
   return children;
 };
@@ -76,7 +86,7 @@ function App() {
                 <Route path="/" element={<Login />} />
                 <Route path="/policies" element={<Policies />} />
 
-                <Route path="/dashboard" element={<PermissionRoute permission="dashboard"><ViewGate permission="dashboard"><DashboardLayout><EnhancedDashboard /></DashboardLayout></ViewGate></PermissionRoute>} />
+                <Route path="/dashboard" element={<PermissionRoute permission="dashboard"><DashboardLayout><EnhancedDashboard /></DashboardLayout></PermissionRoute>} />
                 <Route path="/analysis" element={<PermissionRoute permission="analysis"><ViewGate permission="analysis"><DashboardLayout><Analysis /></DashboardLayout></ViewGate></PermissionRoute>} />
                 <Route path="/reports" element={<PermissionRoute permission="reports"><ViewGate permission="reports"><DashboardLayout><Reports /></DashboardLayout></ViewGate></PermissionRoute>} />
                 <Route path="/graph-report" element={<PermissionRoute permission="reports"><ViewGate permission="graph_report"><DashboardLayout><GraphReport /></DashboardLayout></ViewGate></PermissionRoute>} />
