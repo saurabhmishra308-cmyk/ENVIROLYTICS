@@ -506,6 +506,7 @@ const WaterQuality = () => {
                       isCustomVideo={Boolean(vidPath)}
                       temperatureC={typeof currentValues.TEMPER === 'number' ? currentValues.TEMPER : null}
                       saturationPct={typeof currentValues.DO_SATURATION === 'number' ? currentValues.DO_SATURATION : null}
+                      saturationMgL={typeof currentValues.DO_SATURATION_MG_L === 'number' ? currentValues.DO_SATURATION_MG_L : null}
                       saturationVendorPct={typeof currentValues.DO_SATURATION_VENDOR === 'number' ? currentValues.DO_SATURATION_VENDOR : null}
                     />
                     <AerationVideoUploader
