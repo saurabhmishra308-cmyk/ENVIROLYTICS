@@ -312,3 +312,11 @@ def test_auth_rechecks_account_active_state_after_jwt_validation():
     assert 'if not user.get("is_active", True):' in src
     assert 'raise HTTPException(status_code=403, detail="Account is deactivated")' in src
     assert src.index('if not user.get("is_active", True):') < src.index('user.pop("password_hash", None)')
+
+def test_flowmeter_categories_have_no_arbitrary_fleet_cap():
+    src = read("backend/api_flowmeter_mgmt.py")
+    start = src.index('@router.get("/categories")')
+    end = src.index('@router.delete("/{hardware_id}/category")', start)
+    block = src[start:end]
+    assert "to_list(length=500)" not in block
+    assert "async for item in cursor:" in block
