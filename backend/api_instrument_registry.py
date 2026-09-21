@@ -600,9 +600,11 @@ async def update_instrument(hardware_id: str, req: UpdateInstrumentRequest, admi
         updates["longitude"] = req.longitude
     if req.instrument_type is not None:
         updates["instrument_type"] = _normalise_type(req.instrument_type)
-    if req.category is not None:
-        itype = updates.get("instrument_type", existing.get("instrument_type"))
-        updates["category"] = _normalise_category(itype, req.category)
+    effective_type = updates.get("instrument_type", existing.get("instrument_type"))
+    if effective_type != "flowmeter":
+        updates["category"] = None
+    elif req.category is not None:
+        updates["category"] = _normalise_category(effective_type, req.category)
     if req.imei is not None:
         new_imei = req.imei.strip() or None
         if new_imei and new_imei != existing.get("imei"):
@@ -639,7 +641,7 @@ async def update_instrument(hardware_id: str, req: UpdateInstrumentRequest, admi
 
     # Mirror category change to flowmeter_categories for legacy UI
     new_type = updates.get("instrument_type", existing.get("instrument_type"))
-    if new_type == "flowmeter" and ("category" in updates or "label" in updates):
+    if new_type == "flowmeter":
         await db.flowmeter_categories.update_one(
             {"hardware_id": hardware_id},
             {"$set": {
@@ -650,6 +652,16 @@ async def update_instrument(hardware_id: str, req: UpdateInstrumentRequest, admi
             }},
             upsert=True,
         )
+    elif existing.get("instrument_type") == "flowmeter" and new_type != "flowmeter":
+        await db.flowmeter_categories.delete_many({"hardware_id": hardware_id})
+
+    # If the device's transport/type changed to MQTT, make sure the current
+    # runtime subscription knows about it. The shared wildcard also covers
+    # flowmeter/DWLR topics, so this is idempotent.
+    new_source = updates.get("source", existing.get("source") or "mqtt")
+    if new_source == "mqtt":
+        await _subscribe_topic(new_type, hardware_id)
+
     return {"success": True, "updated_fields": list(updates.keys())}
 
 
