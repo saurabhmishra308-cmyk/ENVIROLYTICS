@@ -168,7 +168,7 @@ jobs:
           id
           echo "→ verifying non-interactive sudo for rsync"
           sudo -n -l
-          sudo -n /usr/bin/rsync --version | head -n 1
+          sudo -n /usr/bin/rsync --version
           sudo -n /usr/bin/rsync -a \
             /home/envirolytics/ENVIROLYTICS/deploy/azure-vm/envirolytics-backend.service \
             /etc/systemd/system/envirolytics-backend.service
