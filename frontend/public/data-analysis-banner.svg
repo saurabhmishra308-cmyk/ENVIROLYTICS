@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 260">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eff6ff"/><stop offset="1" stop-color="#f0fdf4"/></linearGradient></defs>
+<rect width="1400" height="260" rx="24" fill="url(#bg)"/>
+<text x="70" y="78" font-family="Arial" font-size="18" font-weight="700" letter-spacing="4" fill="#2563eb">ENVIROLYTICS / ANALYTICS</text>
+<text x="70" y="132" font-family="Arial" font-size="40" font-weight="800" fill="#0f172a">Flowmeter &amp; DWLR Data Analysis</text>
+<text x="70" y="174" font-family="Arial" font-size="18" fill="#475569">Groundwater abstraction • Water-level trends • Actionable insights</text>
+<g transform="translate(1090 40)"><rect x="0" y="95" width="250" height="80" rx="12" fill="#dbeafe"/><path d="M25 150L75 125L120 140L170 90L225 110" fill="none" stroke="#2563eb" stroke-width="7"/><path d="M25 160h200" stroke="#64748b" stroke-width="4"/></g>
+</svg>
