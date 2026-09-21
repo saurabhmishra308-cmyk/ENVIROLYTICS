@@ -149,13 +149,18 @@ const EnhancedDashboard = () => {
 
   const fetchLive = useCallback(async () => {
     try {
-      const [fmRes, instrRes, statusRes, catRes, regRes] = await Promise.all([
+      // /api/flowmeter/status is admin/staff-only. Keep it out of the
+      // client's critical request set so a 403 there cannot block live data.
+      const liveRequests = [
         api.get('/api/flowmeter/latest'),
         api.get('/api/instruments/all/latest'),
-        api.get('/api/flowmeter/status'),
         api.get('/api/flowmeter-mgmt/categories'),
         api.get('/api/instrument-registry'),
-      ]);
+      ];
+      if (isAdmin()) {
+        liveRequests.push(api.get('/api/flowmeter/status'));
+      }
+      const [fmRes, instrRes, catRes, regRes, statusRes] = await Promise.all(liveRequests);
 
       const latestFlowmeters = fmRes.data.flowmeters || [];
       const registered = regRes.data.instruments || regRes.data.items || [];
@@ -210,7 +215,7 @@ const EnhancedDashboard = () => {
         tds: grouped.tds || [],
         conductivity: grouped.conductivity || [],
       });
-      setMqttStatus(statusRes.data || { connected: false });
+      setMqttStatus(statusRes?.data || { connected: false });
       // Pull STP + DO latest snapshots for the compact tile rows.
       try {
         const wqRes = await api.get('/api/water-quality/latest');
