@@ -107,7 +107,9 @@ Audit and verify:
 
 ## 4. Water Quality / OCEMS / DO
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** QESPL/ESPL preserves device measurement time separately from receipt time, deduplicates by hardware ID + measurement timestamp, keeps latest cache monotonic, preserves raw DO and tank mapping, recovers legacy DO_TANK values, polls at the configured five-minute cadence, uses measurement-time history/report filters, and enforces user/device visibility. ESPL fleet polling now has no arbitrary 500-device cap, and malformed vendor timestamps fall back safely to receipt time while preserving the raw payload. Live production verification of representative DO/WQ devices remains outstanding.
 
 Audit and verify:
 
