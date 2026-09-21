@@ -17,8 +17,7 @@ name: Deploy to Azure VM
 # Required GitHub secrets (Settings → Secrets and variables → Actions):
 #   AZURE_VM_HOST      — public IP or DNS of the VM (e.g. 40.121.x.x)
 #   AZURE_VM_USER      — SSH user with sudo (e.g. azureuser)
-#   AZURE_VM_SSH_KEY   — private half of the deploy keypair (whole OpenSSH key,
-#                        including the BEGIN/END lines)
+#   AZURE_VM_SSH_KEY_B64 — Base64-encoded private deploy key
 #   AZURE_VM_PORT      — optional, defaults to 22
 
 on:
@@ -113,7 +112,7 @@ jobs:
             -o ConnectTimeout=30 \
             "$AZURE_VM_USER@$AZURE_VM_HOST" 'bash -s' <<'REMOTE_SCRIPT'
           set -euo pipefail
-          cd /opt/envirolytics/src
+          cd /home/envirolytics/ENVIROLYTICS
           echo "→ pulling latest"
           sudo -u envirolytics -H git fetch --all --prune
           sudo -u envirolytics -H git reset --hard origin/main
@@ -122,25 +121,25 @@ jobs:
           sudo rsync -a --delete \
             --exclude ".env" \
             --exclude "uploads/" \
-            backend/ /opt/envirolytics/backend/
-          sudo chown -R envirolytics:envirolytics /opt/envirolytics/backend
+            backend/ /home/envirolytics/ENVIROLYTICS/backend/
+          sudo chown -R envirolytics:envirolytics /home/envirolytics/ENVIROLYTICS/backend
 
           echo "→ installing any new Python deps"
-          sudo -u envirolytics -H /opt/envirolytics/venv/bin/pip install -r /opt/envirolytics/backend/requirements.txt
+          sudo -u envirolytics -H /home/envirolytics/ENVIROLYTICS/backend/venv/bin/pip install -r /home/envirolytics/ENVIROLYTICS/backend/requirements.txt
 
           echo "→ syncing frontend + rebuilding"
           sudo rsync -a --delete \
             --exclude ".env" \
             --exclude "build/" \
             --exclude "node_modules/" \
-            frontend/ /opt/envirolytics/frontend/
-          sudo chown -R envirolytics:envirolytics /opt/envirolytics/frontend
+            frontend/ /home/envirolytics/ENVIROLYTICS/frontend/
+          sudo chown -R envirolytics:envirolytics /home/envirolytics/ENVIROLYTICS/frontend
           # Guarantee the frontend .env exists on the VM BEFORE yarn build.
-          if [ ! -f /opt/envirolytics/frontend/.env ]; then
+          if [ ! -f /home/envirolytics/ENVIROLYTICS/frontend/.env ]; then
             echo "→ frontend/.env missing — creating with same-origin default"
-            echo "REACT_APP_BACKEND_URL=" | sudo -u envirolytics tee /opt/envirolytics/frontend/.env > /dev/null
+            echo "REACT_APP_BACKEND_URL=" | sudo -u envirolytics tee /home/envirolytics/ENVIROLYTICS/frontend/.env > /dev/null
           fi
-          cd /opt/envirolytics/frontend
+          cd /home/envirolytics/ENVIROLYTICS/frontend
           sudo -u envirolytics -H yarn install --frozen-lockfile
           sudo -u envirolytics -H yarn build
 
@@ -157,7 +156,7 @@ jobs:
 
           echo "→ waiting for health check"
           for i in 1 2 3 4 5 6 7 8 9 10; do
-            if curl -sf http://127.0.0.1:8001/api/health > /dev/null; then
+            if curl -sf http://127.0.0.1:8000/api/health > /dev/null; then
               echo "✔ healthy"
               exit 0
             fi
