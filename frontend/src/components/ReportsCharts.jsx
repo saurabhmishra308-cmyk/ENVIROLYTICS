@@ -8,7 +8,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
-import { Activity, Download, Droplets, CloudRain, GaugeCircle } from 'lucide-react';
+import { Activity, Download, Droplets, CloudRain, GaugeCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import api, { formatApiError, apiUrl } from '../lib/api';
 import { getToken, getCurrentUser } from '../mockData';
@@ -296,7 +296,7 @@ const ReportsCharts = () => {
             <div><Label className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Borewell (Flowmeter)</Label><select data-testid="reports-fm-select" className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100" value={selectedFm} onChange={(e)=>setSelectedFm(e.target.value)}><option value="">— select —</option>{flowmeterIds.map(id=><option key={id} value={id}>{id}</option>)}</select></div>
             <div><Label className="text-[11px] font-bold uppercase tracking-wide text-slate-500">DWLR (Water Level)</Label><select data-testid="reports-dwlr-select" className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100" value={selectedDwlr} onChange={(e)=>setSelectedDwlr(e.target.value)}><option value="">— auto —</option>{dwlrIds.map(id=><option key={id} value={id}>{id}</option>)}</select></div>
             <div><Label className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Range (Days)</Label><Input type="number" min={1} max={90} value={days} onChange={(e)=>setDays(Math.max(1,Math.min(90,Number(e.target.value)||1)))} data-testid="reports-days-input" className="mt-1 h-11 rounded-xl border-slate-200 shadow-sm" /></div>
-            <div className="flex items-end"><Button className="h-11 w-full rounded-xl bg-blue-600 font-semibold shadow-sm hover:bg-blue-700"><Activity className="mr-2 h-4 w-4"/>Apply Analysis</Button></div>
+            <div className="flex items-end"><div className="flex h-11 w-full items-center justify-center rounded-xl bg-slate-50 px-3 text-xs font-medium text-slate-500 ring-1 ring-slate-200"><Activity className="mr-2 h-4 w-4 text-blue-600"/>Live analysis updates automatically</div></div>
           </div>
         </CardContent>
       </Card>
