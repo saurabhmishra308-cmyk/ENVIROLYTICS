@@ -392,8 +392,7 @@ def test_espl_timestamp_traceability():
 def test_dwlr_daily_deduplicates_measurement_timestamps():
     src = read("backend/api_flowmeter_mgmt.py")
     start = src.index('@router.get("/dwlr/{hardware_id}/daily")')
-    end = src.index("# ============================", start)
-    block = src[start:end]
+    block = src[start:]
     assert "seen_measurement_ts = set()" in block
     assert "if ts in seen_measurement_ts:" in block
     assert "seen_measurement_ts.add(ts)" in block
