@@ -131,7 +131,9 @@ Audit and verify:
 
 ## 5. MQTT telemetry
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** MQTT reconnect backoff is bounded, reconnects use `connect_async`, the universal device wildcard is restored on broker reconnect, flowmeter and generic instrument ingestion preserve measurement and receipt timestamps separately, duplicate history is suppressed by hardware ID + measurement timestamp, latest caches are monotonic by measurement time, late measurements are evaluated in device measurement order for down-sampling, totaliser chaining uses measurement time, all-latest flowmeter fleet retrieval has no arbitrary 100-device cap, and malformed flowmeter timestamps now fall back safely to receipt time. Live broker/device verification remains outstanding.
 
 Audit and verify:
 
