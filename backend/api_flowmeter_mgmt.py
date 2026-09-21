@@ -493,12 +493,20 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
 
     await db.flowmeter_readings.update_one({"_id": obj_id}, {"$set": updates})
 
-    # If this was the latest reading, also update the `flowmeter_latest` cache
-    latest = await db.flowmeter_latest.find_one({"hardware_id": hardware_id})
-    existing_measurement_ts = existing.get("measurement_timestamp") or existing.get("timestamp")
-    latest_measurement_ts = (latest or {}).get("measurement_timestamp") or (latest or {}).get("timestamp")
-    if latest and latest_measurement_ts == existing_measurement_ts:
-        await db.flowmeter_latest.update_one({"hardware_id": hardware_id}, {"$set": updates})
+    # Reconcile the latest cache from the authoritative measurement-time ordering.
+    # This is required when an admin edits a reading timestamp: the edited row
+    # may stop being the latest, or a different row may become latest.
+    latest_row = await db.flowmeter_readings.find_one(
+        {"hardware_id": hardware_id},
+        sort=[("measurement_timestamp", -1), ("timestamp", -1)],
+    )
+    if latest_row:
+        latest_cache = {k: v for k, v in latest_row.items() if k != "_id"}
+        await db.flowmeter_latest.update_one(
+            {"hardware_id": hardware_id},
+            {"$set": latest_cache},
+            upsert=True,
+        )
 
     return {"success": True, "updated_fields": list(updates.keys())}
 
@@ -532,15 +540,22 @@ async def edit_instrument_reading(reading_id: str, req: EditInstrumentReading, a
     updates["edited_at"] = datetime.now(timezone.utc).isoformat()
     await db.instrument_readings.update_one({"_id": obj_id}, {"$set": updates})
 
-    # Update latest cache if this is the most recent reading
-    latest = await db.instrument_latest.find_one({
-        "instrument_type": existing["instrument_type"],
-        "hardware_id": existing["hardware_id"],
-    })
-    if latest and latest.get("timestamp") == existing.get("timestamp"):
+    # Reconcile latest from measurement-time ordering. Timestamp edits can
+    # change which reading is authoritative, so do not compare receipt time
+    # or assume the edited row remains latest.
+    latest_row = await db.instrument_readings.find_one(
+        {
+            "instrument_type": existing["instrument_type"],
+            "hardware_id": existing["hardware_id"],
+        },
+        sort=[("measurement_timestamp", -1), ("timestamp", -1)],
+    )
+    if latest_row:
+        latest_cache = {k: v for k, v in latest_row.items() if k != "_id"}
         await db.instrument_latest.update_one(
             {"instrument_type": existing["instrument_type"], "hardware_id": existing["hardware_id"]},
-            {"$set": updates},
+            {"$set": latest_cache},
+            upsert=True,
         )
 
     return {"success": True, "updated_fields": list(updates.keys())}
@@ -609,7 +624,7 @@ async def export_data_scoped(
         # rows that predate the measurement_timestamp field.
         query["$or"] = [
             {"measurement_timestamp": dict(time_filter)},
-            {"timestamp": dict(time_filter)},
+            {"measurement_timestamp": {"$exists": False}, "timestamp": dict(time_filter)},
         ]
 
     # Lifetime retention: allow up to 100k rows per export (~ 15 years of
@@ -658,7 +673,7 @@ async def dwlr_daily(
         {"instrument_type": "dwlr", "hardware_id": hardware_id,
          "$or": [
              {"measurement_timestamp": {"$gte": start.isoformat()}},
-             {"timestamp": {"$gte": start.isoformat()}},
+             {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": start.isoformat()}},
          ],
          "_dummy": {"$ne": True}},
         {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "values": 1},
