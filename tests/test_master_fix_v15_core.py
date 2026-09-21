@@ -407,6 +407,26 @@ def test_dwlr_daily_deduplicates_measurement_timestamps():
     assert "if ts in seen_measurement_ts:" in block
     assert "seen_measurement_ts.add(ts)" in block
 
+def test_do_saturation_history_and_reports_expose_engineering_traceability():
+    src = read("backend/api_water_quality.py")
+    assert '"DO_SATURATION_MG_L"' in src
+    assert '"DO_SATURATION_VENDOR"' in src
+    assert '"DO_SATURATION_PRESSURE_KPA"' in src
+    assert '"DO_SATURATION_SALINITY_PPT"' in src
+    assert 'param_keys = list(DO_PARAMS.keys())' in src
+    assert 'data_row.append(_convert(float(v), "mg/L", req.unit))' in src
+
+
+def test_do_saturation_ui_exposes_calculated_concentration():
+    src = read("frontend/src/pages/WaterQuality.jsx")
+    widget = read("frontend/src/components/wq/WQWidgets.jsx")
+    assert 'saturationMgL=' in src
+    assert 'DO_SATURATION_MG_L' in src
+    assert 'saturationMgL' in widget
+    assert 'DO Sat' in widget
+    assert 'mg/L' in widget
+
+
 def test_do_saturation_uses_benson_krause_engineering_formula():
     src = read("backend/espl_poller.py")
     start = src.index("def _calculate_do_saturation")
