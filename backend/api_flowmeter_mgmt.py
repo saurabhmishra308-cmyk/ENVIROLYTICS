@@ -219,33 +219,75 @@ async def _latest_reading(hardware_id: str) -> Optional[dict]:
 async def _abstraction_between(hardware_id: str, start_dt: datetime, end_dt: datetime) -> float:
     """Total volume (KL) from the chronological forward-totaliser chain.
 
-    The device's final totaliser is the next chronological reading's initial
-    totaliser. Never use insertion/received order for this calculation.
-    Duplicate timestamps are ignored, and a decreasing totaliser is treated
-    as a meter reset rather than creating negative consumption.
+    Include the last valid reading before the requested window so the first
+    in-window reading can contribute its chronological delta. The device's
+    final totaliser is the next chronological reading's initial totaliser.
+    Never use insertion/received order for this calculation. Duplicate
+    timestamps are ignored, and a decreasing totaliser is treated as a meter
+    reset/rollover rather than creating negative consumption.
     """
+    projection = {
+        "_id": 0,
+        "timestamp": 1,
+        "measurement_timestamp": 1,
+        "forward_totalizer": 1,
+    }
+
+    # Boundary reading: the most recent measurement before start_dt. Check
+    # canonical measurement time and legacy timestamp separately so documents
+    # without measurement_timestamp remain fully supported.
+    before_measurement = await db.flowmeter_readings.find_one(
+        {"hardware_id": hardware_id,
+         "measurement_timestamp": {"$lt": start_dt.isoformat()}},
+        projection,
+        sort=[("measurement_timestamp", -1)],
+    )
+    before_legacy = await db.flowmeter_readings.find_one(
+        {"hardware_id": hardware_id,
+         "measurement_timestamp": {"$exists": False},
+         "timestamp": {"$lt": start_dt.isoformat()}},
+        projection,
+        sort=[("timestamp", -1)],
+    )
+
+    boundary = None
+    candidates = [r for r in (before_measurement, before_legacy) if r]
+    if candidates:
+        boundary = max(
+            candidates,
+            key=lambda r: str(r.get("measurement_timestamp") or r.get("timestamp") or ""),
+        )
+
     cursor = db.flowmeter_readings.find(
         {"hardware_id": hardware_id,
          "$or": [
              {"measurement_timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}},
              {"timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}},
          ]},
-        {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "forward_totalizer": 1},
-    ).sort([("measurement_timestamp", 1), ("timestamp", 1)])
+        projection,
+    )
     rows = await cursor.to_list(length=20000)
+    if boundary:
+        rows.append(boundary)
+
     if len(rows) < 2:
         return 0.0
+
+    def _effective_ts(row):
+        return str(row.get("measurement_timestamp") or row.get("timestamp") or "")
+
+    rows.sort(key=_effective_ts)
 
     total_l = 0.0
     prev_ts = None
     prev_total = None
     for row in rows:
-        ts = row.get("measurement_timestamp") or row.get("timestamp")
+        ts = _effective_ts(row)
         try:
             total = float(row.get("forward_totalizer", 0))
         except (TypeError, ValueError):
             continue
-        if ts == prev_ts:
+        if not ts or ts == prev_ts:
             continue
         if prev_total is not None:
             delta = total - prev_total
@@ -511,11 +553,17 @@ async def export_data_scoped(
     else:
         query = {"hardware_id": {"$in": list(visible)}}
     if start_date or end_date:
-        query["measurement_timestamp"] = {}
+        time_filter = {}
         if start_date:
-            query["timestamp"]["$gte"] = start_date
+            time_filter["$gte"] = start_date
         if end_date:
-            query["timestamp"]["$lte"] = end_date
+            time_filter["$lte"] = end_date
+        # Measurement timestamp is authoritative, but retain legacy timestamp
+        # rows that predate the measurement_timestamp field.
+        query["$or"] = [
+            {"measurement_timestamp": dict(time_filter)},
+            {"timestamp": dict(time_filter)},
+        ]
 
     # Lifetime retention: allow up to 100k rows per export (~ 15 years of
     # hourly data or ~2 years of 15-min data).  Client can further narrow
