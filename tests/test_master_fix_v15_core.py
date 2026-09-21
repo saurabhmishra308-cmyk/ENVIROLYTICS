@@ -189,6 +189,18 @@ def test_flowmeter_admin_ingest_persists_measurement_timestamp():
     assert '{"hardware_id": req.hardware_id, "measurement_timestamp": now_iso}' in src
 
 
+def test_do_live_overlay_matches_historical_saturation_only():
+    src = read("frontend/src/pages/WaterQuality.jsx")
+    widgets = read("frontend/src/components/wq/WQWidgets.jsx")
+    assert "saturationPct={typeof currentValues.DO_SATURATION === 'number' ? currentValues.DO_SATURATION : null}" in src
+    assert "saturationMgL=" not in src
+    assert "saturationVendorPct=" not in src
+    assert "DO Saturation" in widgets
+    assert "Sat Calc" not in widgets
+    assert ">Vendor<" not in widgets
+    assert "saturationMgL" not in widgets
+    assert "saturationVendorPct" not in widgets
+
 def test_flowmeter_ui_prefers_measurement_timestamp():
     src = read("frontend/src/pages/Flowmeter.jsx")
     assert "r.measurement_timestamp || r.timestamp || r.received_at" in src
