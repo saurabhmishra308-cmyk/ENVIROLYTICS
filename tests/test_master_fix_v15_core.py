@@ -344,3 +344,11 @@ def test_reports_use_measurement_time_and_registry_visibility():
     assert "sort=[("measurement_timestamp", -1), ("timestamp", -1)]" in src
     assert "async def _list_groundwater_borewells(user: dict)" in src
     assert "_list_groundwater_borewells(user)" in src
+
+def test_generic_manual_ingest_is_registry_bound_and_latest_monotonic():
+    src = read("backend/api_instruments.py")
+    assert 'raise HTTPException(status_code=404, detail="Instrument not registered")' in src
+    assert 'raise HTTPException(status_code=400, detail="Instrument type does not match registry")' in src
+    assert '"measurement_timestamp": now_iso' in src
+    assert '"measurement_timestamp": now_iso' in src
+    assert 'if not current_ts or now_iso >= current_ts:' in src
