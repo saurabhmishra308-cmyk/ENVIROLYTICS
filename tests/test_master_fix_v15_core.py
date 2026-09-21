@@ -41,6 +41,16 @@ def test_flowmeter_export_preserves_legacy_timestamp_fallback():
     assert '{"timestamp": dict(time_filter)}' in src
 
 
+def test_flowmeter_edit_neighbors_separate_legacy_and_measurement_time():
+    src = read("backend/api_flowmeter_mgmt.py")
+    assert "async def _chronological_neighbor(" in src
+    assert '"measurement_timestamp": {"$exists": False}' in src
+    assert 'return max(candidates, key=lambda row: str(' in src
+    assert 'return min(candidates, key=lambda row: str(' in src
+    assert 'prev = await _chronological_neighbor(hardware_id, new_ts, "previous", obj_id)' in src
+    assert 'nxt = await _chronological_neighbor(hardware_id, new_ts, "next", obj_id)' in src
+
+
 def test_flowmeter_consumption_includes_pre_window_boundary_reading():
     src = read("backend/api_flowmeter_mgmt.py")
     assert 'before_measurement = await db.flowmeter_readings.find_one(' in src
