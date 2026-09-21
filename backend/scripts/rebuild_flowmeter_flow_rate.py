@@ -1,6 +1,6 @@
 """Backfill Flowmeter instantaneous flow-rate values to canonical m³/h.
 
-This migration is deliberately conservative:
+This migration is deliberately conservative and applies only from 27-Aug-2026 onward:
 - Prefer the raw device FLOW (raw_flow) plus its unit_code/unit_name.
 - If raw_flow is unavailable, use the stored flow value only when its unit
   metadata identifies a volumetric unit.
@@ -10,6 +10,7 @@ import asyncio
 import os
 from pathlib import Path
 from typing import Optional
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -28,6 +29,8 @@ UNIT_TO_M3H = {
     8: 60.0,      # kL/min
     9: 1.0,       # kL/h
 }
+
+FLOW_RATE_LITRE_CUTOFF = datetime(2026, 8, 27, tzinfo=timezone.utc)
 
 UNIT_NAME_TO_CODE = {
     "L/S": 1, "L/M": 2, "L/MIN": 2, "L/H": 3, "L/HR": 3,
@@ -50,8 +53,28 @@ def _convert(value, code: int) -> float:
     return round(float(value or 0) * UNIT_TO_M3H[code], 6)
 
 
+def _measurement_datetime(row: dict) -> Optional[datetime]:
+    raw = row.get("measurement_timestamp") or row.get("timestamp") or row.get("received_at")
+    if not raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
 def normalize_row(row: dict):
     code = _code(row)
+
+    # The flow-rate input changed on 27-Aug-2026. Do not rewrite any
+    # pre-cutoff flow-rate data: those records already represent the
+    # historical unit and must remain exactly as stored.
+    ts = _measurement_datetime(row)
+    if ts is None or ts < FLOW_RATE_LITRE_CUTOFF:
+        return None, "pre_cutoff_unchanged"
 
     # Best evidence: the original device FLOW value.
     if row.get("raw_flow") not in (None, "") and code in UNIT_TO_M3H:
@@ -90,10 +113,12 @@ async def rebuild():
                 "flow_rate_normalization_version": 1,
                 "flow_rate_normalization_source": source,
             }
+            if source == "pre_cutoff_unchanged":
+                continue
             if value is None:
                 ambiguous += 1
                 update["flow_rate_normalization_review"] = True
-            else:
+            else
                 update.update({
                     "flow_rate_m3h": value,
                     "flow_rate_lph": round(value * 1000.0, 6),
@@ -111,10 +136,12 @@ async def rebuild():
                 "flow_rate_normalization_version": 1,
                 "flow_rate_normalization_source": source,
             }
+            if source == "pre_cutoff_unchanged":
+                continue
             if value is None:
                 ambiguous += 1
                 update["flow_rate_normalization_review"] = True
-            else:
+            else
                 update.update({
                     "flow_rate_m3h": value,
                     "flow_rate_lph": round(value * 1000.0, 6),
