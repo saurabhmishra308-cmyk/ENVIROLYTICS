@@ -469,3 +469,31 @@ def test_do_saturation_ui_shows_calculated_and_vendor_values():
     assert "saturationVendorPct" in src
     assert "Sat Calc" in src
     assert "Vendor" in src
+
+
+def test_flowmeter_totaliser_unit_transition_is_normalized_to_kl():
+    """27-Aug-2026 changed cumulative totalisers from m³ to litres.
+
+    The report must preserve continuity:
+      26-Aug final 13030.16 m³ -> 13030.16 KL
+      27-Aug final 13054239 L -> 13054.239 KL
+      consumption -> 24.079 KL
+    """
+    mgmt = Path("backend/api_flowmeter_mgmt.py").read_text()
+    reports = Path("frontend/src/pages/Reports.jsx").read_text()
+    exports = Path("backend/data_export_service.py").read_text()
+
+    assert 'TOTALISER_LITRE_CUTOFF = "2026-08-27T00:00:00+00:00"' in mgmt
+    assert 'return v / 1000.0 if ts >= TOTALISER_LITRE_CUTOFF else v' in mgmt
+    assert 'total_kl_reading = _totaliser_to_kl(row.get("forward_totalizer", 0), ts)' in mgmt
+    assert '"totaliser_forward_kl": _totaliser_to_kl(' in mgmt
+
+    assert "TOTALISER_LITRE_CUTOFF = Date.parse('2026-08-27T00:00:00Z')" in reports
+    assert "return Number(value) / (Number.isFinite(ts) && ts >= TOTALISER_LITRE_CUTOFF ? 1000 : 1)" in reports
+    assert "'Initial Totaliser (KL)'" in reports
+    assert "'Final Totaliser (KL)'" in reports
+    assert "'Consumption (KL)'" in reports
+
+    assert 'TOTALISER_LITRE_CUTOFF = "2026-08-27T00:00:00+00:00"' in exports
+    assert '"consumption_kl"' in exports
+    assert "previous_end_kl" in exports
