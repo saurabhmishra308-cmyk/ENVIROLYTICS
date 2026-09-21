@@ -678,10 +678,17 @@ class MQTTFlowmeterService:
                 initial_totaliser = forward_totalizer
                 initial_kl = _totaliser_to_kl(forward_totalizer, timestamp_iso)
 
-            final_kl = _totaliser_to_kl(forward_totalizer, timestamp_iso)
-            # The final value of every chronological reading becomes the next
-            # chronological reading's initial value. Canonical reporting values
-            # are always KL, regardless of the device's raw unit.
+            raw_final_kl = _totaliser_to_kl(forward_totalizer, timestamp_iso)
+            # A cumulative totaliser decrease is a reset/corrupt packet, not
+            # consumption. Keep the canonical reporting chain continuous while
+            # preserving the raw device totaliser for auditability.
+            reset_detected = prev and prev.get("final_forward_totalizer_kl") is not None and raw_final_kl < float(prev["final_forward_totalizer_kl"]) - 1e-9
+            final_kl = float(prev["final_forward_totalizer_kl"]) if reset_detected else raw_final_kl
+            if reset_detected:
+                initial_kl = final_kl
+                initial_totaliser = forward_totalizer
+            # The canonical final value becomes the next chronological initial
+            # value. User-facing cumulative values are always KL.
             reading["initial_forward_totalizer"] = initial_totaliser
             reading["final_forward_totalizer"] = forward_totalizer
             reading["initial_forward_totalizer_kl"] = round(initial_kl, 6)
@@ -689,6 +696,8 @@ class MQTTFlowmeterService:
             reading["totaliser_start_reading"] = round(initial_kl, 6)
             reading["totaliser_end_reading"] = round(final_kl, 6)
             reading["consumption_kl"] = round(max(0.0, final_kl - initial_kl), 6)
+            reading["totaliser_chain_reset_detected"] = bool(reset_detected)
+            reading["totaliser_raw_final_kl"] = round(raw_final_kl, 6)
             # Keep legacy field for old consumers, but its unit is explicitly L.
             reading["consumption_l"] = round(max(0.0, forward_totalizer - initial_totaliser), 6)
 
