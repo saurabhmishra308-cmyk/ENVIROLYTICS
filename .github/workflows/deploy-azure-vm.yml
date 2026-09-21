@@ -152,6 +152,7 @@ jobs:
           /home/envirolytics/ENVIROLYTICS/backend/venv/bin/python scripts/rebuild_flowmeter_flow_rate.py
 
           echo "→ syncing frontend + rebuilding"
+          cd /home/envirolytics/ENVIROLYTICS
           rsync -a --delete \
             --exclude ".env" \
             --exclude "build/" \
