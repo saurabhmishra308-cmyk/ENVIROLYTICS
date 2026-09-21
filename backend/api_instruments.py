@@ -121,13 +121,6 @@ async def _store_reading(instrument_type: str, hardware_id: str, values: dict, l
         "received_at": now_iso,
     }
 
-    duplicate = await db.instrument_readings.find_one(
-        {"hardware_id": hardware_id, "measurement_timestamp": now_iso},
-        {"_id": 1},
-    )
-    if duplicate:
-        return {**doc, "_duplicate": True}
-
     await db.instrument_readings.insert_one(dict(doc))
 
     current = await db.instrument_latest.find_one(
