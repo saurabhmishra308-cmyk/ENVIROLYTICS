@@ -365,6 +365,47 @@ class MQTTFlowmeterService:
             return True
 
         coll = self.db.flowmeter_readings if kind == "flowmeter" else self.db.instrument_readings
+
+        if measurement_timestamp:
+            # Evaluate sampling against the nearest earlier device measurement,
+            # not the newest row already stored. This preserves genuinely late
+            # out-of-order packets in chronological history while still enforcing
+            # the configured device sampling interval.
+            previous = await coll.find_one(
+                {
+                    "hardware_id": hardware_id,
+                    "$or": [
+                        {"measurement_timestamp": {"$lt": measurement_timestamp}},
+                        {"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": measurement_timestamp}},
+                    ],
+                },
+                {"measurement_timestamp": 1, "timestamp": 1, "received_at": 1, "_id": 0},
+                sort=[("measurement_timestamp", -1), ("timestamp", -1), ("received_at", -1)],
+            )
+            if not previous:
+                return True
+            previous_ts_str = (
+                previous.get("measurement_timestamp")
+                or previous.get("timestamp")
+                or previous.get("received_at")
+            )
+            if not previous_ts_str:
+                return True
+            try:
+                previous_ts = datetime.fromisoformat(
+                    str(previous_ts_str).replace("Z", "+00:00")
+                )
+                current_ts = datetime.fromisoformat(
+                    str(measurement_timestamp).replace("Z", "+00:00")
+                )
+            except ValueError:
+                return True
+            if current_ts <= previous_ts:
+                return False
+            return (current_ts - previous_ts) >= timedelta(minutes=freq_minutes)
+
+        # Legacy callers without a device measurement timestamp retain the
+        # previous receipt-time fallback behaviour.
         last = await coll.find_one(
             {"hardware_id": hardware_id},
             {"measurement_timestamp": 1, "timestamp": 1, "received_at": 1, "_id": 0},
@@ -372,7 +413,6 @@ class MQTTFlowmeterService:
         )
         if not last:
             return True
-
         last_ts_str = last.get("measurement_timestamp") or last.get("timestamp") or last.get("received_at")
         if not last_ts_str:
             return True
@@ -380,19 +420,7 @@ class MQTTFlowmeterService:
             last_ts = datetime.fromisoformat(str(last_ts_str).replace("Z", "+00:00"))
         except ValueError:
             return True
-
-        if measurement_timestamp:
-            try:
-                current_ts = datetime.fromisoformat(
-                    str(measurement_timestamp).replace("Z", "+00:00")
-                )
-            except ValueError:
-                return True
-            if current_ts <= last_ts:
-                return False
-        else:
-            current_ts = datetime.now(timezone.utc)
-
+        current_ts = datetime.now(timezone.utc)
         return (current_ts - last_ts) >= timedelta(minutes=freq_minutes)
 
     async def process_instrument_data(self, instrument_type: str, hardware_id: str, data: Dict):
