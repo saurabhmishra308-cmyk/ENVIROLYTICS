@@ -232,7 +232,10 @@ async def list_instruments(
         coll = db.flowmeter_readings if (it.get("instrument_type") or "").lower() == "flowmeter" else db.instrument_readings
         it["retention_purge_count"] = await coll.count_documents({
             "hardware_id": it.get("hardware_id"),
-            "received_at": {"$lt": cutoff},
+            "$or": [
+                {"measurement_timestamp": {"$lt": cutoff}},
+                {"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": cutoff}},
+            ],
         })
     return {"instruments": items, "count": len(items)}
 
@@ -959,11 +962,27 @@ async def clear_history(
                     clauses.append({field: inner})
         return {"$or": clauses} if clauses else {}
 
-    range_clause = _range_filter("received_at")
+    measurement_range_clause: Dict = {}
+    if from_iso or to_iso:
+        measurement_clauses: list = []
+        f_opts = _iso_variants(from_iso) if from_iso else [None]
+        t_opts = _iso_variants(to_iso) if to_iso else [None]
+        for f in f_opts:
+            for t in t_opts:
+                inner: dict = {}
+                if f: inner["$gte"] = f
+                if t: inner["$lte"] = t
+                if inner:
+                    measurement_clauses.append({"measurement_timestamp": inner})
+                    measurement_clauses.append({
+                        "measurement_timestamp": {"$exists": False},
+                        "timestamp": dict(inner),
+                    })
+        measurement_range_clause = {"$or": measurement_clauses} if measurement_clauses else {}
 
     reading_query: Dict = {"hardware_id": hardware_id}
-    if range_clause:
-        reading_query.update(range_clause)
+    if measurement_range_clause:
+        reading_query.update(measurement_range_clause)
 
     fm_res = await db.flowmeter_readings.delete_many(reading_query)
     inst_res = await db.instrument_readings.delete_many(reading_query)
@@ -972,13 +991,12 @@ async def clear_history(
     # was given at all (i.e. full wipe). Prevents a stale tile from surviving
     # after a full historic purge.
     latest_res_fm = latest_res_inst = None
-    if not range_clause:
+    if not measurement_range_clause:
         latest_res_fm = await db.flowmeter_latest.delete_many({"hardware_id": hardware_id})
         latest_res_inst = await db.instrument_latest.delete_many({"hardware_id": hardware_id})
     else:
-        latest_range = _range_filter("received_at")
-        latest_res_fm = await db.flowmeter_latest.delete_many({"hardware_id": hardware_id, **latest_range})
-        latest_res_inst = await db.instrument_latest.delete_many({"hardware_id": hardware_id, **latest_range})
+        latest_res_fm = await db.flowmeter_latest.delete_many({"hardware_id": hardware_id, **measurement_range_clause})
+        latest_res_inst = await db.instrument_latest.delete_many({"hardware_id": hardware_id, **measurement_range_clause})
 
     counts = {
         "flowmeter_readings": fm_res.deleted_count,
