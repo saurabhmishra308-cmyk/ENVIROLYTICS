@@ -556,7 +556,7 @@ def test_flowmeter_flow_rate_normalization_is_unit_aware():
     assert "6: 1.0" in src
     assert 'row.get("raw_flow") not in (None, "")' in migration
     assert 'flow_rate_normalization_version": 1' in migration
-    assert '"flow_rate_normalization_review": True' in migration
+    assert 'update["flow_rate_normalization_review"] = True' in migration
     assert '"flow_rate_m3h": value' in migration
 
 
