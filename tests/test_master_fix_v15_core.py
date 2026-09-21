@@ -383,6 +383,16 @@ def test_legacy_status_and_site_status_endpoints_are_authenticated():
     assert 'async def check_site_status(user_id: str, caller: dict = Depends(get_current_user))' in admin
     assert 'Not authorised to view this site status' in admin
 
+def test_espl_retains_unique_out_of_order_measurements_by_measurement_time():
+    src = read("backend/espl_poller.py")
+    start = src.index("async def _persist_reading")
+    end = src.index("async def poll_device", start)
+    block = src[start:end]
+    assert '"measurement_timestamp": {"$lt": measurement_ts}' in block
+    assert '"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": measurement_ts}' in block
+    assert 'sort=[("measurement_timestamp", -1), ("timestamp", -1)]' in block
+    assert 'should_store = (measurement_dt - previous_dt) >= timedelta(minutes=freq_int)' in block
+
 def test_espl_timestamp_traceability():
     src = read("backend/espl_poller.py")
     assert '"measurement_timestamp": measurement_ts' in src
