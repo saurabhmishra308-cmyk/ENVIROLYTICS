@@ -335,7 +335,8 @@ async def aggregate_volume(hardware_id: str, user: dict = Depends(get_current_us
             "monthly": round(monthly, 3),
             "yearly": round(yearly, 3),
         },
-        "last_reading_at": latest.get("timestamp") if latest else None,
+        "last_reading_at": (latest.get("measurement_timestamp") or latest.get("timestamp")) if latest else None,
+        "last_received_at": latest.get("received_at") if latest else None,
     }
 
 
