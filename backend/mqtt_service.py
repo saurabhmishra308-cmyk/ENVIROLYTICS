@@ -339,25 +339,24 @@ class MQTTFlowmeterService:
             "broker": f"{self.broker_host}:{self.broker_port}",
         }
 
-    async def _should_store_reading(self, kind: str, hardware_id: str) -> bool:
-        """Return True when a new reading is due to be *persisted* for this
-        device, according to the admin-configured
-        `data_frequency_minutes` on the registry.
+    async def _should_store_reading(
+        self,
+        kind: str,
+        hardware_id: str,
+        measurement_timestamp: Optional[str] = None,
+    ) -> bool:
+        """Return True when a new measurement is due to be persisted.
 
-        The `_latest` collections are *always* updated regardless — the
-        dashboard live tile has to reflect the current reading. This method
-        only gates the append-only history collections so admins can
-        down-sample noisy devices (e.g. keep one row per hour instead of
-        one per 30 seconds).
-
-        `kind` is either `"instrument"` or `"flowmeter"`.
+        Down-sampling is evaluated in device measurement time, never against
+        server receipt time. A packet received late must not be stored merely
+        because it arrived long after the last stored reading.
         """
         reg = await self.db.instrument_registry.find_one(
             {"hardware_id": hardware_id}, {"data_frequency_minutes": 1}
         )
         freq = (reg or {}).get("data_frequency_minutes")
         if not freq:
-            return True  # No throttling configured — store every reading.
+            return True
         try:
             freq_minutes = int(freq)
         except (TypeError, ValueError):
@@ -381,8 +380,20 @@ class MQTTFlowmeterService:
             last_ts = datetime.fromisoformat(str(last_ts_str).replace("Z", "+00:00"))
         except ValueError:
             return True
-        elapsed = datetime.now(timezone.utc) - last_ts
-        return elapsed >= timedelta(minutes=freq_minutes)
+
+        if measurement_timestamp:
+            try:
+                current_ts = datetime.fromisoformat(
+                    str(measurement_timestamp).replace("Z", "+00:00")
+                )
+            except ValueError:
+                return True
+            if current_ts <= last_ts:
+                return False
+        else:
+            current_ts = datetime.now(timezone.utc)
+
+        return (current_ts - last_ts) >= timedelta(minutes=freq_minutes)
 
     async def process_instrument_data(self, instrument_type: str, hardware_id: str, data: Dict):
         """Generic instrument reading handler.
@@ -460,7 +471,7 @@ class MQTTFlowmeterService:
                 {"hardware_id": hardware_id, "measurement_timestamp": ts_iso},
                 {"_id": 1},
             )
-            if not exists and await self._should_store_reading("instrument", hardware_id):
+            if not exists and await self._should_store_reading("instrument", hardware_id, ts_iso):
                 await self.db.instrument_readings.insert_one(dict(doc))
             # Keep the live cache monotonic by device measurement time.
             current = await self.db.instrument_latest.find_one(
@@ -574,7 +585,7 @@ class MQTTFlowmeterService:
                 {"hardware_id": hardware_id, "measurement_timestamp": timestamp_iso},
                 {"_id": 1},
             )
-            if not exists and await self._should_store_reading("flowmeter", hardware_id):
+            if not exists and await self._should_store_reading("flowmeter", hardware_id, timestamp_iso):
                 await self.db.flowmeter_readings.insert_one(dict(reading))
 
             # Only move the live cache forward in measurement time. A delayed
