@@ -193,7 +193,8 @@ async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]
         newer latest cache.
     """
     now_iso = datetime.now(timezone.utc).isoformat()
-    ts = payload.get("data_store_time") or payload.get("timestamp") or now_iso
+    source_timestamp_raw = payload.get("data_store_time") or payload.get("timestamp")
+    ts = source_timestamp_raw or now_iso
     if isinstance(ts, str) and "T" in ts and "+" not in ts and "Z" not in ts:
         ts = ts + "Z"
     measurement_dt = _parse_iso_utc(ts)
@@ -228,7 +229,7 @@ async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]
         "values": dict(values),
         "timestamp": measurement_ts,
         "measurement_timestamp": measurement_ts,
-        "source_timestamp_raw": str(ts).strip() if ts else None,
+        "source_timestamp_raw": str(source_timestamp_raw).strip() if source_timestamp_raw else None,
         "received_at": now_iso,
         "source": "http",
         "raw": payload,
