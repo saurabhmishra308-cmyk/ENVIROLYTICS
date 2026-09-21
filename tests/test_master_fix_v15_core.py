@@ -41,6 +41,15 @@ def test_flowmeter_export_preserves_legacy_timestamp_fallback():
     assert '{"measurement_timestamp": {"$exists": False}, "timestamp": dict(time_filter)}' in src
 
 
+def test_flowmeter_edit_rejects_duplicate_measurement_timestamp():
+    src = read("backend/api_flowmeter_mgmt.py")
+    assert 'if req.timestamp is not None:' in src
+    assert '"measurement_timestamp": req.timestamp' in src
+    assert '"_id": {"$ne": obj_id}' in src
+    assert 'status_code=409' in src
+    assert 'A flowmeter reading already exists for this measurement timestamp' in src
+
+
 def test_flowmeter_edit_neighbors_separate_legacy_and_measurement_time():
     src = read("backend/api_flowmeter_mgmt.py")
     assert "async def _chronological_neighbor(" in src
