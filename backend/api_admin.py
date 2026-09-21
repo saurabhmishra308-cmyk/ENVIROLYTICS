@@ -374,7 +374,9 @@ async def activate_site(req: ActivateSiteRequest, admin: dict = Depends(require_
 
 
 @router.get("/site/status/{user_id}")
-async def check_site_status(user_id: str):
+async def check_site_status(user_id: str, caller: dict = Depends(get_current_user)):
+    if caller.get("id") != user_id and caller.get("role") not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Not authorised to view this site status")
     activation = await db.site_activations.find_one(
         {"user_id": user_id}, sort=[("created_at", -1)]
     )
