@@ -267,6 +267,17 @@ def test_espl_http_device_polling_has_no_arbitrary_500_device_cap():
     assert "to_list(length=500)" not in block
     assert "async for row in cursor:" in block
 
+def test_wq_aggregated_history_deduplicates_measurement_timestamps():
+    src = read("backend/api_water_quality.py")
+    start = src.index("async def history(")
+    end = src.index("@router.post("/report")", start)
+    block = src[start:end]
+    assert 'seen_measurement_ts = set()' in block
+    assert 'if measurement_ts in seen_measurement_ts:' in block
+    assert 'measurement_ts = row.get("measurement_timestamp") or row.get("timestamp")' in block
+    assert '.sort([("measurement_timestamp", -1), ("timestamp", -1), ("received_at", -1)])' in block
+
+
 def test_wq_reports_deduplicate_measurement_timestamps():
     src = read("backend/api_water_quality.py")
     assert "seen_measurement_ts = set()" in src
