@@ -203,7 +203,7 @@ async def _earliest_after(hardware_id: str, after_dt: datetime) -> Optional[dict
         .find({"hardware_id": hardware_id,
                "$or": [
                    {"measurement_timestamp": {"$gte": after_dt.isoformat()}},
-                   {"timestamp": {"$gte": after_dt.isoformat()}},
+                   {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": after_dt.isoformat()}},
                ]})
         .sort([("measurement_timestamp", 1), ("timestamp", 1)])
         .limit(1)
@@ -262,7 +262,7 @@ async def _abstraction_between(hardware_id: str, start_dt: datetime, end_dt: dat
         {"hardware_id": hardware_id,
          "$or": [
              {"measurement_timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}},
-             {"timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}},
+             {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}},
          ]},
         projection,
     )
