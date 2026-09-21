@@ -266,3 +266,10 @@ def test_espl_http_device_polling_has_no_arbitrary_500_device_cap():
     block = src[start:end]
     assert "to_list(length=500)" not in block
     assert "async for row in cursor:" in block
+
+def test_wq_reports_deduplicate_measurement_timestamps():
+    src = read("backend/api_water_quality.py")
+    assert "seen_measurement_ts = set()" in src
+    assert "measurement_ts = row.get(\"measurement_timestamp\") or row.get(\"timestamp\")" in src
+    assert "if measurement_ts in seen_measurement_ts:" in src
+    assert "raw_rows = await cursor.to_list(length=None)" in src
