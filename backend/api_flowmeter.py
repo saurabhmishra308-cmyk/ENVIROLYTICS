@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 
-from auth import get_current_user
+from auth import get_current_user, require_admin
 import api_instrument_registry
 
 router = APIRouter(prefix="/api/flowmeter", tags=["flowmeter"])
@@ -21,7 +21,7 @@ class GatewaySubscription(BaseModel):
     name: Optional[str] = None
 
 @router.post("/subscribe/flowmeter")
-async def subscribe_to_flowmeter(subscription: FlowmeterSubscription):
+async def subscribe_to_flowmeter(subscription: FlowmeterSubscription, admin: dict = Depends(require_admin)):
     """Subscribe to a flowmeter's MQTT topic."""
     if not mqtt_service:
         raise HTTPException(status_code=503, detail="MQTT service not available")
@@ -37,7 +37,7 @@ async def subscribe_to_flowmeter(subscription: FlowmeterSubscription):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/subscribe/gateway")
-async def subscribe_to_gateway(subscription: GatewaySubscription):
+async def subscribe_to_gateway(subscription: GatewaySubscription, admin: dict = Depends(require_admin)):
     """Subscribe to a gateway's MQTT topic."""
     if not mqtt_service:
         raise HTTPException(status_code=503, detail="MQTT service not available")
@@ -92,7 +92,7 @@ async def get_flowmeter_history(hardware_id: str, limit: int = 5000, user: dict 
     return {"readings": readings, "count": len(readings)}
 
 @router.get("/status")
-async def get_mqtt_status():
+async def get_mqtt_status(admin: dict = Depends(require_admin)):
     """Get MQTT service status."""
     if not mqtt_service:
         return {"connected": False, "message": "MQTT service not initialized"}
