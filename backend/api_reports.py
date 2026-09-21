@@ -175,7 +175,7 @@ async def flow_vs_level(
             level = v.get("LEVEL") if isinstance(v.get("LEVEL"), (int, float)) else v.get("level")
             if level is None:
                 continue
-            b = _bucket_hourly(r["timestamp"])
+            b = _bucket_hourly(_effective_timestamp(r))
             agg = level_buckets.setdefault(b, {"sum": 0.0, "n": 0})
             agg["sum"] += float(level)
             agg["n"] += 1
@@ -413,9 +413,16 @@ async def rainfall_impact(
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
 
-    # Pick a DWLR if not provided
-    if not dwlr_id:
-        dwlr_latest = await db.instrument_latest.find_one({"instrument_type": "dwlr"})
+    # Pick a DWLR only from the caller-visible registry.
+    visible_dwlr_ids = await _visible_ids(user, "dwlr")
+    if dwlr_id:
+        if dwlr_id not in visible_dwlr_ids:
+            raise HTTPException(status_code=403, detail="Not authorised to view this device")
+    else:
+        dwlr_latest = await db.instrument_latest.find_one(
+            {"instrument_type": "dwlr", "hardware_id": {"$in": list(visible_dwlr_ids)}},
+            sort=[("measurement_timestamp", -1), ("timestamp", -1)],
+        ) if visible_dwlr_ids else None
         if dwlr_latest:
             dwlr_id = dwlr_latest.get("hardware_id")
 
@@ -424,9 +431,8 @@ async def rainfall_impact(
     if dwlr_id:
         dw_cursor = db.instrument_readings.find(
             {"instrument_type": "dwlr", "hardware_id": dwlr_id,
-             "timestamp": {"$gte": start.isoformat()},
-             "_dummy": {"$ne": True}},
-            {"_id": 0, "timestamp": 1, "values": 1},
+             **_measurement_since(start), "_dummy": {"$ne": True}},
+            {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "values": 1},
         )
         async for r in dw_cursor:
             v = r.get("values", {}) or {}
@@ -439,7 +445,7 @@ async def rainfall_impact(
             agg["n"] += 1
 
     # ---- Total ground-water abstraction per day, summed across all borewells.
-    borewells = await _list_groundwater_borewells()
+    borewells = await _list_groundwater_borewells(user)
     abstr_buckets = {}
     # Sum daily deltas
     day_count = days
@@ -506,8 +512,16 @@ async def hourly_pumping_vs_level(
     Returns a series with `hour_label`, `pumped_kl`, `level_m`."""
     now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
 
-    if not dwlr_id:
-        dwlr_latest = await db.instrument_latest.find_one({"instrument_type": "dwlr"})
+    await _assert_visible(hardware_id, user, "flowmeter")
+    visible_dwlr_ids = await _visible_ids(user, "dwlr")
+    if dwlr_id:
+        if dwlr_id not in visible_dwlr_ids:
+            raise HTTPException(status_code=403, detail="Not authorised to view this device")
+    else:
+        dwlr_latest = await db.instrument_latest.find_one(
+            {"instrument_type": "dwlr", "hardware_id": {"$in": list(visible_dwlr_ids)}},
+            sort=[("measurement_timestamp", -1), ("timestamp", -1)],
+        ) if visible_dwlr_ids else None
         if dwlr_latest:
             dwlr_id = dwlr_latest.get("hardware_id")
 
@@ -522,9 +536,9 @@ async def hourly_pumping_vs_level(
             agg = {"sum": 0.0, "n": 0}
             async for r in db.instrument_readings.find(
                 {"instrument_type": "dwlr", "hardware_id": dwlr_id,
-                 "timestamp": {"$gte": b_start.isoformat(), "$lt": b_end.isoformat()},
+                 **_measurement_range(b_start, b_end),
                  "_dummy": {"$ne": True}},
-                {"_id": 0, "values": 1},
+                {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "values": 1},
             ):
                 v = r.get("values", {}) or {}
                 level = v.get("LEVEL") if isinstance(v.get("LEVEL"), (int, float)) else v.get("level")
