@@ -33,6 +33,14 @@ def test_flowmeter_export_preserves_legacy_timestamp_fallback():
     assert '{"timestamp": dict(time_filter)}' in src
 
 
+def test_flowmeter_consumption_includes_pre_window_boundary_reading():
+    src = read("backend/api_flowmeter_mgmt.py")
+    assert 'before_measurement = await db.flowmeter_readings.find_one(' in src
+    assert 'before_legacy = await db.flowmeter_readings.find_one(' in src
+    assert 'rows.append(boundary)' in src
+    assert 'rows.sort(key=_effective_ts)' in src
+
+
 def test_water_quality_history_and_pdf_use_measurement_time():
     src = read("backend/api_water_quality.py")
     assert 'cursor.sort([("measurement_timestamp", -1), ("timestamp", -1)])' in src
