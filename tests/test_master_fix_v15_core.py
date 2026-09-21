@@ -76,3 +76,25 @@ def test_wq_date_filters_do_not_fallback_to_legacy_timestamp_when_measurement_ti
 def test_flowmeter_date_filters_do_not_fallback_to_legacy_timestamp_when_measurement_time_exists():
     src = read("backend/api_flowmeter_mgmt.py")
     assert '"measurement_timestamp": {"exists": False}' in src\n    assert '"timestamp": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()}' in src
+
+
+def test_mqtt_flowmeter_dedup_and_latest_use_measurement_timestamp():
+    src = read("backend/mqtt_service.py")
+    assert '{"hardware_id": hardware_id, "measurement_timestamp": timestamp_iso}' in src
+    assert '"measurement_timestamp": 1, "timestamp": 1, "_id": 0' in src
+    assert '(current or {}).get("measurement_timestamp")' in src
+    assert 'sort=[("measurement_timestamp", -1), ("timestamp", -1)]' in src
+
+
+def test_mqtt_flowmeter_totaliser_previous_reading_uses_measurement_time():
+    src = read("backend/mqtt_service.py")
+    assert '{"measurement_timestamp": {"$lt": timestamp_iso}}' in src
+    assert '{"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": timestamp_iso}}' in src
+    assert '"forward_totalizer": 1, "measurement_timestamp": 1, "timestamp": 1' in src
+
+
+def test_flowmeter_admin_ingest_persists_measurement_timestamp():
+    src = read("backend/api_flowmeter_mgmt.py")
+    assert '"timestamp": now_iso,' in src
+    assert '"measurement_timestamp": now_iso,' in src
+    assert '{"hardware_id": req.hardware_id, "measurement_timestamp": now_iso}' in src
