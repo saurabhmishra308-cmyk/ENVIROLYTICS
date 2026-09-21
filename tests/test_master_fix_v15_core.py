@@ -68,8 +68,8 @@ def test_flowmeter_export_date_filter_only_uses_legacy_timestamp_when_measuremen
 
 def test_dwlr_daily_date_filter_only_uses_legacy_timestamp_when_measurement_time_is_absent():
     src = read("backend/api_flowmeter_mgmt.py")
-    assert '{"measurement_timestamp": {"$gte": start.isoformat()}}' in src
-    assert '{"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": start.isoformat()}}' in src
+    assert '{"measurement_timestamp": {"$gte": start.isoformat(), "$lte": end.isoformat()}}' in src
+    assert '{"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": start.isoformat(), "$lte": end.isoformat()}}' in src
 
 
 def test_edited_latest_caches_are_reconciled_by_measurement_time():
