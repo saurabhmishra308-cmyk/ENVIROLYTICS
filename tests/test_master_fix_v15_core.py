@@ -274,6 +274,12 @@ def test_wq_reports_deduplicate_measurement_timestamps():
     assert "if measurement_ts in seen_measurement_ts:" in src
     assert "raw_rows = await cursor.to_list(length=None)" in src
 
+def test_mqtt_ingestion_retains_raw_vendor_timestamp():
+    src = read("backend/mqtt_service.py")
+    assert '"source_timestamp_raw": str(data.get("TIME") or "").strip() or None' in src
+    assert '"source_timestamp_raw": raw_time or None' in src
+
+
 def test_mqtt_flowmeter_malformed_timestamp_falls_back_to_receipt_time():
     src = read("backend/mqtt_service.py")
     start = src.index("async def process_flowmeter_data")
