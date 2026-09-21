@@ -456,14 +456,16 @@ def test_do_saturation_history_and_reports_expose_engineering_traceability():
     assert '_convert_wq_param_value(p, float(v), req.unit)' in src
 
 
-def test_do_saturation_ui_exposes_calculated_concentration():
+def test_do_saturation_ui_exposes_single_historical_saturation_value():
     src = read("frontend/src/pages/WaterQuality.jsx")
     widget = read("frontend/src/components/wq/WQWidgets.jsx")
-    assert 'saturationMgL=' in src
-    assert 'DO_SATURATION_MG_L' in src
-    assert 'saturationMgL' in widget
-    assert 'DO Sat' in widget
-    assert 'mg/L' in widget
+    assert "saturationPct={typeof currentValues.DO_SATURATION === 'number' ? currentValues.DO_SATURATION : null}" in src
+    assert "saturationMgL=" not in src
+    assert "saturationVendorPct=" not in src
+    assert "DO Saturation" in widget
+    assert "Sat Calc" not in widget
+    assert "DO Sat" not in widget
+    assert "Vendor" not in widget
 
 
 def test_wq_history_and_reports_preserve_native_do_parameter_units():
@@ -503,11 +505,14 @@ def test_do_saturation_preserves_vendor_value_and_uses_calculated_value():
     assert 'values["DO_SATURATION_MG_L"] = calc["saturation_mg_l"]' in block
 
 
-def test_do_saturation_ui_shows_calculated_and_vendor_values():
+def test_do_saturation_ui_shows_only_historical_parameter():
     src = read("frontend/src/components/wq/WQWidgets.jsx")
-    assert "saturationVendorPct" in src
-    assert "Sat Calc" in src
-    assert "Vendor" in src
+    assert "saturationPct" in src
+    assert "DO Saturation" in src
+    assert "saturationVendorPct" not in src
+    assert "saturationMgL" not in src
+    assert "Sat Calc" not in src
+    assert "Vendor" not in src
 
 
 def test_flowmeter_totaliser_unit_transition_is_normalized_to_kl():
