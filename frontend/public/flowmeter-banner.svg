@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" role="img" aria-label="Envirolytics electromagnetic flowmeter">
+  <defs>
+    <linearGradient id="water" x1="0" x2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset=".5" stop-color="#0ea5e9"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="body" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#cbd5e1"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="12" stdDeviation="12" flood-opacity=".18"/></filter>
+  </defs>
+  <rect width="1200" height="520" rx="32" fill="#eef8ff"/>
+  <circle cx="1030" cy="90" r="140" fill="#dff3ff"/>
+  <circle cx="170" cy="430" r="170" fill="#dff3ff"/>
+  <g filter="url(#shadow)">
+    <rect x="45" y="220" width="1110" height="120" rx="28" fill="url(#water)" stroke="#94a3b8" stroke-width="12"/>
+    <g stroke="#fff" stroke-width="14" stroke-linecap="round" opacity=".95">
+      <path d="M130 280h100"/><path d="M300 280h100"/><path d="M800 280h100"/><path d="M970 280h100"/>
+    </g>
+    <g fill="none" stroke="#cbd5e1" stroke-width="14">
+      <circle cx="48" cy="280" r="45"/><circle cx="1152" cy="280" r="45"/>
+    </g>
+    <rect x="420" y="145" width="360" height="220" rx="55" fill="url(#body)" stroke="#94a3b8" stroke-width="10"/>
+    <circle cx="600" cy="170" r="118" fill="#e2e8f0" stroke="#94a3b8" stroke-width="10"/>
+    <circle cx="600" cy="170" r="88" fill="#0f172a"/>
+    <rect x="540" y="128" width="120" height="48" rx="6" fill="#1677ff"/>
+    <text x="600" y="160" text-anchor="middle" font-family="Arial, sans-serif" font-size="25" fill="#fff">31.291 m³/h</text>
+    <circle cx="570" cy="205" r="12" fill="#e2e8f0"/><rect x="595" y="194" width="28" height="22" rx="4" fill="#e2e8f0"/><circle cx="650" cy="205" r="12" fill="#e2e8f0"/>
+    <text x="600" y="300" text-anchor="middle" font-family="Arial, sans-serif" font-size="27" font-weight="700" fill="#17355f">ENVIROLYTICS</text>
+    <path d="M570 320h60l30 22-30 22h-60l30-22z" fill="#ef1b1b"/>
+  </g>
+  <text x="850" y="110" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#17355f">Accurate Flow Monitoring</text>
+  <text x="850" y="150" font-family="Arial, sans-serif" font-size="22" fill="#4b6480">Real-time • Reliable • Sustainable</text>
+  <text x="850" y="190" font-family="Arial, sans-serif" font-size="20" fill="#1677ff">FLOW RATE  •  m³/h</text>
+</svg>
