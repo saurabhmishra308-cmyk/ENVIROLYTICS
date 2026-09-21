@@ -133,7 +133,7 @@ async def health():
 
 
 @api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
+async def create_status_check(input: StatusCheckCreate, user: dict = Depends(auth_module.get_current_user)):
     status_dict = input.model_dump()
     status_obj = StatusCheck(**status_dict)
     doc = status_obj.model_dump()
@@ -143,7 +143,7 @@ async def create_status_check(input: StatusCheckCreate):
 
 
 @api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
+async def get_status_checks(user: dict = Depends(auth_module.get_current_user)):
     status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
     for check in status_checks:
         if isinstance(check['timestamp'], str):
