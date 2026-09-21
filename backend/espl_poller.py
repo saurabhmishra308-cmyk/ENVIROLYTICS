@@ -228,6 +228,7 @@ async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]
         "values": dict(values),
         "timestamp": measurement_ts,
         "measurement_timestamp": measurement_ts,
+        "source_timestamp_raw": str(ts).strip() if ts else None,
         "received_at": now_iso,
         "source": "http",
         "raw": payload,
