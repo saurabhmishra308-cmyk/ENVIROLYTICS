@@ -251,3 +251,18 @@ def test_dwlr_daily_range_is_measurement_time_authoritative():
     assert '"measurement_timestamp": {"$gte": start.isoformat(), "$lte": end.isoformat()}' in block
     assert '"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": start.isoformat(), "$lte": end.isoformat()}' in block
     assert '.limit(20000)' not in block
+
+def test_espl_malformed_timestamp_falls_back_to_receipt_time():
+    src = read("backend/espl_poller.py")
+    assert "if measurement_dt is None:" in src
+    assert "measurement_dt = datetime.now(timezone.utc)" in src
+    assert "measurement_ts = measurement_dt.isoformat()" in src
+
+
+def test_espl_http_device_polling_has_no_arbitrary_500_device_cap():
+    src = read("backend/espl_poller.py")
+    start = src.index("async def _http_devices")
+    end = src.index("# ---------------------------------------------------------------- probe", start)
+    block = src[start:end]
+    assert "to_list(length=500)" not in block
+    assert "async for row in cursor:" in block
