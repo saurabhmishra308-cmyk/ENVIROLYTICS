@@ -148,7 +148,7 @@ async def flow_vs_level(
     # Flowmeter readings (hourly averaged flow)
     flow_buckets = {}
     fm_cursor = db.flowmeter_readings.find(
-        {"hardware_id": hardware_id, **_measurement_since(start), "_dummy": {"$ne": True}},
+        {"hardware_id": hardware_id, **_measurement_range(start, end), "_dummy": {"$ne": True}},
         {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "flow_rate_lph": 1, "flow_rate_m3h": 1},
     ).limit(10000)
     async for r in fm_cursor:
@@ -167,7 +167,7 @@ async def flow_vs_level(
     if dwlr_id:
         dw_cursor = db.instrument_readings.find(
             {"instrument_type": "dwlr", "hardware_id": dwlr_id,
-             **_measurement_since(start), "_dummy": {"$ne": True}},
+             **_measurement_range(start, end), "_dummy": {"$ne": True}},
             {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "values": 1},
         ).limit(10000)
         async for r in dw_cursor:
