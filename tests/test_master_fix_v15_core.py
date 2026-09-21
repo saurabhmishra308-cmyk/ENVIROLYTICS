@@ -306,3 +306,9 @@ def test_registry_updates_keep_type_category_and_mqtt_mapping_consistent():
     assert 'new_source = updates.get("source", existing.get("source") or "mqtt")' in src
     assert 'if new_source == "mqtt":' in src
     assert 'await _subscribe_topic(new_type, hardware_id)' in src
+
+def test_auth_rechecks_account_active_state_after_jwt_validation():
+    src = read("backend/auth.py")
+    assert 'if not user.get("is_active", True):' in src
+    assert 'raise HTTPException(status_code=403, detail="Account is deactivated")' in src
+    assert src.index('if not user.get("is_active", True):') < src.index('user.pop("password_hash", None)')
