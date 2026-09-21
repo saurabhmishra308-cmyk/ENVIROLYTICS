@@ -73,17 +73,30 @@ def normalize_row(row: dict):
         return None, "pre_cutoff_unchanged"
 
     # From 27-Aug-2026 onward the device FLOW value is L/h regardless of
-    # stale UNT/UNIT metadata. Correct it explicitly to m3/h by /1000.
-    for field, source in (
-        ("raw_flow", "post_cutoff_lph_raw"),
-        ("flow_rate_m3h", "post_cutoff_lph_stored"),
-        ("flow_rate_lph", "post_cutoff_lph"),
-    ):
-        if row.get(field) not in (None, ""):
-            try:
-                return round(float(row[field]) / 1000.0, 6), source
-            except (TypeError, ValueError):
-                pass
+    # stale UNT/UNIT metadata. Prefer raw_flow because it is the original
+    # device value. If the row was already normalized by this migration, do
+    # not divide the canonical m3/h value a second time.
+    if row.get("raw_flow") not in (None, ""):
+        try:
+            return round(float(row["raw_flow"]) / 1000.0, 6), "post_cutoff_lph_raw"
+        except (TypeError, ValueError):
+            pass
+    source = str(row.get("flow_rate_normalization_source") or "")
+    if row.get("canonical_unit") == "m3/h" and source.startswith("post_cutoff_lph_"):
+        try:
+            return round(float(row.get("flow_rate_m3h")), 6), "post_cutoff_already_canonical"
+        except (TypeError, ValueError):
+            pass
+    if row.get("flow_rate_lph") not in (None, ""):
+        try:
+            return round(float(row["flow_rate_lph"]) / 1000.0, 6), "post_cutoff_lph"
+        except (TypeError, ValueError):
+            pass
+    if row.get("flow_rate_m3h") not in (None, ""):
+        try:
+            return round(float(row["flow_rate_m3h"]) / 1000.0, 6), "post_cutoff_lph_stored"
+        except (TypeError, ValueError):
+            pass
 
     return None, "ambiguous"
 
