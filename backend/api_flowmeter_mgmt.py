@@ -454,6 +454,11 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
             )
 
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if "timestamp" in updates:
+        # The edited timestamp is the device measurement time. Keep the
+        # explicit field synchronized so all downstream consumers use the
+        # same authoritative clock.
+        updates["measurement_timestamp"] = updates["timestamp"]
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
@@ -476,7 +481,9 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
 
     # If this was the latest reading, also update the `flowmeter_latest` cache
     latest = await db.flowmeter_latest.find_one({"hardware_id": hardware_id})
-    if latest and latest.get("timestamp") == existing.get("timestamp"):
+    existing_measurement_ts = existing.get("measurement_timestamp") or existing.get("timestamp")
+    latest_measurement_ts = (latest or {}).get("measurement_timestamp") or (latest or {}).get("timestamp")
+    if latest and latest_measurement_ts == existing_measurement_ts:
         await db.flowmeter_latest.update_one({"hardware_id": hardware_id}, {"$set": updates})
 
     return {"success": True, "updated_fields": list(updates.keys())}
@@ -498,6 +505,7 @@ async def edit_instrument_reading(reading_id: str, req: EditInstrumentReading, a
     updates = {}
     if req.timestamp is not None:
         updates["timestamp"] = req.timestamp
+        updates["measurement_timestamp"] = req.timestamp
     if req.values is not None:
         # Merge into existing values
         merged = dict(existing.get("values") or {})
