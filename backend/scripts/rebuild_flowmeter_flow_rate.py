@@ -118,7 +118,7 @@ async def rebuild():
             if value is None:
                 ambiguous += 1
                 update["flow_rate_normalization_review"] = True
-            else
+            else:
                 update.update({
                     "flow_rate_m3h": value,
                     "flow_rate_lph": round(value * 1000.0, 6),
