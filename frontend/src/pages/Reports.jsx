@@ -153,9 +153,9 @@ const Reports = () => {
     }
     setLoading(true);
     try {
-      // Pull up to 20k rows (~200 days of 15-min DWLR data). Sort is
-      // handled server-side by `received_at DESC` so newest ingestion
-      // always wins, even if a device's own clock has drifted.
+      // Pull up to 20k rows (~200 days of 15-min DWLR data). The backend
+      // orders history by device measurement time; received_at is transport
+      // metadata only and must not become the reporting clock.
       const url = section === 'flowmeter'
         ? `/api/flowmeter/history/${hardwareId}?limit=20000`
         : `/api/instruments/${section}/${hardwareId}/history?limit=20000`;
@@ -255,7 +255,7 @@ const Reports = () => {
           _bucket_key: key,
           _bucket_size: arr.length,
           hardware_id: last.r.hardware_id,
-          timestamp: last.r.timestamp || last.r.received_at,
+          timestamp: last.r.measurement_timestamp || last.r.timestamp || last.r.received_at,
           received_at: last.r.received_at,
           _bucket_start: first.d.toISOString(),
           _bucket_end: last.d.toISOString(),
@@ -440,7 +440,7 @@ const Reports = () => {
     setEditTarget(row);
     if (section === 'flowmeter') {
       setEditForm({
-        timestamp: row.timestamp || row.received_at || '',
+        timestamp: row.measurement_timestamp || row.timestamp || row.received_at || '',
         flow_rate_m3h: row.flow_rate_m3h != null ? String(row.flow_rate_m3h) : '',
         forward_totalizer: row.forward_totalizer != null ? String(row.forward_totalizer) : '',
         reverse_totalizer: row.reverse_totalizer != null ? String(row.reverse_totalizer) : '',
