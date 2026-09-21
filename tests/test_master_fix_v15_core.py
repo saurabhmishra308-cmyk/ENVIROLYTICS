@@ -320,3 +320,8 @@ def test_flowmeter_categories_have_no_arbitrary_fleet_cap():
     block = src[start:end]
     assert "to_list(length=500)" not in block
     assert "async for item in cursor:" in block
+
+def test_frontend_logs_out_when_backend_deactivates_account():
+    src = read("frontend/src/lib/api.js")
+    assert 'const isDeactivated = status === 403 && detail === "Account is deactivated";' in src
+    assert 'isDeactivated || (status === 401 && isTokenInvalidError(err))' in src
