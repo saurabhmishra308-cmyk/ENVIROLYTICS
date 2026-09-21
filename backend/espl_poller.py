@@ -169,6 +169,64 @@ def _values_from_payload(payload: dict) -> Dict[str, float]:
     return values
 
 
+def _calculate_do_saturation(do_mg_l: float, temperature_c: float, pressure_kpa: float = 101.325, salinity_ppt: float = 0.0) -> Optional[dict]:
+    """Calculate DO saturation using Benson-Krause (USGS 2011.03).
+
+    DOsat = DO0(T) * Fs(S,T) * Fp(P,T)
+    DO %sat = measured DO / DOsat * 100
+
+    Validity follows the USGS formulation: 0-40 °C, 0-40 ppt salinity,
+    and 0.5-1.1 atm pressure. Defaults are freshwater and standard
+    atmospheric pressure when no site corrections are configured.
+    """
+    try:
+        do = float(do_mg_l)
+        t_c = float(temperature_c)
+        p_kpa = float(pressure_kpa)
+        sal = float(salinity_ppt)
+    except (TypeError, ValueError):
+        return None
+    if not (0.0 <= t_c <= 40.0 and 0.0 <= sal <= 40.0):
+        return None
+    p_atm = p_kpa / 101.325
+    if not (0.5 <= p_atm <= 1.1):
+        return None
+    if do < 0:
+        return None
+
+    T = t_c + 273.15
+    ln_do0 = (
+        -139.34411
+        + 1.575701e5 / T
+        - 6.642308e7 / (T ** 2)
+        + 1.243800e10 / (T ** 3)
+        - 8.621949e11 / (T ** 4)
+    )
+    do0 = __import__("math").exp(ln_do0)
+
+    fs = __import__("math").exp(
+        -sal * (0.017674 - 10.754 / T + 2140.7 / (T ** 2))
+    )
+    vapor_atm = __import__("math").exp(
+        11.8571 - 3840.70 / T - 216961.0 / (T ** 2)
+    )
+    theta = 0.000975 - 1.426e-5 * t_c + 6.436e-8 * (t_c ** 2)
+    fp = ((p_atm - vapor_atm) * (1.0 - theta * p_atm)) / (
+        (1.0 - vapor_atm) * (1.0 - theta)
+    )
+    saturation_mg_l = do0 * fs * fp
+    if saturation_mg_l <= 0:
+        return None
+    saturation_pct = (do / saturation_mg_l) * 100.0
+    return {
+        "saturation_mg_l": round(saturation_mg_l, 3),
+        "saturation_pct": round(saturation_pct, 2),
+        "pressure_kpa": round(p_kpa, 3),
+        "salinity_ppt": round(sal, 3),
+        "formula": "Benson-Krause/USGS 2011.03",
+    }
+
+
 def _parse_iso_utc(value) -> Optional[datetime]:
     """Parse a device/API timestamp as an aware UTC datetime."""
     if not value:
@@ -206,6 +264,29 @@ async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]
         measurement_ts = measurement_dt.isoformat()
     else:
         measurement_ts = measurement_dt.isoformat()
+
+    # DO Analyzer engineering calculation: calculate saturation from the
+    # measured DO + water temperature using the Benson-Krause/USGS formulation.
+    # Preserve the vendor-reported saturation separately for traceability.
+    if device.get("instrument_type") == "do_meter":
+        do_value = values.get("DO")
+        temp_value = values.get("TEMPER")
+        vendor_sat = values.get("DO_SATURATION")
+        if isinstance(vendor_sat, (int, float)):
+            values["DO_SATURATION_VENDOR"] = vendor_sat
+        if isinstance(do_value, (int, float)) and isinstance(temp_value, (int, float)):
+            calc = _calculate_do_saturation(
+                do_value,
+                temp_value,
+                device.get("do_barometric_pressure_kpa", 101.325),
+                device.get("do_salinity_ppt", 0.0),
+            )
+            if calc:
+                values["DO_SATURATION"] = calc["saturation_pct"]
+                values["DO_SATURATION_CALCULATED"] = calc["saturation_pct"]
+                values["DO_SATURATION_MG_L"] = calc["saturation_mg_l"]
+                values["DO_SATURATION_PRESSURE_KPA"] = calc["pressure_kpa"]
+                values["DO_SATURATION_SALINITY_PPT"] = calc["salinity_ppt"]
 
     # DO Analyzer: QESPL emits a generic DO value. Always keep the raw DO
     # and derive the current tank key from the registry assignment.
