@@ -551,10 +551,17 @@ class MQTTFlowmeterService:
             forward_totalizer = calculate_forward_totalizer(tot1, tot2)
             reverse_totalizer = calculate_reverse_totalizer(rtot1, rtot2)
 
-            timestamp = parse_timestamp(data.get("TIME", ""))
-            if isinstance(timestamp, datetime) and timestamp.tzinfo is None:
-                timestamp = timestamp.replace(tzinfo=timezone.utc)
-            timestamp_iso = timestamp.isoformat() if isinstance(timestamp, datetime) else str(timestamp)
+            raw_time = str(data.get("TIME") or "").strip()
+            try:
+                timestamp = parse_timestamp(raw_time)
+                if isinstance(timestamp, datetime) and timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                timestamp_iso = timestamp.isoformat() if isinstance(timestamp, datetime) else str(timestamp)
+            except (TypeError, ValueError):
+                # A malformed/missing vendor clock must not discard the telemetry
+                # packet. Use receipt time as the fallback measurement timestamp
+                # and retain the original payload for auditability.
+                timestamp_iso = datetime.now(timezone.utc).isoformat()
 
             reading = {
                 "hardware_id": hardware_id,
