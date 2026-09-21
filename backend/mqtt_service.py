@@ -37,6 +37,17 @@ from mqtt_utils import (
 )
 
 
+TOTALISER_LITRE_CUTOFF = "2026-08-27T00:00:00+00:00"
+
+
+def _totaliser_to_kl(value: Optional[float], measurement_timestamp: Optional[str]) -> float:
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return v / 1000.0 if str(measurement_timestamp or "") >= TOTALISER_LITRE_CUTOFF else v
+
+
 class MQTTFlowmeterService:
     # Size of the in-memory rolling buffer used to expose recent MQTT traffic
     # to the admin UI (via GET /api/flowmeter/traffic).
@@ -611,10 +622,21 @@ class MQTTFlowmeterService:
                 sort=[("measurement_timestamp", -1), ("timestamp", -1)],
             )
             initial_totaliser = float(prev.get("forward_totalizer")) if prev and prev.get("forward_totalizer") is not None else forward_totalizer
+            prev_ts = (prev.get("measurement_timestamp") or prev.get("timestamp")) if prev else timestamp_iso
+            initial_kl = _totaliser_to_kl(initial_totaliser, prev_ts)
+            final_kl = _totaliser_to_kl(forward_totalizer, timestamp_iso)
+            # The final value of every chronological reading becomes the next
+            # chronological reading's initial value. Store both raw telemetry
+            # and the canonical KL chain so the 27-Aug-2026 unit transition
+            # cannot create a litre-vs-m³ discontinuity in reports.
             reading["initial_forward_totalizer"] = initial_totaliser
             reading["final_forward_totalizer"] = forward_totalizer
-            reading["totaliser_start_reading"] = initial_totaliser
-            reading["totaliser_end_reading"] = forward_totalizer
+            reading["initial_forward_totalizer_kl"] = round(initial_kl, 6)
+            reading["final_forward_totalizer_kl"] = round(final_kl, 6)
+            reading["totaliser_start_reading"] = round(initial_kl, 6)
+            reading["totaliser_end_reading"] = round(final_kl, 6)
+            reading["consumption_kl"] = round(max(0.0, final_kl - initial_kl), 6)
+            # Keep legacy field for old consumers, but its unit is explicitly L.
             reading["consumption_l"] = round(max(0.0, forward_totalizer - initial_totaliser), 6)
 
             # Idempotency: never append the same device measurement twice.
