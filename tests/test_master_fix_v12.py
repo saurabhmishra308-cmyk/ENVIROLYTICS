@@ -34,7 +34,7 @@ def test_flowmeter_history_is_measurement_time_ordered():
 def test_flowmeter_consumption_uses_chronological_chain():
     src = read("backend/api_flowmeter_mgmt.py")
     assert 'chronological forward-totaliser chain' in src
-    assert '.sort("timestamp", 1)' in src
+    assert '.sort([("measurement_timestamp", 1), ("timestamp", 1)])' in src
     assert 'if delta >= 0:' in src
 
 
