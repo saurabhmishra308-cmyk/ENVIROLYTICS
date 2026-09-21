@@ -67,32 +67,26 @@ def _measurement_datetime(row: dict) -> Optional[datetime]:
 
 
 def normalize_row(row: dict):
-    code = _code(row)
-
-    # The flow-rate input changed on 27-Aug-2026. Do not rewrite any
-    # pre-cutoff flow-rate data: those records already represent the
-    # historical unit and must remain exactly as stored.
+    # Before 27-Aug-2026 flow-rate values were already correct.
     ts = _measurement_datetime(row)
     if ts is None or ts < FLOW_RATE_LITRE_CUTOFF:
         return None, "pre_cutoff_unchanged"
 
-    # Best evidence: the original device FLOW value.
-    if row.get("raw_flow") not in (None, "") and code in UNIT_TO_M3H:
-        return _convert(row["raw_flow"], code), "raw_flow+unit"
-
-    # Legacy records may have only the displayed flow plus unit metadata.
-    if row.get("flow_rate_m3h") not in (None, "") and code in UNIT_TO_M3H:
-        return _convert(row["flow_rate_m3h"], code), "stored_flow+unit"
-
-    # Some old imports contain only flow_rate_lph, which is explicitly L/h.
-    if row.get("flow_rate_lph") not in (None, ""):
-        try:
-            return round(float(row["flow_rate_lph"]) / 1000.0, 6), "flow_rate_lph"
-
-        except (TypeError, ValueError):
-            pass
+    # From 27-Aug-2026 onward the device FLOW value is L/h regardless of
+    # stale UNT/UNIT metadata. Correct it explicitly to m3/h by /1000.
+    for field, source in (
+        ("raw_flow", "post_cutoff_lph_raw"),
+        ("flow_rate_m3h", "post_cutoff_lph_stored"),
+        ("flow_rate_lph", "post_cutoff_lph"),
+    ):
+        if row.get(field) not in (None, ""):
+            try:
+                return round(float(row[field]) / 1000.0, 6), source
+            except (TypeError, ValueError):
+                pass
 
     return None, "ambiguous"
+
 
 
 async def rebuild():
@@ -141,7 +135,7 @@ async def rebuild():
             if value is None:
                 ambiguous += 1
                 update["flow_rate_normalization_review"] = True
-            else
+            else:
                 update.update({
                     "flow_rate_m3h": value,
                     "flow_rate_lph": round(value * 1000.0, 6),
