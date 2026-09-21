@@ -487,6 +487,9 @@ def test_flowmeter_totaliser_unit_transition_is_normalized_to_kl():
     assert 'return v / 1000.0 if ts >= TOTALISER_LITRE_CUTOFF else v' in mgmt
     assert 'total_kl_reading = _totaliser_to_kl(row.get("forward_totalizer", 0), ts)' in mgmt
     assert '"totaliser_forward_kl": _totaliser_to_kl(' in mgmt
+    assert 'initial_forward_totalizer_kl' in Path("backend/mqtt_service.py").read_text()
+    assert 'final_forward_totalizer_kl' in Path("backend/mqtt_service.py").read_text()
+    assert 'consumption_kl' in Path("backend/mqtt_service.py").read_text()
 
     assert "TOTALISER_LITRE_CUTOFF = Date.parse('2026-08-27T00:00:00Z')" in reports
     assert "return Number(value) / (Number.isFinite(ts) && ts >= TOTALISER_LITRE_CUTOFF ? 1000 : 1)" in reports
