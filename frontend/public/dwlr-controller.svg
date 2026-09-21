@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 900">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eff8ff"/><stop offset="1" stop-color="#d9f0ff"/></linearGradient><linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#cbd5e1"/></linearGradient></defs>
+<rect width="700" height="900" rx="32" fill="url(#bg)"/>
+<g transform="translate(170 85)">
+<rect width="360" height="600" rx="28" fill="url(#body)" stroke="#64748b" stroke-width="7"/>
+<rect x="65" y="65" width="230" height="130" rx="18" fill="#0f172a"/>
+<text x="180" y="112" text-anchor="middle" font-family="Arial" font-size="25" font-weight="800" fill="#67e8f9">DWLR</text>
+<text x="180" y="157" text-anchor="middle" font-family="Arial" font-size="30" font-weight="800" fill="white">8.32 m</text>
+<circle cx="180" cy="300" r="62" fill="#e0f2fe" stroke="#0ea5e9" stroke-width="7"/>
+<path d="M180 250C145 295 145 322 180 348C215 322 215 295 180 250Z" fill="#0ea5e9"/>
+<circle cx="180" cy="450" r="30" fill="#10b981"/><path d="M166 450l10 10 20-23" fill="none" stroke="white" stroke-width="7"/>
+<rect x="105" y="520" width="150" height="20" rx="10" fill="#64748b"/>
+</g>
+<text x="350" y="770" text-anchor="middle" font-family="Arial" font-size="27" font-weight="800" fill="#0f172a">Digital Water Level Recorder</text>
+<text x="350" y="808" text-anchor="middle" font-family="Arial" font-size="16" fill="#475569">Continuous groundwater level monitoring</text>
+<text x="350" y="842" text-anchor="middle" font-family="Arial" font-size="14" font-weight="700" fill="#0f766e">ENVIROLYTICS</text>
+</svg>
