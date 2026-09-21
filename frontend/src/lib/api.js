@@ -48,12 +48,14 @@ api.interceptors.response.use(
   (err) => {
     const url = err?.config?.url || "";
     const status = err?.response?.status;
+    const detail = err?.response?.data?.detail;
     const isAuthSafe = AUTH_SAFE_ENDPOINTS.some((p) => url.includes(p));
+    const isDeactivated = status === 403 && detail === "Account is deactivated";
 
-    // Only auto-logout when the 401 clearly indicates an invalid/expired token,
-    // and the call isn't a user-action endpoint that returns 401 for business reasons
-    // (e.g. /api/auth/change-password returning 401 for wrong current password).
-    if (status === 401 && !isAuthSafe && isTokenInvalidError(err)) {
+    // Logout when the backend has invalidated the session or the account itself.
+    // The deactivated-account response is intentionally 403 because the token is
+    // valid cryptographically but the account is no longer permitted to use it.
+    if (!isAuthSafe && (isDeactivated || (status === 401 && isTokenInvalidError(err)))) {
       try {
         const hadToken = !!localStorage.getItem("envirolytics_token");
         localStorage.removeItem("envirolytics_token");
