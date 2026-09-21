@@ -166,7 +166,12 @@ def test_mqtt_flowmeter_totaliser_previous_reading_uses_measurement_time():
     src = read("backend/mqtt_service.py")
     assert '{"measurement_timestamp": {"$lt": timestamp_iso}}' in src
     assert '{"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": timestamp_iso}}' in src
-    assert '"forward_totalizer": 1, "measurement_timestamp": 1, "timestamp": 1' in src
+    # The projection now also includes the canonical KL chain field.
+    # Keep this regression test structural rather than depending on dict formatting.
+    assert '"forward_totalizer": 1' in src
+    assert '"final_forward_totalizer_kl": 1' in src
+    assert '"measurement_timestamp": 1' in src
+    assert '"timestamp": 1' in src
 
 
 def test_flowmeter_aggregate_exposes_measurement_time_and_separate_receipt_time():
