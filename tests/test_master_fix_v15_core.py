@@ -386,7 +386,7 @@ def test_legacy_status_and_site_status_endpoints_are_authenticated():
 def test_espl_timestamp_traceability():
     src = read("backend/espl_poller.py")
     assert '"measurement_timestamp": measurement_ts' in src
-    assert '"source_timestamp_raw": str(ts).strip() if ts else None' in src
+    assert '"source_timestamp_raw": str(source_timestamp_raw).strip() if source_timestamp_raw else None' in src
     assert '"received_at": now_iso' in src
 
 def test_dwlr_daily_deduplicates_measurement_timestamps():
