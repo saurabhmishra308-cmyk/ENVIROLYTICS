@@ -122,3 +122,18 @@ def test_registry_retention_and_clear_history_use_measurement_time():
     assert '"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": cutoff}' in src
     assert 'measurement_range_clause' in src
     assert '"measurement_timestamp": inner' in src
+
+
+def test_mqtt_reconnect_backoff_is_configured():
+    src = read("backend/mqtt_service.py")
+    assert "self.client.reconnect_delay_set(min_delay=1, max_delay=60)" in src
+    assert "connect_async(self.broker_host, self.broker_port, 60)" in src
+
+
+def test_espl_poller_keeps_five_minute_polling_and_measurement_time_authority():
+    src = read("backend/espl_poller.py")
+    assert "POLL_INTERVAL_SEC = 300" in src
+    assert '"measurement_timestamp": measurement_ts' in src
+    assert '"received_at": now_iso' in src
+    assert '"measurement_timestamp": 1, "timestamp": 1' in src
+    assert 'measurement_dt >= current_dt' in src
