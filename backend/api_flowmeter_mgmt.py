@@ -363,6 +363,51 @@ async def hourly_buckets(hardware_id: str, hours: int = Query(24, ge=1, le=168),
 # ============================
 # Reading edits with totaliser integrity check
 # ============================
+
+async def _chronological_neighbor(
+    hardware_id: str,
+    measurement_timestamp: str,
+    direction: str,
+    exclude_id,
+) -> Optional[dict]:
+    """Return the nearest chronological reading using measurement time authority.
+
+    Legacy timestamp is considered only for documents that have no
+    measurement_timestamp. Mongo sort ordering for missing fields is otherwise
+    able to put legacy rows ahead of authoritative rows.
+    """
+    operator = "$lt" if direction == "previous" else "$gt"
+    sort_direction = -1 if direction == "previous" else 1
+
+    measurement = await db.flowmeter_readings.find_one(
+        {
+            "hardware_id": hardware_id,
+            "measurement_timestamp": {operator: measurement_timestamp},
+            "_id": {"$ne": exclude_id},
+        },
+        sort=[("measurement_timestamp", sort_direction)],
+    )
+    legacy = await db.flowmeter_readings.find_one(
+        {
+            "hardware_id": hardware_id,
+            "measurement_timestamp": {"$exists": False},
+            "timestamp": {operator: measurement_timestamp},
+            "_id": {"$ne": exclude_id},
+        },
+        sort=[("timestamp", sort_direction)],
+    )
+
+    candidates = [row for row in (measurement, legacy) if row]
+    if not candidates:
+        return None
+    if direction == "previous":
+        return max(candidates, key=lambda row: str(
+            row.get("measurement_timestamp") or row.get("timestamp") or ""
+        ))
+    return min(candidates, key=lambda row: str(
+        row.get("measurement_timestamp") or row.get("timestamp") or ""
+    ))
+
 @router.put("/readings/flowmeter/{reading_id}")
 async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, admin: dict = Depends(require_admin)):
     """Edit a stored flowmeter reading.
@@ -386,24 +431,8 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
 
     # Validate forward totaliser monotonicity (chronological neighbours by timestamp)
     if req.forward_totalizer is not None:
-        prev = await db.flowmeter_readings.find_one(
-            {"hardware_id": hardware_id,
-             "$or": [
-                 {"measurement_timestamp": {"$lt": new_ts}},
-                 {"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": new_ts}},
-             ],
-             "_id": {"$ne": obj_id}},
-            sort=[("measurement_timestamp", -1), ("timestamp", -1)],
-        )
-        nxt = await db.flowmeter_readings.find_one(
-            {"hardware_id": hardware_id,
-             "$or": [
-                 {"measurement_timestamp": {"$gt": new_ts}},
-                 {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gt": new_ts}},
-             ],
-             "_id": {"$ne": obj_id}},
-            sort=[("measurement_timestamp", 1), ("timestamp", 1)],
-        )
+        prev = await _chronological_neighbor(hardware_id, new_ts, "previous", obj_id)
+        nxt = await _chronological_neighbor(hardware_id, new_ts, "next", obj_id)
         if prev and req.forward_totalizer < float(prev.get("forward_totalizer", 0)) - 1e-6:
             raise HTTPException(
                 status_code=400,
@@ -425,24 +454,8 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
 
     # Same check for reverse totaliser
     if req.reverse_totalizer is not None:
-        prev = await db.flowmeter_readings.find_one(
-            {"hardware_id": hardware_id,
-             "$or": [
-                 {"measurement_timestamp": {"$lt": new_ts}},
-                 {"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": new_ts}},
-             ],
-             "_id": {"$ne": obj_id}},
-            sort=[("measurement_timestamp", -1), ("timestamp", -1)],
-        )
-        nxt = await db.flowmeter_readings.find_one(
-            {"hardware_id": hardware_id,
-             "$or": [
-                 {"measurement_timestamp": {"$gt": new_ts}},
-                 {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gt": new_ts}},
-             ],
-             "_id": {"$ne": obj_id}},
-            sort=[("measurement_timestamp", 1), ("timestamp", 1)],
-        )
+        prev = await _chronological_neighbor(hardware_id, new_ts, "previous", obj_id)
+        nxt = await _chronological_neighbor(hardware_id, new_ts, "next", obj_id)
         if prev and req.reverse_totalizer < float(prev.get("reverse_totalizer", 0)) - 1e-6:
             raise HTTPException(
                 status_code=400,
