@@ -35,10 +35,15 @@ def _totaliser_to_kl(value: Optional[float], measurement_timestamp: Optional[str
         v = float(value or 0)
     except (TypeError, ValueError):
         return 0.0
-    ts = str(measurement_timestamp or "")
-    # Before the transition the numeric value is m³, which is numerically equal
-    # to KL. From the transition onward the numeric value is litres.
-    return v / 1000.0 if ts >= TOTALISER_LITRE_CUTOFF else v
+    try:
+        ts = datetime.fromisoformat(str(measurement_timestamp or "").replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        cutoff = datetime.fromisoformat(TOTALISER_LITRE_CUTOFF.replace("Z", "+00:00"))
+        return v / 1000.0 if ts >= cutoff else v
+    except (TypeError, ValueError):
+        # Safe fallback for legacy malformed timestamps.
+        return v / 1000.0 if str(measurement_timestamp or "") >= TOTALISER_LITRE_CUTOFF else v
 
 
 def set_db(database):
