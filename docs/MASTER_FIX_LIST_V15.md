@@ -150,7 +150,9 @@ Audit and verify:
 
 ## 6. Instrument Registry
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** registry ownership and visibility are authoritative, hardware IDs and IMEIs are checked for duplicates, device types/source/tank assignments are validated, registry retention/history controls use measurement time, orphan-data cleanup is available, registry fleet endpoints no longer impose arbitrary 2,000-device caps, and device updates now keep flowmeter category and MQTT mapping consistent when type/source changes. Live production registry/device verification remains outstanding.
 
 Audit and verify:
 
