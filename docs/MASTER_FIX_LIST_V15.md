@@ -190,7 +190,9 @@ Audit and verify:
 
 ## 8. Web dashboard
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** live dashboard data uses authenticated backend APIs and registry-scoped device visibility. A client-dashboard failure mode was fixed where the admin/staff-only MQTT status endpoint could abort the dashboard's critical live-data request batch; that status call is now requested only for admin users. Registry fleet caps affecting dashboard device coverage have also been removed. Live browser verification across admin/client roles remains outstanding.
 
 Audit and verify:
 
