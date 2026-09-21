@@ -59,3 +59,10 @@ def test_dwlr_daily_uses_measurement_time():
     src = read("backend/api_flowmeter_mgmt.py")
     assert '"measurement_timestamp": 1' in src
     assert 'r.get("measurement_timestamp") or r.get("timestamp")' in src
+
+
+def test_reports_use_measurement_timestamp_before_receipt_time():
+    src = read("frontend/src/pages/Reports.jsx")
+    assert "r?.measurement_timestamp" in src
+    assert "r?.received_at" in src
+    assert src.indexOf("r?.measurement_timestamp") < src.indexOf("r?.received_at")
