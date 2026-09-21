@@ -359,7 +359,7 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability 
         { src: '/flowmeter-detail.svg', alt: 'Envirolytics Flowmeter — detail' },
       ]
     : [
-        { src: '/dwlr-banner.svg', alt: 'Envirolytics Digital Water Level Recorder — overview' },
+        { src: '/dwlr-banner.webp', alt: 'Envirolytics Digital Water Level Recorder — overview' },
         { src: '/dwlr-controller.svg', alt: 'Envirolytics Digital Water Level Recorder — controller view' },
         { src: '/dwlr-probe.svg', alt: 'Envirolytics Digital Water Level Recorder — probe view' },
       ];
