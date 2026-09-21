@@ -134,6 +134,15 @@ def test_mqtt_downsampling_uses_measurement_time_not_receipt_time():
     assert '(current_ts - last_ts) >= timedelta(minutes=freq_minutes)' in src
     assert 'self._should_store_reading("flowmeter", hardware_id, timestamp_iso)' in src
     assert 'self._should_store_reading("instrument", hardware_id, ts_iso)' in src
+def test_mqtt_downsampling_preserves_late_measurements_in_chronological_history():
+    src = read("backend/mqtt_service.py")
+    start = src.index("async def _should_store_reading")
+    end = src.index("async def process_instrument_data", start)
+    block = src[start:end]
+    assert '"measurement_timestamp": {"$lt": measurement_timestamp}' in block
+    assert '"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": measurement_timestamp}' in block
+    assert "nearest earlier device measurement" in block
+    assert "current_ts <= previous_ts" in block
 
 
 def test_mqtt_flowmeter_dedup_and_latest_use_measurement_timestamp():
