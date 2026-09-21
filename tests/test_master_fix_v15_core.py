@@ -341,7 +341,7 @@ def test_reports_use_measurement_time_and_registry_visibility():
     assert "measurement_timestamp" in src
     assert "def _measurement_range(start: datetime, end: datetime)" in src
     assert "def _measurement_since(start: datetime)" in src
-    assert "sort=[("measurement_timestamp", -1), ("timestamp", -1)]" in src
+    assert 'sort=[("measurement_timestamp", -1), ("timestamp", -1)]' in src
     assert "async def _list_groundwater_borewells(user: dict)" in src
     assert "_list_groundwater_borewells(user)" in src
 
