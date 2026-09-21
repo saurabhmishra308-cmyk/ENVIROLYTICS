@@ -242,3 +242,12 @@ def test_generic_latest_endpoints_have_no_arbitrary_device_caps():
     type_block = src[type_start:type_end]
     assert "to_list(length=200)" not in type_block
     assert "async for row in cursor:" in type_block
+
+def test_dwlr_daily_range_is_measurement_time_authoritative():
+    src = read("backend/api_flowmeter_mgmt.py")
+    start = src.index('async def dwlr_daily')
+    end = src.index('\n#', start) if '\n#' in src[start:] else len(src)
+    block = src[start:end]
+    assert '"measurement_timestamp": {"$gte": start.isoformat(), "$lte": end.isoformat()}' in block
+    assert '"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": start.isoformat(), "$lte": end.isoformat()}' in block
+    assert '.limit(20000)' not in block
