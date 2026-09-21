@@ -7,7 +7,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '../components/ui/popove
 import { Calendar } from '../components/ui/calendar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
-import { Download, FileSpreadsheet, FileText, Upload, Loader2, Filter, CalendarIcon, Pencil, Trash2, AlertCircle } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, Upload, Loader2, Filter, CalendarIcon, Pencil, Trash2, AlertCircle, BarChart3, Droplets, Gauge, Sigma, Search, RotateCcw, Columns3, ChevronLeft, ChevronRight, Activity, Database, ArrowUpDown } from 'lucide-react';
 import api, { formatApiError, apiUrl } from '../lib/api';
 import { isAdmin, getToken, getCurrentUser } from '../mockData';
 import { toast } from 'sonner';
@@ -533,227 +533,180 @@ const Reports = () => {
     }
   };
 
+  const [tableSearch, setTableSearch] = useState('');
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const reportStats = useMemo(() => {
+    const rows = filteredReadings || [];
+    const flows = rows.map((r) => Number(r.flow_rate_m3h_avg)).filter(Number.isFinite);
+    const consumptions = rows.map((r) => Number(r.forward_consumption)).filter(Number.isFinite);
+    const totalConsumption = consumptions.reduce((a, b) => a + b, 0);
+    const averageFlow = flows.length ? flows.reduce((a, b) => a + b, 0) / flows.length : null;
+    const peakFlow = flows.length ? Math.max(...flows) : null;
+    const latest = rows[0];
+    const earliest = rows[rows.length - 1];
+    const totaliserIncrease = latest && earliest &&
+      Number.isFinite(Number(latest.final_forward_totalizer_kl)) &&
+      Number.isFinite(Number(earliest.initial_forward_totalizer_kl))
+      ? Math.max(0, Number(latest.final_forward_totalizer_kl) - Number(earliest.initial_forward_totalizer_kl))
+      : null;
+    return { totalConsumption, averageFlow, peakFlow, totaliserIncrease };
+  }, [filteredReadings]);
+
+  const searchableRows = useMemo(() => {
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return filteredReadings || [];
+    return (filteredReadings || []).filter((r) => {
+      const d = parseReadingDate(r);
+      return [
+        humanDate(d), humanTime(d), r.flow_rate_m3h_avg, r.forward_consumption,
+        r.initial_forward_totalizer_kl, r.final_forward_totalizer_kl,
+        selectedDevice?.label, selectedDevice?.hardware_id, selectedDevice?.location_name
+      ].join(' ').toLowerCase().includes(q);
+    });
+  }, [filteredReadings, tableSearch, selectedDevice]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [tableSearch, rowsPerPage, frequency, startDate, endDate, hardwareId, section]);
+
+  const pageCount = Math.max(1, Math.ceil(searchableRows.length / rowsPerPage));
+  const safePage = Math.min(currentPage, pageCount);
+  const pagedRows = searchableRows.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage);
+
   // ---- Table row rendering removed — inlined into the JSX below to keep the
   // professional-CSV column layout (S.No. / Site / Location / …) in sync.
 
   return (
-    <div className="p-6 space-y-6" data-testid="reports-page">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Reports &amp; Historical Data</h1>
-          <p className="text-gray-600 mt-1">View, filter, edit, export and import instrument readings.</p>
-        </div>
-        <div className="flex gap-2">
-          {/* Downloads — both admin and clients can download their own data (backend scopes by owner) */}
-          <Button variant="outline" onClick={() => triggerDownload('csv')} data-testid="download-csv-btn"><Download className="h-4 w-4 mr-2" /> CSV</Button>
-          <Button style={{ backgroundColor: '#4a9fd8' }} onClick={() => triggerDownload('pdf')} data-testid="download-pdf-btn"><FileText className="h-4 w-4 mr-2" /> PDF</Button>
-          {/* Excel/CSV import — admin only (data ingestion is a privileged action) */}
-          {admin && (section === 'flowmeter' || section === 'dwlr') && (
-            <>
+    <div className="min-h-full bg-slate-50/70 px-4 py-5 md:px-6 lg:px-8" data-testid="reports-page">
+      <div className="mx-auto max-w-[1700px] space-y-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100"><BarChart3 className="h-7 w-7" /></div>
+            <div>
+              <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Envirolytics / Reports</div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Reports &amp; Historical Data</h1>
+              <p className="mt-1 text-sm text-slate-500">View, analyse, export and manage historical readings from your instruments.</p>
+              <div className="mt-2 flex items-center gap-2 text-xs text-slate-400"><Activity className="h-3.5 w-3.5 text-emerald-500" /> Accurate data <span>•</span> Better decisions <span>•</span> A cleaner environment</div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className="h-10 border-slate-200 bg-white shadow-sm" onClick={() => triggerDownload('csv')} data-testid="download-csv-btn"><Download className="mr-2 h-4 w-4" /> Export CSV</Button>
+            <Button className="h-10 bg-blue-600 shadow-sm hover:bg-blue-700" onClick={() => triggerDownload('pdf')} data-testid="download-pdf-btn"><FileText className="mr-2 h-4 w-4" /> Export PDF</Button>
+            {admin && (section === 'flowmeter' || section === 'dwlr') && <>
+              <Button variant="outline" className="h-10 border-slate-200 bg-white shadow-sm" onClick={downloadTemplate} data-testid="download-template-btn"><FileSpreadsheet className="mr-2 h-4 w-4" /> Report Template</Button>
               <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleUpload} className="hidden" data-testid="upload-excel-input" />
-              <Button variant="outline" onClick={downloadTemplate} data-testid="download-template-btn" title="Download the empty CSV template for manual data entry">
-                <FileSpreadsheet className="h-4 w-4 mr-2" /> Template
-              </Button>
-              <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={uploading} data-testid="upload-excel-btn">
-                {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}Import CSV/Excel
-              </Button>
-            </>
-          )}
+              <Button variant="outline" className="h-10 border-slate-200 bg-white shadow-sm" onClick={() => fileRef.current?.click()} disabled={uploading} data-testid="upload-excel-btn">{uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />} Import CSV/Excel</Button>
+            </>}
+          </div>
         </div>
+
+        <Tabs value={section} onValueChange={(v) => { setSection(v); setHardwareId(''); setReadings([]); }}>
+          <div className="overflow-x-auto pb-1">
+            <TabsList className="inline-flex h-auto gap-2 rounded-xl bg-transparent p-0">
+              {[['flowmeter','Flowmeter'],['dwlr','DWLR'],['ph','pH'],['tds','TDS'],['conductivity','Conductivity'],['charts','Graphs & Combined']].map(([value,label]) => (
+                <TabsTrigger key={value} value={value} data-testid={`reports-tab-${value}`} className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-600 shadow-sm data-[state=active]:border-blue-600 data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md">{label}</TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+
+          <TabsContent value="charts" className="mt-4"><ReportsCharts /></TabsContent>
+
+          <TabsContent value={section === 'charts' ? '__hide__' : section} className="mt-4 space-y-5">
+            <Card className="overflow-hidden border-0 bg-white shadow-sm ring-1 ring-slate-200">
+              <CardContent className="p-0">
+                <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_390px]">
+                  <div className="p-5 md:p-6">
+                    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><Filter className="h-5 w-5" /></div>
+                        <div><h2 className="text-lg font-bold text-slate-900">Report Filters</h2><p className="text-xs text-slate-500">Select a device, date range and reporting frequency.</p></div>
+                      </div>
+                      <Button variant="ghost" className="text-slate-500 hover:text-blue-600" onClick={() => { setHardwareId(''); setSelectedDevice(null); setStartDate(null); setEndDate(null); setFrequency('daily'); setReadings([]); setTableSearch(''); }}><RotateCcw className="mr-2 h-4 w-4" /> Reset</Button>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div>
+                        <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-600">Device</Label>
+                        <select className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" value={hardwareId} onChange={(e) => { const hw=e.target.value; setHardwareId(hw); setSelectedDevice(devices.find((d)=>d.hardware_id===hw)||null); setReadings([]); }} data-testid="filter-device-select">
+                          <option value="">Select {section.toUpperCase()} device</option>
+                          {devices.map((d) => <option key={d.hardware_id} value={d.hardware_id}>{cleanLabel(d.label || d.hardware_id)}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-600">Start Date</Label>
+                        <Popover><PopoverTrigger asChild><Button variant="outline" className="h-11 w-full justify-start rounded-xl border-slate-200 bg-white font-normal shadow-none" data-testid="filter-start-date"><CalendarIcon className="mr-2 h-4 w-4 text-slate-400" />{startDate ? startDate.toLocaleDateString('en-GB') : <span className="text-slate-400">DD/MM/YYYY</span>}</Button></PopoverTrigger><PopoverContent className="w-auto p-0" align="start"><Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus /></PopoverContent></Popover>
+                      </div>
+                      <div>
+                        <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-600">End Date</Label>
+                        <Popover><PopoverTrigger asChild><Button variant="outline" className="h-11 w-full justify-start rounded-xl border-slate-200 bg-white font-normal shadow-none" data-testid="filter-end-date"><CalendarIcon className="mr-2 h-4 w-4 text-slate-400" />{endDate ? endDate.toLocaleDateString('en-GB') : <span className="text-slate-400">DD/MM/YYYY</span>}</Button></PopoverTrigger><PopoverContent className="w-auto p-0" align="start"><Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus /></PopoverContent></Popover>
+                      </div>
+                      <div>
+                        <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-600">Frequency</Label>
+                        <select className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" value={frequency} onChange={(e)=>setFrequency(e.target.value)} data-testid="filter-frequency-select">
+                          <option value="raw">All raw readings</option><option value="daily">Daily (1 row / day)</option><option value="weekly">Weekly (1 row / week)</option><option value="monthly">Monthly (1 row / month)</option><option value="quarterly">Quarterly (1 row / quarter)</option><option value="yearly">Yearly (1 row / year)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <Button onClick={() => { const needsBounds=['weekly','monthly','quarterly','yearly'].includes(frequency); if (needsBounds && (!startDate || !endDate)) { toast.error(`${frequency.charAt(0).toUpperCase()+frequency.slice(1)} reports require both a start date and an end date`); return; } fetchReadings(); }} className="h-11 min-w-40 rounded-xl bg-blue-600 px-6 shadow-sm hover:bg-blue-700" disabled={!hardwareId || loading} data-testid="apply-filters-btn">{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Filter className="mr-2 h-4 w-4" />} Apply Filter</Button>
+                    </div>
+                  </div>
+                  <div className="relative hidden overflow-hidden bg-sky-50 lg:block"><img src="/flowmeter-banner.svg" alt="Envirolytics flowmeter" className="h-full w-full object-cover" /><div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/70 to-transparent px-5 pb-4 pt-16"><div className="text-sm font-semibold text-white">Accurate Flow Monitoring</div><div className="text-xs text-slate-200">Reliable data • Real-time monitoring • Sustainable water management</div></div></div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {section === 'flowmeter' && <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <Card className="border-0 bg-white shadow-sm ring-1 ring-blue-100"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="rounded-2xl bg-blue-50 p-3 text-blue-600"><Droplets className="h-6 w-6"/></div><div><p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Total Consumption</p><p className="mt-1 text-2xl font-bold text-slate-900">{fmt(reportStats.totalConsumption,3)} <span className="text-sm font-semibold text-slate-500">KL</span></p><p className="mt-1 text-xs text-slate-400">Selected period</p></div></div></CardContent></Card>
+              <Card className="border-0 bg-white shadow-sm ring-1 ring-emerald-100"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600"><BarChart3 className="h-6 w-6"/></div><div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Average Flow Rate</p><p className="mt-1 text-2xl font-bold text-slate-900">{fmt(reportStats.averageFlow,3)} <span className="text-sm font-semibold text-slate-500">m³/h</span></p><p className="mt-1 text-xs text-slate-400">Across displayed periods</p></div></div></CardContent></Card>
+              <Card className="border-0 bg-white shadow-sm ring-1 ring-orange-100"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="rounded-2xl bg-orange-50 p-3 text-orange-600"><Gauge className="h-6 w-6"/></div><div><p className="text-xs font-semibold uppercase tracking-wide text-orange-600">Peak Flow Rate</p><p className="mt-1 text-2xl font-bold text-slate-900">{fmt(reportStats.peakFlow,3)} <span className="text-sm font-semibold text-slate-500">m³/h</span></p><p className="mt-1 text-xs text-slate-400">Highest displayed value</p></div></div></CardContent></Card>
+              <Card className="border-0 bg-white shadow-sm ring-1 ring-violet-100"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="rounded-2xl bg-violet-50 p-3 text-violet-600"><Sigma className="h-6 w-6"/></div><div><p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Totaliser Increase</p><p className="mt-1 text-2xl font-bold text-slate-900">{fmt(reportStats.totaliserIncrease,3)} <span className="text-sm font-semibold text-slate-500">KL</span></p><p className="mt-1 text-xs text-slate-400">Selected period</p></div></div></CardContent></Card>
+              <Card className="border-0 bg-blue-50/60 shadow-sm ring-1 ring-blue-100"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="rounded-full bg-blue-100 p-2.5 text-blue-600"><AlertCircle className="h-5 w-5"/></div><div><p className="text-sm font-bold text-slate-800">Data integrity</p><p className="mt-1 text-xs leading-5 text-slate-600">Totaliser values must remain monotonically non-decreasing. Server validation protects historical data.</p></div></div></CardContent></Card>
+            </div>}
+
+            <Card className="overflow-hidden border-0 bg-white shadow-sm ring-1 ring-slate-200">
+              <CardHeader className="border-b border-slate-100 pb-4">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="flex items-start gap-3"><div className="rounded-xl bg-blue-50 p-2.5 text-blue-600"><Database className="h-5 w-5"/></div><div><CardTitle className="text-lg text-slate-900">{section === 'flowmeter' ? 'Flowmeter Historical Data' : `${section.toUpperCase()} Historical Data`} <span className="text-slate-400">({searchableRows.length})</span></CardTitle><CardDescription className="mt-1">Showing data for <span className="font-medium text-slate-700">{cleanLabel(selectedDevice?.label || hardwareId || 'Selected device')}</span></CardDescription></div></div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative w-full sm:w-72"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><Input value={tableSearch} onChange={(e)=>setTableSearch(e.target.value)} placeholder="Search date, value or keyword..." className="h-10 rounded-xl border-slate-200 pl-9"/></div>
+                    <Button variant="outline" className="h-10 rounded-xl border-slate-200"><Columns3 className="mr-2 h-4 w-4"/> Columns</Button>
+                    <Button className="h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700" onClick={()=>triggerDownload('csv')}><Download className="mr-2 h-4 w-4"/> Export</Button>
+                  </div>
+                </div>
+                {section === 'flowmeter' && <div className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700"><AlertCircle className="h-3.5 w-3.5"/>Totaliser values must be monotonically non-decreasing — server will reject inconsistent edits.</div>}
+              </CardHeader>
+              <CardContent className="p-0">
+                {loading ? <div className="py-16 text-center text-sm text-slate-500"><Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-blue-600"/>Loading historical data…</div> :
+                !hardwareId ? <div className="py-16 text-center text-sm text-slate-500">Select a device and date range, then click <b>Apply Filter</b>.</div> :
+                searchableRows.length===0 ? <div className="py-16 text-center text-sm text-slate-500">No readings match the selected filters.</div> :
+                <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-sm" data-testid="readings-table">
+                  <thead><tr className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-4 py-3 text-left">S.No.</th><th className="whitespace-nowrap px-4 py-3 text-left">Date <ArrowUpDown className="ml-1 inline h-3 w-3"/></th><th className="whitespace-nowrap px-4 py-3 text-left">Time</th>
+                    {section==='flowmeter'?<><th className="whitespace-nowrap px-4 py-3 text-right">Flow rate (m³/h)</th><th className="whitespace-nowrap px-4 py-3 text-right">Initial Totaliser (KL)</th><th className="whitespace-nowrap px-4 py-3 text-right">Final Totaliser (KL)</th><th className="whitespace-nowrap px-4 py-3 text-right">Consumption (KL)</th></>:section==='dwlr'?<><th className="whitespace-nowrap px-4 py-3 text-right">Water Level (mWC)</th><th className="whitespace-nowrap px-4 py-3 text-right">Temperature (°C)</th></>:<th className="px-4 py-3 text-left">Values</th>}
+                    {admin&&<th className="whitespace-nowrap px-4 py-3 text-right">Actions</th>}
+                  </tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {pagedRows.map((r,i)=>{const d=parseReadingDate(r);const level=section==='dwlr'?pickNum(r.values,['LEVEL','LVL','level','WATER_LEVEL','RAW']):null;const temp=section==='dwlr'?(selectedDevice?.manual_water_temp_c??pickNum(r.values,['WTEMP'],{skipZero:true})??pickNum(r.values,['ATEMP','TEMPER','TEMP','temperature'])):null;const serial=(safePage-1)*rowsPerPage+i+1;return <tr key={r._id||i} className="transition hover:bg-blue-50/40">
+                      <td className="px-4 py-3 font-medium tabular-nums text-slate-500">{serial}</td><td className="whitespace-nowrap px-4 py-3 font-medium text-slate-800">{humanDate(d)}</td><td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-500">{humanTime(d)}</td>
+                      {section==='flowmeter'?<><td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-800">{fmt(r.flow_rate_m3h_avg,3)}</td><td className="px-4 py-3 text-right tabular-nums text-slate-700">{fmt(r.initial_forward_totalizer_kl,3)}</td><td className="px-4 py-3 text-right tabular-nums text-slate-700">{fmt(r.final_forward_totalizer_kl,3)}</td><td className="px-4 py-3 text-right font-bold tabular-nums text-emerald-600">{fmt(r.forward_consumption,3)}</td></>:section==='dwlr'?<><td className="px-4 py-3 text-right tabular-nums text-slate-700">{level!=null?Number(level).toFixed(2):'—'}</td><td className="px-4 py-3 text-right tabular-nums text-slate-700">{temp!=null?Number(temp).toFixed(1):'—'}</td></>:<td className="max-w-md truncate px-4 py-3 font-mono text-xs text-slate-600">{JSON.stringify(r.values||{})}</td>}
+                      {admin&&<td className="px-4 py-3 text-right whitespace-nowrap"><Button size="sm" variant="outline" className="mr-1 h-8 w-8 p-0" onClick={()=>openEdit(r)} data-testid={`edit-reading-${r._id}`}><Pencil className="h-3.5 w-3.5"/></Button><Button size="sm" variant="outline" className="h-8 w-8 p-0 text-red-600 hover:bg-red-50" onClick={()=>deleteReading(r)} data-testid={`delete-reading-${r._id}`}><Trash2 className="h-3.5 w-3.5"/></Button></td>}
+                    </tr>})}
+                  </tbody>
+                </table></div>}
+              </CardContent>
+              {searchableRows.length>0&&<div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-500 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-4"><span>Showing {Math.min((safePage-1)*rowsPerPage+1,searchableRows.length)} to {Math.min(safePage*rowsPerPage,searchableRows.length)} of {searchableRows.length} records</span><label className="flex items-center gap-2">Rows per page<select className="h-8 rounded-lg border border-slate-200 bg-white px-2" value={rowsPerPage} onChange={(e)=>setRowsPerPage(Number(e.target.value))}><option value="8">8</option><option value="10">10</option><option value="20">20</option><option value="50">50</option></select></label></div>
+                <div className="flex items-center gap-1"><Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={safePage===1} onClick={()=>setCurrentPage(1)}>«</Button><Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={safePage===1} onClick={()=>setCurrentPage(safePage-1)}><ChevronLeft className="h-4 w-4"/></Button>{Array.from({length:Math.min(5,pageCount)},(_,idx)=>{const p=Math.min(Math.max(1,safePage-2)+idx,pageCount);return <Button key={p} size="sm" variant={p===safePage?'default':'outline'} className="h-8 min-w-8 p-0" onClick={()=>setCurrentPage(p)}>{p}</Button>})}<Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={safePage===pageCount} onClick={()=>setCurrentPage(safePage+1)}><ChevronRight className="h-4 w-4"/></Button><Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={safePage===pageCount} onClick={()=>setCurrentPage(pageCount)}>»</Button></div>
+              </div>}
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
-
-      <Tabs value={section} onValueChange={(v) => { setSection(v); setHardwareId(''); }}>
-        <TabsList>
-          <TabsTrigger value="flowmeter" data-testid="reports-tab-flowmeter">Flowmeter</TabsTrigger>
-          <TabsTrigger value="dwlr" data-testid="reports-tab-dwlr">DWLR</TabsTrigger>
-          <TabsTrigger value="ph" data-testid="reports-tab-ph">pH</TabsTrigger>
-          <TabsTrigger value="tds" data-testid="reports-tab-tds">TDS</TabsTrigger>
-          <TabsTrigger value="conductivity" data-testid="reports-tab-conductivity">Conductivity</TabsTrigger>
-          <TabsTrigger value="charts" data-testid="reports-tab-charts">Graphs &amp; Combined</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="charts" className="mt-4">
-          <ReportsCharts />
-        </TabsContent>
-
-        <TabsContent value={section === 'charts' ? '__hide__' : section} className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Filters</CardTitle>
-              <CardDescription>
-                Select a device, pick a date range and frequency, then click <b>Filter</b> to populate the table below.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                <div>
-                  <Label>Device</Label>
-                  <select
-                    className="w-full border rounded h-10 px-2 bg-white"
-                    value={hardwareId}
-                    onChange={(e) => {
-                      const hw = e.target.value;
-                      setHardwareId(hw);
-                      setSelectedDevice(devices.find((d) => d.hardware_id === hw) || null);
-                      setReadings([]);
-                    }}
-                    data-testid="filter-device-select"
-                  >
-                    <option value="">— Select {section.toUpperCase()} device —</option>
-                    {devices.map((d) => (
-                      <option key={d.hardware_id} value={d.hardware_id}>
-                        {cleanLabel(d.label || d.hardware_id)}{d.location_name ? ` · ${d.location_name}` : ''} ({d.hardware_id})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label>Start Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal" data-testid="filter-start-date"><CalendarIcon className="h-4 w-4 mr-2" />{startDate ? startDate.toLocaleDateString() : <span className="text-gray-400">Pick date</span>}</Button></PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start"><Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus /></PopoverContent>
-                  </Popover>
-                </div>
-                <div>
-                  <Label>End Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild><Button variant="outline" className="w-full justify-start font-normal" data-testid="filter-end-date"><CalendarIcon className="h-4 w-4 mr-2" />{endDate ? endDate.toLocaleDateString() : <span className="text-gray-400">Pick date</span>}</Button></PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start"><Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus /></PopoverContent>
-                  </Popover>
-                </div>
-                <div>
-                  <Label>Frequency</Label>
-                  <select
-                    className="w-full border rounded h-10 px-2 bg-white"
-                    value={frequency}
-                    onChange={(e) => setFrequency(e.target.value)}
-                    data-testid="filter-frequency-select"
-                  >
-                    <option value="raw">All raw readings</option>
-                    <option value="daily">Daily (1 row / day)</option>
-                    <option value="weekly">Weekly (1 row / week)</option>
-                    <option value="monthly">Monthly (1 row / month)</option>
-                    <option value="quarterly">Quarterly (1 row / quarter)</option>
-                    <option value="yearly">Yearly (1 row / year)</option>
-                  </select>
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    onClick={() => {
-                      // Enforce mandatory date bounds for period reports so the
-                      // aggregate is unambiguous.
-                      const needsBounds = ['weekly', 'monthly', 'quarterly', 'yearly'].includes(frequency);
-                      if (needsBounds && (!startDate || !endDate)) {
-                        toast.error(`${frequency.charAt(0).toUpperCase() + frequency.slice(1)} reports require both a start date and an end date`);
-                        return;
-                      }
-                      fetchReadings();
-                    }}
-                    className="w-full"
-                    disabled={!hardwareId || loading}
-                    data-testid="apply-filters-btn"
-                  >
-                    {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Filter className="h-4 w-4 mr-2" />}
-                    Filter
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5" /> {section.toUpperCase()} data ({filteredReadings.length})</CardTitle>
-              {section === 'flowmeter' && (
-                <CardDescription className="flex items-center gap-2 text-amber-700"><AlertCircle className="h-3 w-3" />Totaliser values must be monotonically non-decreasing — server will reject inconsistent edits.</CardDescription>
-              )}
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <p className="text-center py-8 text-gray-500">Loading…</p>
-              ) : !hardwareId ? (
-                <p className="text-center py-8 text-gray-500">Select a device above and click <b>Filter</b> to load readings.</p>
-              ) : filteredReadings.length === 0 ? (
-                <p className="text-center py-8 text-gray-500">No readings match the selected filters.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm" data-testid="readings-table">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="text-left p-2">S.No.</th>
-                        <th className="text-left p-2">Site Name</th>
-                        <th className="text-left p-2">Location</th>
-                        <th className="text-left p-2">Device</th>
-                        <th className="text-left p-2">Date</th>
-                        <th className="text-left p-2">Time</th>
-                        {section === 'flowmeter' ? (
-                          <>
-                            <th className="text-right p-2">Flow rate (m³/h)</th>
-                            <th className="text-right p-2">Initial Totaliser (KL)</th>
-                            <th className="text-right p-2">Final Totaliser (KL)</th>
-                            <th className="text-right p-2">Consumption (KL)</th>
-                          </>
-                        ) : section === 'dwlr' ? (
-                          <>
-                            <th className="text-right p-2">Water Level (mWC)</th>
-                            <th className="text-right p-2">Temperature (°C)</th>
-                          </>
-                        ) : (
-                          <th className="text-left p-2">Values</th>
-                        )}
-                        {admin && <th className="text-right p-2">Actions</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredReadings.slice(0, 500).map((r, i) => {
-                        const d = parseReadingDate(r);
-                        const siteName = cleanLabel(selectedDevice?.label || selectedDevice?.hardware_id || '—');
-                        const locationName = selectedDevice?.location_name || selectedDevice?.owner_location_name || '—';
-                        const deviceLbl = cleanLabel(selectedDevice?.label || selectedDevice?.hardware_id || hardwareId || '—');
-                        const level = section === 'dwlr' ? pickNum(r.values, ['LEVEL', 'LVL', 'level', 'WATER_LEVEL', 'RAW']) : null;
-                        const temp = section === 'dwlr'
-                          ? (selectedDevice?.manual_water_temp_c ?? pickNum(r.values, ['WTEMP'], { skipZero: true }) ?? pickNum(r.values, ['ATEMP', 'TEMPER', 'TEMP', 'temperature']))
-                          : null;
-                        return (
-                          <tr key={r._id || i} className="border-b hover:bg-gray-50 text-sm">
-                            <td className="p-2 tabular-nums">{i + 1}</td>
-                            <td className="p-2">{siteName}</td>
-                            <td className="p-2">{locationName}</td>
-                            <td className="p-2 font-mono text-xs">{deviceLbl}</td>
-                            <td className="p-2 whitespace-nowrap">{humanDate(d)}</td>
-                            <td className="p-2 whitespace-nowrap font-mono text-xs">{humanTime(d)}</td>
-                            {section === 'flowmeter' ? (
-                              <>
-                                <td className="p-2 text-right">{r.flow_rate_m3h_avg != null ? Number(r.flow_rate_m3h_avg).toFixed(3) : '—'}</td>
-                                <td className="p-2 text-right">{r.initial_forward_totalizer_kl != null ? Number(r.initial_forward_totalizer_kl).toFixed(3) : '—'}</td>
-                                <td className="p-2 text-right">{r.final_forward_totalizer_kl != null ? Number(r.final_forward_totalizer_kl).toFixed(3) : '—'}</td>
-                                <td className="p-2 text-right font-semibold text-emerald-700">{r.forward_consumption != null ? Number(r.forward_consumption).toFixed(3) : '—'}</td>
-                              </>
-                            ) : section === 'dwlr' ? (
-                              <>
-                                <td className="p-2 text-right">{level != null ? Number(level).toFixed(2) : '—'}</td>
-                                <td className="p-2 text-right">{temp != null ? Number(temp).toFixed(1) : '—'}</td>
-                              </>
-                            ) : (
-                              <td className="p-2 font-mono text-xs truncate max-w-md">{JSON.stringify(r.values || {})}</td>
-                            )}
-                            {admin && (
-                              <td className="p-2 text-right whitespace-nowrap">
-                                <Button size="sm" variant="outline" className="mr-1" onClick={() => openEdit(r)} data-testid={`edit-reading-${r._id}`}><Pencil className="h-3 w-3" /></Button>
-                                <Button size="sm" variant="outline" className="text-red-600" onClick={() => deleteReading(r)} data-testid={`delete-reading-${r._id}`}><Trash2 className="h-3 w-3" /></Button>
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+    </div>
+  );
 
       {/* Edit dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
