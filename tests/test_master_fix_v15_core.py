@@ -554,6 +554,8 @@ def test_flowmeter_flow_rate_normalization_is_unit_aware():
     assert "2: 0.06" in src
     assert "3: 0.001" in src
     assert "6: 1.0" in src
+    assert 'FLOW_RATE_LITRE_CUTOFF = datetime(2026, 8, 27, tzinfo=timezone.utc)' in migration
+    assert 'ts < FLOW_RATE_LITRE_CUTOFF' in migration
     assert 'row.get("raw_flow") not in (None, "")' in migration
     assert 'flow_rate_normalization_version": 1' in migration
     assert 'update["flow_rate_normalization_review"] = True' in migration
