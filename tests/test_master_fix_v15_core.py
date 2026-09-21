@@ -51,6 +51,26 @@ def test_flowmeter_edit_neighbors_separate_legacy_and_measurement_time():
     assert 'nxt = await _chronological_neighbor(hardware_id, new_ts, "next", obj_id)' in src
 
 
+def test_flowmeter_export_date_filter_only_uses_legacy_timestamp_when_measurement_time_is_absent():
+    src = read("backend/api_flowmeter_mgmt.py")
+    assert '{"measurement_timestamp": dict(time_filter)}' in src
+    assert '{"measurement_timestamp": {"$exists": False}, "timestamp": dict(time_filter)}' in src
+
+
+def test_dwlr_daily_date_filter_only_uses_legacy_timestamp_when_measurement_time_is_absent():
+    src = read("backend/api_flowmeter_mgmt.py")
+    assert '{"measurement_timestamp": {"$gte": start.isoformat()}}' in src
+    assert '{"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": start.isoformat()}}' in src
+
+
+def test_edited_latest_caches_are_reconciled_by_measurement_time():
+    src = read("backend/api_flowmeter_mgmt.py")
+    assert 'sort=[("measurement_timestamp", -1), ("timestamp", -1)]' in src
+    assert 'latest_cache = {k: v for k, v in latest_row.items() if k != "_id"}' in src
+    assert 'await db.flowmeter_latest.update_one(' in src
+    assert 'await db.instrument_latest.update_one(' in src
+
+
 def test_flowmeter_consumption_includes_pre_window_boundary_reading():
     src = read("backend/api_flowmeter_mgmt.py")
     assert 'before_measurement = await db.flowmeter_readings.find_one(' in src
