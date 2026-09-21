@@ -72,6 +72,14 @@ class MQTTFlowmeterService:
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         self.client.on_disconnect = self.on_disconnect
+        # Paho's network loop performs automatic reconnects after a
+        # connect_async() connection drops. Bound the retry backoff so a
+        # transient broker/network outage does not permanently lose telemetry
+        # subscriptions while also avoiding a tight reconnect loop.
+        try:
+            self.client.reconnect_delay_set(min_delay=1, max_delay=60)
+        except AttributeError:
+            pass
 
     def set_event_loop(self, loop):
         """Store reference to the main asyncio loop for thread-safe scheduling from MQTT thread."""
