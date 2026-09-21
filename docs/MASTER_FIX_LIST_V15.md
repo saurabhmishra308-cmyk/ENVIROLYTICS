@@ -171,7 +171,9 @@ Audit and verify:
 
 ## 7. Authentication, authorization and visibility
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** protected device endpoints require authentication and registry ownership visibility, admin/staff shielding is implemented, client view-permissions are enforced at backend visibility filtering and frontend route gates, and deactivated accounts are now rejected even when an unexpired JWT remains valid. The frontend also clears the session when the backend reports account deactivation. Live cross-role verification remains outstanding.
 
 Audit and verify:
 
