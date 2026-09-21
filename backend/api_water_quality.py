@@ -579,8 +579,8 @@ async def history(
     cursor = db.instrument_readings.find(
         {"hardware_id": hardware_id,
          "$or": [
-             {"timestamp": {"$gte": since.isoformat()}},
              {"measurement_timestamp": {"$gte": since.isoformat()}},
+             {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": since.isoformat()}},
          ],
          "_dummy": {"$ne": True}},
         {"_id": 0, "values": 1, "timestamp": 1, "measurement_timestamp": 1, "received_at": 1, "instrument_type": 1},
@@ -715,7 +715,7 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
         {"hardware_id": req.hardware_id,
          "$or": [
              {"measurement_timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}},
-             {"timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}},
+             {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}},
          ],
          "_dummy": {"$ne": True}},
         {"_id": 0, "values": 1, "measurement_timestamp": 1, "timestamp": 1, "received_at": 1},
