@@ -212,7 +212,9 @@ async def list_instruments(
             return {"instruments": [], "count": 0}
         query["instrument_type"] = t
     cursor = db.instrument_registry.find(query, {"_id": 0}).sort("created_at", -1)
-    items = await cursor.to_list(length=2000)
+    items = []
+    async for item in cursor:
+        items.append(item)
     items = await _enrich_with_owner(items)
     # Retention preview — attach `retention_purge_count` = number of stored
     # readings older than the device's `data_retention_days` window. Admins
@@ -330,12 +332,15 @@ async def instrument_last_data(user: dict = Depends(get_current_user)):
         if hidden:
             query["instrument_type"] = {"$nin": sorted(hidden)}
 
-    registry = await db.instrument_registry.find(
+    registry_cursor = db.instrument_registry.find(
         query,
         {"_id": 0, "hardware_id": 1, "instrument_type": 1, "label": 1,
          "owner_user_id": 1, "source": 1, "imei": 1, "location_name": 1,
          "category": 1, "aeration_tank_number": 1},
-    ).sort("created_at", -1).to_list(length=2000)
+    ).sort("created_at", -1)
+    registry = []
+    async for item in registry_cursor:
+        registry.append(item)
 
     if not registry:
         return {"items": [], "generated_at": datetime.now(timezone.utc).isoformat(),
