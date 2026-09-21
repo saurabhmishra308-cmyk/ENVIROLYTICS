@@ -295,7 +295,9 @@ For each representative device verify:
 
 ## 13. Performance and reliability
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** hot history/report paths now have measurement-timestamp indexes in the startup index set, registry/dashboard fleet caps have been removed, and MQTT reconnect backoff is hardened. Long-running production latency, memory/log growth, QESPL polling and MQTT reconnect stability still require live verification.
 
 Audit:
 
