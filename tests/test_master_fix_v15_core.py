@@ -38,7 +38,7 @@ def test_flowmeter_export_preserves_legacy_timestamp_fallback():
     src = read("backend/api_flowmeter_mgmt.py")
     assert 'query["$or"] = [' in src
     assert '{"measurement_timestamp": dict(time_filter)}' in src
-    assert '{"timestamp": dict(time_filter)}' in src
+    assert '{"measurement_timestamp": {"$exists": False}, "timestamp": dict(time_filter)}' in src
 
 
 def test_flowmeter_edit_neighbors_separate_legacy_and_measurement_time():
