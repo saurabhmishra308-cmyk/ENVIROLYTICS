@@ -187,7 +187,7 @@ const Reports = () => {
   const fwdTotaliser = (r) => {
     if (r == null) return null;
     if (typeof r.final_forward_totalizer_kl === 'number') return r.final_forward_totalizer_kl;
-    if (typeof r.totaliser_end_reading === 'number') return r.totaliser_end_reading;
+    if (typeof r.totaliser_end_reading === 'number') return totaliserToKl(r.totaliser_end_reading, r);
     if (typeof r.forward_totalizer === 'number') return totaliserToKl(r.forward_totalizer, r);
     const v = r.values || {};
     const t1 = pickNum(v, ['TOT1', 'tot1']);
