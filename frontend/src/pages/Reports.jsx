@@ -656,7 +656,7 @@ const Reports = () => {
           <TabsContent value={section === 'charts' ? '__hide__' : section} className="mt-4 space-y-5">
             <Card className="overflow-hidden border-0 bg-white shadow-sm ring-1 ring-slate-200">
               <CardContent className="p-0">
-                <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_520px]">
+                <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_640px]">
                   <div className="p-5 md:p-6">
                     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
@@ -699,6 +699,7 @@ const Reports = () => {
                 alt={section === 'dwlr' ? 'Envirolytics Digital Water Level Recorder — Continuous Groundwater Monitoring' : 'Envirolytics flowmeter'}
                 className="h-full w-full object-contain"
                 loading="eager"
+                fetchPriority="high"
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
               {section !== 'dwlr' && <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/75 to-transparent px-5 pb-4 pt-16">
