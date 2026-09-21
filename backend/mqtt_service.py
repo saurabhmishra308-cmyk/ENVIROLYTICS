@@ -546,9 +546,13 @@ class MQTTFlowmeterService:
             # totaliser. The aggregation API also recomputes this chain from
             # timestamp order, so late/out-of-order packets cannot corrupt it.
             prev = await self.db.flowmeter_readings.find_one(
-                {"hardware_id": hardware_id, "timestamp": {"$lt": timestamp_iso}},
-                {"_id": 0, "forward_totalizer": 1},
-                sort=[("timestamp", -1)],
+                {"hardware_id": hardware_id,
+                 "$or": [
+                     {"measurement_timestamp": {"$lt": timestamp_iso}},
+                     {"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": timestamp_iso}},
+                 ]},
+                {"_id": 0, "forward_totalizer": 1, "measurement_timestamp": 1, "timestamp": 1},
+                sort=[("measurement_timestamp", -1), ("timestamp", -1)],
             )
             initial_totaliser = float(prev.get("forward_totalizer")) if prev and prev.get("forward_totalizer") is not None else forward_totalizer
             reading["initial_forward_totalizer"] = initial_totaliser
@@ -559,7 +563,7 @@ class MQTTFlowmeterService:
 
             # Idempotency: never append the same device measurement twice.
             exists = await self.db.flowmeter_readings.find_one(
-                {"hardware_id": hardware_id, "timestamp": timestamp_iso},
+                {"hardware_id": hardware_id, "measurement_timestamp": timestamp_iso},
                 {"_id": 1},
             )
             if not exists and await self._should_store_reading("flowmeter", hardware_id):
@@ -569,9 +573,13 @@ class MQTTFlowmeterService:
             # packet must never overwrite a newer live reading.
             current = await self.db.flowmeter_latest.find_one(
                 {"hardware_id": hardware_id},
-                {"timestamp": 1, "_id": 0},
+                {"measurement_timestamp": 1, "timestamp": 1, "_id": 0},
             )
-            current_ts = str((current or {}).get("timestamp") or "")
+            current_ts = str(
+                (current or {}).get("measurement_timestamp")
+                or (current or {}).get("timestamp")
+                or ""
+            )
             if not current_ts or timestamp_iso >= current_ts:
                 await self.db.flowmeter_latest.update_one(
                     {"hardware_id": hardware_id},
