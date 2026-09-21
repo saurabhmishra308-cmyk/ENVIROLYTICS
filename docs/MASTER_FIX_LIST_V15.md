@@ -63,7 +63,9 @@ A V15 item is not considered complete until the evidence required for that item 
 
 ## 2. Flowmeter
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** measurement-time ordering, duplicate ingestion protection, delayed-packet latest-cache protection, totaliser-chain reconstruction, measurement-time date filtering, export filtering, edit-cache reconciliation, canonical-unit persistence, and ownership protection are implemented and covered by regression guards. A new edit-time duplicate-timestamp guard is also being added. Live production verification of representative flowmeters remains outstanding.
 
 Audit and verify:
 
