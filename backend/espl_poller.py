@@ -252,16 +252,22 @@ async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]
         except (TypeError, ValueError):
             freq_int = 0
         if freq_int > 0 and measurement_dt is not None:
-            last = await _State.db.instrument_readings.find_one(
-                {"hardware_id": device["hardware_id"]},
+            previous = await _State.db.instrument_readings.find_one(
+                {
+                    "hardware_id": device["hardware_id"],
+                    "$or": [
+                        {"measurement_timestamp": {"$lt": measurement_ts}},
+                        {"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": measurement_ts}},
+                    ],
+                },
                 {"measurement_timestamp": 1, "timestamp": 1, "_id": 0},
                 sort=[("measurement_timestamp", -1), ("timestamp", -1)],
             )
-            last_dt = _parse_iso_utc(
-                (last or {}).get("measurement_timestamp") or (last or {}).get("timestamp")
+            previous_dt = _parse_iso_utc(
+                (previous or {}).get("measurement_timestamp") or (previous or {}).get("timestamp")
             )
-            if last_dt and measurement_dt > last_dt:
-                should_store = (measurement_dt - last_dt) >= timedelta(minutes=freq_int)
+            if previous_dt:
+                should_store = (measurement_dt - previous_dt) >= timedelta(minutes=freq_int)
 
     if should_store:
         await _State.db.instrument_readings.insert_one(dict(reading))
