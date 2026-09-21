@@ -62,7 +62,7 @@ export const Gauge2D = ({ value, min = 0, max = 100, unit = '', label = '', safe
 };
 
 // ------------------------- Aeration tank visualisation (video-driven) -------------------------
-export const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, safeMax = 8, unit = 'mg/L', capacityKld, videoSrc, isCustomVideo, temperatureC, saturationPct, saturationVendorPct, saturationMgL }) => {
+export const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin = 2, safeMax = 8, unit = 'mg/L', capacityKld, videoSrc, isCustomVideo, temperatureC, saturationPct }) => {
   const v = typeof doValue === 'number' ? doValue : null;
   const videoRef = React.useRef(null);
   // "Aeration active" = DO reading above the low-oxygen threshold. Below that,
@@ -142,27 +142,9 @@ export const AerationTank = ({ tankNumber, doValue, min = 0, max = 20, safeMin =
             )}
             {typeof saturationPct === 'number' && (
               <div className="flex items-baseline gap-1">
-                <span className="text-[9px] uppercase tracking-widest text-white/70">Sat Calc</span>
+                <span className="text-[9px] uppercase tracking-widest text-white/70">DO Saturation</span>
                 <span className="text-base font-mono font-bold text-sky-300 tabular-nums">
                   {saturationPct.toFixed(1)}
-                </span>
-                <span className="text-[9px] text-white/70">%</span>
-              </div>
-            )}
-            {typeof saturationMgL === 'number' && (
-              <div className="flex items-baseline gap-1">
-                <span className="text-[9px] uppercase tracking-widest text-white/70">DO Sat</span>
-                <span className="text-sm font-mono font-bold text-cyan-200 tabular-nums">
-                  {saturationMgL.toFixed(2)}
-                </span>
-                <span className="text-[9px] text-white/70">mg/L</span>
-              </div>
-            )}
-            {typeof saturationVendorPct === 'number' && (
-              <div className="flex items-baseline gap-1">
-                <span className="text-[9px] uppercase tracking-widest text-white/70">Vendor</span>
-                <span className="text-sm font-mono font-bold text-white tabular-nums">
-                  {saturationVendorPct.toFixed(1)}
                 </span>
                 <span className="text-[9px] text-white/70">%</span>
               </div>
