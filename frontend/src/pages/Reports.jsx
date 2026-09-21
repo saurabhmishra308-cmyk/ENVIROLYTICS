@@ -178,6 +178,26 @@ const Reports = () => {
   // Normalize at the reporting boundary so mixed historical data remains
   // continuous and every client/user sees one unit.
   const TOTALISER_LITRE_CUTOFF = Date.parse('2026-08-27T00:00:00Z');
+  const FLOW_LITRE_CUTOFF = Date.parse('2026-08-27T00:00:00Z');
+
+  // Canonical report flow is always m³/h. From 27-Aug-2026 the device FLOW
+  // field is L/h; raw_flow is the most authoritative source when present.
+  const flowRateToM3h = (r) => {
+    if (!r) return null;
+    const rawTs = r.measurement_timestamp || r.timestamp || r.received_at || '';
+    const ts = Date.parse(rawTs);
+    const postCutoff = Number.isFinite(ts) && ts >= FLOW_LITRE_CUTOFF;
+    const rawFlow = pickNum(r, ['raw_flow']);
+    if (postCutoff && rawFlow != null) return rawFlow / 1000;
+    const lph = pickNum(r, ['flow_rate_lph']);
+    if (postCutoff && lph != null) return lph / 1000;
+    const canonical = pickNum(r, ['flow_rate_m3h']);
+    if (canonical != null) return canonical;
+    const v = r.values || {};
+    const flowRaw = pickNum(v, ['FLOW_M3H', 'FLOW']);
+    if (flowRaw == null) return null;
+    return postCutoff ? flowRaw / 1000 : flowRaw;
+  };
   const totaliserToKl = (value, r) => {
     if (value == null || Number.isNaN(Number(value))) return null;
     const ts = Date.parse(r?.measurement_timestamp || r?.timestamp || r?.received_at || '');
@@ -255,7 +275,7 @@ const Reports = () => {
         const [key, arr] = ordered[idx];
         const first = arr[0];
         const last = arr[arr.length - 1];
-        const flows = arr.map(({ r }) => pickNum(r, ['flow_rate_m3h']) ?? pickNum(r.values || {}, ['FLOW_M3H', 'FLOW'])).filter((n) => n != null);
+        const flows = arr.map(({ r }) => flowRateToM3h(r)).filter((n) => n != null);
         const avgFlow = flows.length ? flows.reduce((a, b) => a + b, 0) / flows.length : null;
         const initFwd = fwdTotaliser(first.r);
         const finalFwd = fwdTotaliser(last.r);
@@ -284,7 +304,7 @@ const Reports = () => {
           _bucket_start: first.d.toISOString(),
           _bucket_end: last.d.toISOString(),
           flow_rate_m3h_avg: avgFlow,
-          flow_rate_m3h_last: pickNum(last.r, ['flow_rate_m3h']) ?? pickNum(last.r.values || {}, ['FLOW_M3H', 'FLOW']),
+          flow_rate_m3h_last: flowRateToM3h(last.r),
           initial_forward_totalizer: prevFinalFwd != null ? prevFinalFwd : initFwd,
           final_forward_totalizer: finalFwd,
           forward_consumption: forwardConsumption,
@@ -553,11 +573,7 @@ const Reports = () => {
     const minLevel = levels.length ? Math.min(...levels) : null;
     const maxLevel = levels.length ? Math.max(...levels) : null;
     const averageTemp = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : null;
-    const totaliserIncrease = latest && earliest &&
-      Number.isFinite(Number(latest.final_forward_totalizer_kl)) &&
-      Number.isFinite(Number(earliest.initial_forward_totalizer_kl))
-      ? Math.max(0, Number(latest.final_forward_totalizer_kl) - Number(earliest.initial_forward_totalizer_kl))
-      : null;
+    const totaliserIncrease = consumptions.length ? totalConsumption : null;
     return { totalConsumption, averageFlow, peakFlow, totaliserIncrease, latestLevel, averageLevel, minLevel, maxLevel, averageTemp };
   }, [filteredReadings]);
 
