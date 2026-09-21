@@ -131,9 +131,11 @@ def test_mqtt_downsampling_uses_measurement_time_not_receipt_time():
     src = read("backend/mqtt_service.py")
     assert 'measurement_timestamp: Optional[str] = None' in src
     assert 'current_ts <= previous_ts' in src
-    assert '(current_ts - previous_ts) >= timedelta(minutes=freq_minutes)' in src
+    assert '(current_ts - previous_ts) >= timedelta(minutes= freq_minutes)' in src or '(current_ts - previous_ts) >= timedelta(minutes=freq_minutes)' in src
     assert 'self._should_store_reading("flowmeter", hardware_id, timestamp_iso)' in src
     assert 'self._should_store_reading("instrument", hardware_id, ts_iso)' in src
+
+
 def test_mqtt_downsampling_preserves_late_measurements_in_chronological_history():
     src = read("backend/mqtt_service.py")
     start = src.index("async def _should_store_reading")
@@ -151,6 +153,8 @@ def test_mqtt_flowmeter_dedup_and_latest_use_measurement_timestamp():
     assert '"measurement_timestamp": 1, "timestamp": 1, "_id": 0' in src
     assert '(current or {}).get("measurement_timestamp")' in src
     assert 'sort=[("measurement_timestamp", -1), ("timestamp", -1)]' in src
+
+
 def test_flowmeter_all_latest_has_no_arbitrary_100_device_cap():
     src = read("backend/mqtt_service.py")
     start = src.index("async def get_all_latest_readings(self)")
@@ -166,8 +170,6 @@ def test_mqtt_flowmeter_totaliser_previous_reading_uses_measurement_time():
     src = read("backend/mqtt_service.py")
     assert '{"measurement_timestamp": {"$lt": timestamp_iso}}' in src
     assert '{"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": timestamp_iso}}' in src
-    # The projection now also includes the canonical KL chain field.
-    # Keep this regression test structural rather than depending on dict formatting.
     assert '"forward_totalizer": 1' in src
     assert '"final_forward_totalizer_kl": 1' in src
     assert '"measurement_timestamp": 1' in src
@@ -193,10 +195,11 @@ def test_flowmeter_ui_prefers_measurement_timestamp():
     assert "current.measurement_timestamp || current.timestamp || current.received_at" in src
 
 
-def test_flowmeter_ui_labels_totalisers_as_litres_not_flow_rate_unit():
+def test_flowmeter_ui_labels_totalisers_as_kl():
+    """Totalisers are cumulative volume, so the production UI reports them in KL."""
     src = read("frontend/src/pages/Flowmeter.jsx")
-    assert '<p className="text-xs text-gray-500">L</p>' in src
-    assert '<span className="text-3xl font-semibold text-gray-600">L</span>' in src
+    assert '<p className="text-xs text-gray-500">KL</p>' in src
+    assert '<span className="text-3xl font-semibold text-gray-600">KL</span>' in src
 
 
 def test_dwlr_ui_separates_measurement_and_receipt_timestamps():
@@ -229,6 +232,7 @@ def test_espl_poller_keeps_five_minute_polling_and_measurement_time_authority():
     assert '"measurement_timestamp": 1, "timestamp": 1' in src
     assert 'measurement_dt >= current_dt' in src
 
+
 def test_generic_instrument_ingest_stamps_measurement_time():
     src = read("backend/api_instruments.py")
     assert '"measurement_timestamp": now_iso' in src
@@ -248,6 +252,7 @@ def test_generic_latest_endpoints_have_no_arbitrary_device_caps():
     assert "to_list(length=200)" not in type_block
     assert "async for row in cursor:" in type_block
 
+
 def test_dwlr_daily_range_is_measurement_time_authoritative():
     src = read("backend/api_flowmeter_mgmt.py")
     start = src.index('async def dwlr_daily')
@@ -256,6 +261,7 @@ def test_dwlr_daily_range_is_measurement_time_authoritative():
     assert '"measurement_timestamp": {"$gte": start.isoformat(), "$lte": end.isoformat()}' in block
     assert '"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": start.isoformat(), "$lte": end.isoformat()}' in block
     assert '.limit(20000)' not in block
+
 
 def test_espl_malformed_timestamp_falls_back_to_receipt_time():
     src = read("backend/espl_poller.py")
@@ -271,6 +277,7 @@ def test_espl_http_device_polling_has_no_arbitrary_500_device_cap():
     block = src[start:end]
     assert "to_list(length=500)" not in block
     assert "async for row in cursor:" in block
+
 
 def test_wq_aggregated_history_deduplicates_measurement_timestamps():
     src = read("backend/api_water_quality.py")
@@ -290,6 +297,7 @@ def test_wq_reports_deduplicate_measurement_timestamps():
     assert "if measurement_ts in seen_measurement_ts:" in src
     assert "raw_rows = await cursor.to_list(length=None)" in src
 
+
 def test_mqtt_ingestion_retains_raw_vendor_timestamp():
     src = read("backend/mqtt_service.py")
     assert '"source_timestamp_raw": str(data.get("TIME") or "").strip() or None' in src
@@ -305,6 +313,7 @@ def test_mqtt_flowmeter_malformed_timestamp_falls_back_to_receipt_time():
     assert "except (TypeError, ValueError):" in block
     assert "timestamp_iso = datetime.now(timezone.utc).isoformat()" in block
 
+
 def test_instrument_registry_has_no_arbitrary_2000_device_caps():
     src = read("backend/api_instrument_registry.py")
     start = src.index("async def list_instruments")
@@ -319,6 +328,7 @@ def test_instrument_registry_has_no_arbitrary_2000_device_caps():
     assert ".to_list(length=2000)" not in block
     assert "async for item in registry_cursor:" in block
 
+
 def test_registry_updates_keep_type_category_and_mqtt_mapping_consistent():
     src = read("backend/api_instrument_registry.py")
     assert 'effective_type = updates.get("instrument_type", existing.get("instrument_type"))' in src
@@ -329,11 +339,13 @@ def test_registry_updates_keep_type_category_and_mqtt_mapping_consistent():
     assert 'if new_source == "mqtt":' in src
     assert 'await _subscribe_topic(new_type, hardware_id)' in src
 
+
 def test_auth_rechecks_account_active_state_after_jwt_validation():
     src = read("backend/auth.py")
     assert 'if not user.get("is_active", True):' in src
     assert 'raise HTTPException(status_code=403, detail="Account is deactivated")' in src
     assert src.index('if not user.get("is_active", True):') < src.index('user.pop("password_hash", None)')
+
 
 def test_flowmeter_categories_have_no_arbitrary_fleet_cap():
     src = read("backend/api_flowmeter_mgmt.py")
@@ -343,10 +355,12 @@ def test_flowmeter_categories_have_no_arbitrary_fleet_cap():
     assert "to_list(length=500)" not in block
     assert "async for item in cursor:" in block
 
+
 def test_frontend_logs_out_when_backend_deactivates_account():
     src = read("frontend/src/lib/api.js")
     assert 'const isDeactivated = status === 403 && detail === "Account is deactivated";' in src
     assert 'isDeactivated || (status === 401 && isTokenInvalidError(err))' in src
+
 
 def test_client_dashboard_does_not_require_admin_flowmeter_status():
     src = read("frontend/src/pages/EnhancedDashboard.jsx")
@@ -354,6 +368,7 @@ def test_client_dashboard_does_not_require_admin_flowmeter_status():
     assert "if (isAdmin()) {" in src
     assert "liveRequests.push(api.get('/api/flowmeter/status'));" in src
     assert "const [fmRes, instrRes, catRes, regRes, statusRes]" in src
+
 
 def test_reports_use_measurement_time_and_registry_visibility():
     src = read("backend/api_reports.py")
@@ -367,6 +382,7 @@ def test_reports_use_measurement_time_and_registry_visibility():
     assert "async def _list_groundwater_borewells(user: dict)" in src
     assert "_list_groundwater_borewells(user)" in src
 
+
 def test_generic_manual_ingest_is_registry_bound_and_latest_monotonic():
     src = read("backend/api_instruments.py")
     assert 'raise HTTPException(status_code=404, detail="Instrument not registered")' in src
@@ -374,10 +390,12 @@ def test_generic_manual_ingest_is_registry_bound_and_latest_monotonic():
     assert '"measurement_timestamp": now_iso' in src
     assert 'if not current_ts or now_iso >= current_ts:' in src
 
+
 def test_measurement_time_indexes_exist_for_hot_history_queries():
     src = read("backend/server.py")
     assert 'create_index([("hardware_id", 1), ("measurement_timestamp", -1)])' in src
     assert 'create_index([("instrument_type", 1), ("hardware_id", 1), ("measurement_timestamp", -1)])' in src
+
 
 def test_legacy_status_and_site_status_endpoints_are_authenticated():
     server = read("backend/server.py")
@@ -387,6 +405,7 @@ def test_legacy_status_and_site_status_endpoints_are_authenticated():
     admin = read("backend/api_admin.py")
     assert 'async def check_site_status(user_id: str, caller: dict = Depends(get_current_user))' in admin
     assert 'Not authorised to view this site status' in admin
+
 
 def test_espl_retains_unique_out_of_order_measurements_by_measurement_time():
     src = read("backend/espl_poller.py")
@@ -398,11 +417,13 @@ def test_espl_retains_unique_out_of_order_measurements_by_measurement_time():
     assert 'sort=[("measurement_timestamp", -1), ("timestamp", -1)]' in block
     assert 'should_store = (measurement_dt - previous_dt) >= timedelta(minutes=freq_int)' in block
 
+
 def test_espl_timestamp_traceability():
     src = read("backend/espl_poller.py")
     assert '"measurement_timestamp": measurement_ts' in src
     assert '"source_timestamp_raw": str(source_timestamp_raw).strip() if source_timestamp_raw else None' in src
     assert '"received_at": now_iso' in src
+
 
 def test_dwlr_daily_deduplicates_measurement_timestamps():
     src = read("backend/api_flowmeter_mgmt.py")
@@ -411,6 +432,7 @@ def test_dwlr_daily_deduplicates_measurement_timestamps():
     assert "seen_measurement_ts = set()" in block
     assert "if ts in seen_measurement_ts:" in block
     assert "seen_measurement_ts.add(ts)" in block
+
 
 def test_do_saturation_history_and_reports_expose_engineering_traceability():
     src = read("backend/api_water_quality.py")
