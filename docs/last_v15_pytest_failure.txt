@@ -1,24 +1,20 @@
-.........................................................F..             [100%]
+............................................................F.           [100%]
 =================================== FAILURES ===================================
-_________ test_flowmeter_totaliser_unit_transition_is_normalized_to_kl _________
+_____________ test_flowmeter_flow_rate_normalization_is_unit_aware _____________
 
-    def test_flowmeter_totaliser_unit_transition_is_normalized_to_kl():
-        """27-Aug-2026 changed cumulative totalisers from m³ to litres.
-    
-        The report must preserve continuity:
-          26-Aug final 13030.16 m³ -> 13030.16 KL
-          27-Aug final 13054239 L -> 13054.239 KL
-          consumption -> 24.079 KL
-        """
-        mgmt = Path("backend/api_flowmeter_mgmt.py").read_text()
-        reports = Path("frontend/src/pages/Reports.jsx").read_text()
-        exports = Path("backend/data_export_service.py").read_text()
-    
-        assert 'TOTALISER_LITRE_CUTOFF = "2026-08-27T00:00:00+00:00"' in mgmt
->       assert 'return v / 1000.0 if ts >= TOTALISER_LITRE_CUTOFF else v' in mgmt
-E       assert 'return v / 1000.0 if ts >= TOTALISER_LITRE_CUTOFF else v' in '"""Flowmeter category + aggregation + reading-edit endpoints.\n\nCategories:\n  - groundwater_abstraction  (Water Abs... days,\n        "series": series,\n        "count": len(series),\n        "manual_water_temp_c": manual_temp,\n    }\n'
+    def test_flowmeter_flow_rate_normalization_is_unit_aware():
+        src = Path("backend/mqtt_utils.py").read_text()
+        migration = Path("backend/scripts/rebuild_flowmeter_flow_rate.py").read_text()
+        assert "1: 3.6" in src
+        assert "2: 0.06" in src
+        assert "3: 0.001" in src
+        assert "6: 1.0" in src
+        assert 'row.get("raw_flow") not in (None, "")' in migration
+        assert 'flow_rate_normalization_version": 1' in migration
+>       assert 'flow_rate_normalization_review": True' in migration
+E       assert 'flow_rate_normalization_review": True' in '"""Backfill Flowmeter instantaneous flow-rate values to canonical m³/h.\n\nThis migration is deliberately conservativ...UOUS={ambiguous}")\n    finally:\n        client.close()\n\n\nif __name__ == "__main__":\n    asyncio.run(rebuild())\n'
 
-tests/test_master_fix_v15_core.py:514: AssertionError
+tests/test_master_fix_v15_core.py:559: AssertionError
 =========================== short test summary info ============================
-FAILED tests/test_master_fix_v15_core.py::test_flowmeter_totaliser_unit_transition_is_normalized_to_kl - assert 'return v / 1000.0 if ts >= TOTALISER_LITRE_CUTOFF else v' in '"""Flowmeter category + aggregation + reading-edit endpoints.\n\nCategories:\n  - groundwater_abstraction  (Water Abs... days,\n        "series": series,\n        "count": len(series),\n        "manual_water_temp_c": manual_temp,\n    }\n'
-1 failed, 59 passed in 0.12s
+FAILED tests/test_master_fix_v15_core.py::test_flowmeter_flow_rate_normalization_is_unit_aware - assert 'flow_rate_normalization_review": True' in '"""Backfill Flowmeter instantaneous flow-rate values to canonical m³/h.\n\nThis migration is deliberately conservativ...UOUS={ambiguous}")\n    finally:\n        client.close()\n\n\nif __name__ == "__main__":\n    asyncio.run(rebuild())\n'
+1 failed, 61 passed in 0.19s
