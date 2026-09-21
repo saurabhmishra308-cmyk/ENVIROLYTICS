@@ -7,8 +7,8 @@ Wants=network-online.target
 Type=simple
 User=envirolytics
 Group=envirolytics
-WorkingDirectory=/opt/envirolytics/backend
-EnvironmentFile=/opt/envirolytics/backend/.env
+WorkingDirectory=/home/envirolytics/ENVIROLYTICS/backend
+EnvironmentFile=/home/envirolytics/ENVIROLYTICS/backend/.env
 # ── Single uvicorn process ────────────────────────────────────
 # All background tasks (MQTT client, ESPL poller, notification
 # scans, DO/chlorine alerts, retention purge, etc.) are launched
@@ -21,20 +21,14 @@ EnvironmentFile=/opt/envirolytics/backend/.env
 # is ever moved behind a load balancer with sticky sessions to
 # multiple VMs, remove the background tasks from startup_event
 # and run them as a *separate* systemd service.
-ExecStart=/opt/envirolytics/venv/bin/uvicorn server:app \
-    --host 127.0.0.1 --port 8001 \
+ExecStart=/home/envirolytics/ENVIROLYTICS/backend/venv/bin/python -m uvicorn server:app \
+    --host 127.0.0.1 --port 8000 \
     --proxy-headers --forwarded-allow-ips "127.0.0.1" \
     --log-level info \
     --access-log --no-use-colors
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:/var/log/envirolytics/backend.log
-StandardError=append:/var/log/envirolytics/backend.log
 
-# Persistent uploads must survive service restarts + git-pull
-# redeploys. The workflow's rsync already excludes this dir, so
-# photos + certificates + logos + NOC files are safe.
-ReadWritePaths=/opt/envirolytics/backend/uploads /var/log/envirolytics
 
 [Install]
 WantedBy=multi-user.target
