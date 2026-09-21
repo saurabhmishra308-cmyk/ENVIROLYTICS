@@ -23,6 +23,12 @@ name: Deploy to Azure VM
 permissions:
   contents: write
 
+# Only one production deployment may run at a time. A new main push
+# cancels an older run so migrations cannot race against each other.
+concurrency:
+  group: envirolytics-production-deploy
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
