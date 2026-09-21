@@ -427,6 +427,16 @@ def test_do_saturation_ui_exposes_calculated_concentration():
     assert 'mg/L' in widget
 
 
+def test_wq_history_and_reports_preserve_native_do_parameter_units():
+    src = read("backend/api_water_quality.py")
+    assert "def _convert_wq_param_value(" in src
+    assert 'if native.lower() in ("mg/l", "ppm"):' in src
+    assert 'return round(float(value), 3)' in src
+    assert '_convert_wq_param_value(p, float(v), unit)' in src
+    assert '_convert_wq_param_value(p, avg, unit)' in src
+    assert '_convert_wq_param_value(p, float(v), req.unit)' in src
+
+
 def test_do_saturation_uses_benson_krause_engineering_formula():
     src = read("backend/espl_poller.py")
     start = src.index("def _calculate_do_saturation")
