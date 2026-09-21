@@ -179,7 +179,9 @@ async def set_category(hardware_id: str, req: SetCategoryRequest, admin: dict = 
 @router.get("/categories")
 async def list_categories(user: dict = Depends(get_current_user)):
     cursor = db.flowmeter_categories.find({}, {"_id": 0})
-    items = await cursor.to_list(length=500)
+    items = []
+    async for item in cursor:
+        items.append(item)
     visible = await api_instrument_registry.visible_hardware_ids(user)
     if visible is not None:
         items = [r for r in items if r.get("hardware_id") in visible]
