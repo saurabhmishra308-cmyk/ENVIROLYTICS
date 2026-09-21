@@ -114,3 +114,11 @@ def test_dwlr_ui_separates_measurement_and_receipt_timestamps():
     assert "received_at: lt?.received_at || null" in src
     assert "activeWell.measurement_timestamp" in src
     assert "well.measurement_timestamp" in src
+
+
+def test_registry_retention_and_clear_history_use_measurement_time():
+    src = read("backend/api_instrument_registry.py")
+    assert '"measurement_timestamp": {"$lt": cutoff}' in src
+    assert '"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": cutoff}' in src
+    assert 'measurement_range_clause' in src
+    assert '"measurement_timestamp": inner' in src
