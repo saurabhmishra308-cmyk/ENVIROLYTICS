@@ -173,23 +173,34 @@ const Reports = () => {
   // pre-computed field is missing. Formula from the vendor spec:
   //   Forward = TOT2 × 65535 + TOT1
   //   Reverse = RTOT2 × 65535 + RTOT1
+  // Canonical reporting volume is KL. Production devices used m³
+  // totalisers before 27-Aug-2026 and litres from 27-Aug-2026 onward.
+  // Normalize at the reporting boundary so mixed historical data remains
+  // continuous and every client/user sees one unit.
+  const TOTALISER_LITRE_CUTOFF = Date.parse('2026-08-27T00:00:00Z');
+  const totaliserToKl = (value, r) => {
+    if (value == null || Number.isNaN(Number(value))) return null;
+    const ts = Date.parse(r?.measurement_timestamp || r?.timestamp || r?.received_at || '');
+    return Number(value) / (Number.isFinite(ts) && ts >= TOTALISER_LITRE_CUTOFF ? 1000 : 1);
+  };
+
   const fwdTotaliser = (r) => {
     if (r == null) return null;
-    if (typeof r.forward_totalizer === 'number') return r.forward_totalizer;
+    if (typeof r.forward_totalizer === 'number') return totaliserToKl(r.forward_totalizer, r);
     const v = r.values || {};
     const t1 = pickNum(v, ['TOT1', 'tot1']);
     const t2 = pickNum(v, ['TOT2', 'tot2']);
-    if (t1 == null || t2 == null) return pickNum(v, ['FORWARD_TOT', 'FWD_TOT']);
-    return t2 * 65535 + t1;
+    if (t1 == null || t2 == null) return totaliserToKl(pickNum(v, ['FORWARD_TOT', 'FWD_TOT']), r);
+    return totaliserToKl(t2 * 65535 + t1, r);
   };
   const revTotaliser = (r) => {
     if (r == null) return null;
-    if (typeof r.reverse_totalizer === 'number') return r.reverse_totalizer;
+    if (typeof r.reverse_totalizer === 'number') return totaliserToKl(r.reverse_totalizer, r);
     const v = r.values || {};
     const t1 = pickNum(v, ['RTOT1', 'rtot1']);
     const t2 = pickNum(v, ['RTOT2', 'rtot2']);
-    if (t1 == null || t2 == null) return pickNum(v, ['REVERSE_TOT', 'REV_TOT']);
-    return t2 * 65535 + t1;
+    if (t1 == null || t2 == null) return totaliserToKl(pickNum(v, ['REVERSE_TOT', 'REV_TOT']), r);
+    return totaliserToKl(t2 * 65535 + t1, r);
   };
 
   // Client-side filter + frequency-bucketing applied to whatever's in `readings`.
