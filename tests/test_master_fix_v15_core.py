@@ -270,7 +270,7 @@ def test_espl_http_device_polling_has_no_arbitrary_500_device_cap():
 def test_wq_aggregated_history_deduplicates_measurement_timestamps():
     src = read("backend/api_water_quality.py")
     start = src.index("async def history(")
-    end = src.index("@router.post("/report")", start)
+    end = src.index('@router.post("/report")', start)
     block = src[start:end]
     assert 'seen_measurement_ts = set()' in block
     assert 'if measurement_ts in seen_measurement_ts:' in block
