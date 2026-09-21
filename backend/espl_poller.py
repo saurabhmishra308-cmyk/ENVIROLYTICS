@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections import deque
 from datetime import datetime, timezone, timedelta
@@ -202,12 +203,12 @@ def _calculate_do_saturation(do_mg_l: float, temperature_c: float, pressure_kpa:
         + 1.243800e10 / (T ** 3)
         - 8.621949e11 / (T ** 4)
     )
-    do0 = __import__("math").exp(ln_do0)
+    do0 = math.exp(ln_do0)
 
-    fs = __import__("math").exp(
+    fs = math.exp(
         -sal * (0.017674 - 10.754 / T + 2140.7 / (T ** 2))
     )
-    vapor_atm = __import__("math").exp(
+    vapor_atm = math.exp(
         11.8571 - 3840.70 / T - 216961.0 / (T ** 2)
     )
     theta = 0.000975 - 1.426e-5 * t_c + 6.436e-8 * (t_c ** 2)
@@ -440,7 +441,7 @@ async def _http_devices() -> List[dict]:
         return []
     cursor = _State.db.instrument_registry.find(
         {"source": "http"},
-        {"_id": 0, "hardware_id": 1, "instrument_type": 1, "imei": 1, "owner_user_id": 1, "turbidity_k": 1, "data_frequency_minutes": 1, "aeration_tank_number": 1},
+        {"_id": 0, "hardware_id": 1, "instrument_type": 1, "imei": 1, "owner_user_id": 1, "turbidity_k": 1, "data_frequency_minutes": 1, "aeration_tank_number": 1, "do_barometric_pressure_kpa": 1, "do_salinity_ppt": 1},
     )
     items = []
     async for row in cursor:
