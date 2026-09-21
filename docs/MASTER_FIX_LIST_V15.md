@@ -65,7 +65,7 @@ A V15 item is not considered complete until the evidence required for that item 
 
 **Status: INVESTIGATING**
 
-**Current V15 evidence:** measurement-time ordering, duplicate ingestion protection, delayed-packet latest-cache protection, totaliser-chain reconstruction, measurement-time date filtering, export filtering, edit-cache reconciliation, canonical-unit persistence, and ownership protection are implemented and covered by regression guards. A new edit-time duplicate-timestamp guard is also being added. Live production verification of representative flowmeters remains outstanding.
+**Current V15 evidence:** measurement-time ordering, duplicate ingestion protection, delayed-packet latest-cache protection, totaliser-chain reconstruction, measurement-time date filtering, export filtering, edit-cache reconciliation, canonical-unit persistence, ownership protection, edit-time duplicate-timestamp rejection, late-measurement history retention, and unrestricted all-latest fleet coverage are implemented and covered by regression guards. CI run #87 completed successfully with deployment. Live production verification of representative flowmeters remains outstanding.
 
 Audit and verify:
 
@@ -86,7 +86,9 @@ Audit and verify:
 
 ## 3. DWLR / Water Level
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** MQTT DWLR readings preserve device measurement time separately from receipt time, latest cache is monotonic by measurement time, history ordering is measurement-time-first, device-specific access is ownership-protected, and generic latest endpoints no longer have arbitrary 200/500-device caps. Direct/admin generic ingest now also stamps measurement time. Live production verification of representative DWLR devices remains outstanding.
 
 Audit and verify:
 
