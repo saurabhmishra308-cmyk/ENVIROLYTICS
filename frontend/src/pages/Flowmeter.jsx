@@ -147,19 +147,34 @@ const Flowmeter = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <div className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-lg" style={{ backgroundColor: '#4a9fd8' }}>
-              <Droplets className="h-8 w-8 text-white" />
+        <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_460px] lg:items-stretch">
+          <div className="flex items-center justify-between rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-lg" style={{ backgroundColor: '#4a9fd8' }}>
+                <Droplets className="h-8 w-8 text-white" />
+              </div>
+              <div>
+                <h2 className="text-3xl font-bold text-gray-900">Flowmeter Monitoring System</h2>
+                <p className="text-gray-600">Live MQTT-driven flow measurements</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-3xl font-bold text-gray-900">Flowmeter Monitoring System</h2>
-              <p className="text-gray-600">Live MQTT-driven flow measurements</p>
+            <Button onClick={() => { fetchLatest(); fetchStatus(); }} variant="outline" data-testid="flowmeter-refresh-btn">
+              <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+            </Button>
+          </div>
+          <div className="relative min-h-[250px] overflow-hidden rounded-2xl bg-sky-50 shadow-sm ring-1 ring-slate-200 flex items-center justify-center">
+            <img
+              src="/flowmeter-banner.webp"
+              alt="Envirolytics flowmeter monitoring"
+              className="h-full w-full object-contain p-2"
+              loading="eager"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/75 to-transparent px-5 pb-4 pt-14">
+              <div className="text-sm font-semibold text-white">Accurate Flow Monitoring</div>
+              <div className="text-xs text-slate-200">Reliable data • Real-time monitoring • Sustainable water management</div>
             </div>
           </div>
-          <Button onClick={() => { fetchLatest(); fetchStatus(); }} variant="outline" data-testid="flowmeter-refresh-btn">
-            <RefreshCw className="h-4 w-4 mr-2" /> Refresh
-          </Button>
         </div>
 
         {loading ? (
