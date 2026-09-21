@@ -317,7 +317,9 @@ Warnings must be separated from actual production failures.
 
 ## 14. Security and operational controls
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** authentication is enforced across protected telemetry paths, deactivated sessions are invalidated server-side and cleared client-side, registry ownership controls device access, legacy status endpoints are no longer public, and site-status lookup is now scoped to the requesting user/operator. Secret storage, production .env handling, deployment-key scope, Nginx/TLS and live security verification remain outstanding.
 
 Audit:
 
