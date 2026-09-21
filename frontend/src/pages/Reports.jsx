@@ -261,9 +261,11 @@ const Reports = () => {
         const finalFwd = fwdTotaliser(last.r);
         const initRev = revTotaliser(first.r);
         const finalRev = revTotaliser(last.r);
-        // Preferred: last-of-current − last-of-previous (spans the *whole*
-        // bucket even if there's only one reading in it). Fallback: within-
-        // bucket delta on the very first bucket (nothing to compare to).
+        // Daily/period invariant:
+        //   current Initial = previous period Final
+        //   current Consumption = current Final − current Initial
+        // For the first visible period, use the preceding boundary reading
+        // when available; otherwise use that period's first reading.
         const forwardConsumption =
           finalFwd != null && prevFinalFwd != null
             ? Math.max(0, finalFwd - prevFinalFwd)
@@ -723,9 +725,9 @@ const Reports = () => {
                             {section === 'flowmeter' ? (
                               <>
                                 <td className="p-2 text-right">{r.flow_rate_m3h_avg != null ? Number(r.flow_rate_m3h_avg).toFixed(3) : '—'}</td>
-                                <td className="p-2 text-right">{r.initial_forward_totalizer != null ? Number(r.initial_forward_totalizer).toFixed(2) : '—'}</td>
-                                <td className="p-2 text-right">{r.final_forward_totalizer != null ? Number(r.final_forward_totalizer).toFixed(2) : '—'}</td>
-                                <td className="p-2 text-right font-semibold text-emerald-700">{r.forward_consumption != null ? Number(r.forward_consumption).toFixed(2) : '—'}</td>
+                                <td className="p-2 text-right">{r.initial_forward_totalizer_kl != null ? Number(r.initial_forward_totalizer_kl).toFixed(3) : '—'}</td>
+                                <td className="p-2 text-right">{r.final_forward_totalizer_kl != null ? Number(r.final_forward_totalizer_kl).toFixed(3) : '—'}</td>
+                                <td className="p-2 text-right font-semibold text-emerald-700">{r.forward_consumption != null ? Number(r.forward_consumption).toFixed(3) : '—'}</td>
                               </>
                             ) : section === 'dwlr' ? (
                               <>
