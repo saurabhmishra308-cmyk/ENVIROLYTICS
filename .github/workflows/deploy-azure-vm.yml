@@ -138,6 +138,18 @@ jobs:
             echo "REACT_APP_BACKEND_URL=" > /home/envirolytics/ENVIROLYTICS/frontend/.env
           fi
           cd /home/envirolytics/ENVIROLYTICS/frontend
+          # GitHub's non-interactive SSH shell does not load NVM automatically.
+          # Load the verified Node 20 installation before invoking Yarn.
+          export NVM_DIR="/home/envirolytics/.nvm"
+          if [ -s "$NVM_DIR/nvm.sh" ]; then
+            . "$NVM_DIR/nvm.sh"
+            nvm use 20
+          fi
+          export PATH="/home/envirolytics/.nvm/versions/node/v20.20.2/bin:$PATH"
+          command -v node
+          node --version
+          command -v yarn
+          yarn --version
           yarn install --no-lockfile
           yarn build
 
