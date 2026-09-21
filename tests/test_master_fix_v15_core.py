@@ -325,3 +325,10 @@ def test_frontend_logs_out_when_backend_deactivates_account():
     src = read("frontend/src/lib/api.js")
     assert 'const isDeactivated = status === 403 && detail === "Account is deactivated";' in src
     assert 'isDeactivated || (status === 401 && isTokenInvalidError(err))' in src
+
+def test_client_dashboard_does_not_require_admin_flowmeter_status():
+    src = read("frontend/src/pages/EnhancedDashboard.jsx")
+    assert "const liveRequests = [" in src
+    assert "if (isAdmin()) {" in src
+    assert "liveRequests.push(api.get('/api/flowmeter/status'));" in src
+    assert "const [fmRes, instrRes, catRes, regRes, statusRes]" in src
