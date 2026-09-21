@@ -36,6 +36,13 @@ def set_mqtt(svc):
     mqtt_service = svc
 
 
+async def _assert_device_visible(hardware_id: str, user: dict):
+    """Authorize device-specific reads using the same registry ownership rule as list/latest endpoints."""
+    visible = await api_instrument_registry.visible_hardware_ids(user)
+    if visible is not None and hardware_id not in visible:
+        raise HTTPException(status_code=403, detail="Not authorised to view this device")
+
+
 async def _enrich_with_registry(items: list):
     """Attach `manual_water_temp_c` and `label` from the instrument_registry.
 
@@ -150,8 +157,9 @@ async def latest_for_type(instrument_type: str, user: dict = Depends(get_current
 
 
 @router.get("/{instrument_type}/{hardware_id}/latest")
-async def latest_for_device(instrument_type: str, hardware_id: str):
+async def latest_for_device(instrument_type: str, hardware_id: str, user: dict = Depends(get_current_user)):
     t = _validate_type(instrument_type)
+    await _assert_device_visible(hardware_id, user)
     doc = await db.instrument_latest.find_one(
         {"instrument_type": t, "hardware_id": hardware_id, "_dummy": {"$ne": True}}, {"_id": 0}
     )
@@ -161,8 +169,9 @@ async def latest_for_device(instrument_type: str, hardware_id: str):
 
 
 @router.get("/{instrument_type}/{hardware_id}/history")
-async def history_for_device(instrument_type: str, hardware_id: str, limit: int = 5000):
+async def history_for_device(instrument_type: str, hardware_id: str, limit: int = 5000, user: dict = Depends(get_current_user)):
     t = _validate_type(instrument_type)
+    await _assert_device_visible(hardware_id, user)
     if limit < 1 or limit > 20000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 20000")
     cursor = (
@@ -170,7 +179,7 @@ async def history_for_device(instrument_type: str, hardware_id: str, limit: int 
             {"instrument_type": t, "hardware_id": hardware_id,
              "_dummy": {"$ne": True}}
         )
-        .sort("received_at", -1)
+         .sort([("measurement_timestamp", -1), ("timestamp", -1), ("received_at", -1)])
         .limit(limit)
     )
     items = await cursor.to_list(length=limit)
