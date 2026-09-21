@@ -86,7 +86,8 @@ const WaterLevelRecorder = () => {
           battery_v: Number.isFinite(Number(vals.BVOLT)) ? Number(vals.BVOLT) : null,
           signal: Number.isFinite(Number(vals.SIGNAL)) ? Number(vals.SIGNAL) : null,
           firmware: vals.HVER || vals.VER || null,
-          received_at: lt?.received_at || lt?.timestamp || null,
+          measurement_timestamp: lt?.measurement_timestamp || lt?.timestamp || lt?.received_at || null,
+          received_at: lt?.received_at || null,
           never_reported: !lt,
         };
       });
@@ -206,9 +207,9 @@ const WaterLevelRecorder = () => {
                   </CardTitle>
                   <CardDescription>
                     {activeWell?.location_name || activeWell?.hardware_id}
-                    {activeWell?.received_at && (
+                    {activeWell?.measurement_timestamp && (
                       <span className="ml-2 text-xs text-gray-400">
-                        · Last seen {new Date(activeWell.received_at).toLocaleString()}
+                        · Last seen {new Date(activeWell.measurement_timestamp).toLocaleString()}
                       </span>
                     )}
                   </CardDescription>
@@ -349,7 +350,7 @@ const WaterLevelRecorder = () => {
                             <div>
                               <p className="text-xs text-gray-500">Last Seen</p>
                               <p className="text-sm font-medium" style={{ color: '#1a2332' }}>
-                                {well.received_at ? new Date(well.received_at).toLocaleString() : 'Never'}
+                                {well.measurement_timestamp ? new Date(well.measurement_timestamp).toLocaleString() : 'Never'}
                               </p>
                             </div>
                             <div className="flex items-center">
