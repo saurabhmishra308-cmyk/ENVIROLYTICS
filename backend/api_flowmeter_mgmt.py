@@ -59,6 +59,8 @@ class EditFlowmeterReading(BaseModel):
     # Preferred canonical unit; either field is accepted for backward compat.
     flow_rate_m3h: Optional[float] = None
     flow_rate_lph: Optional[float] = None
+    # User-facing totaliser values are always KL. The backend converts KL
+    # to the device's historical storage unit when persisting edits.
     forward_totalizer: Optional[float] = None
     reverse_totalizer: Optional[float] = None
     temperature: Optional[float] = None
@@ -468,11 +470,16 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
                 detail="A flowmeter reading already exists for this measurement timestamp",
             )
 
-    # Validate forward totaliser monotonicity (chronological neighbours by timestamp)
+    # Totaliser values supplied by the web UI are KL. Compare neighbours in
+    # the same canonical KL unit, then convert the edited value back to the
+    # device storage unit (m³ before 27-Aug-2026, litres from that date).
+    edit_forward_raw = None
     if req.forward_totalizer is not None:
+        edit_forward_raw = float(req.forward_totalizer) * (1000.0 if new_ts >= TOTALISER_LITRE_CUTOFF else 1.0)
         prev = await _chronological_neighbor(hardware_id, new_ts, "previous", obj_id)
         nxt = await _chronological_neighbor(hardware_id, new_ts, "next", obj_id)
-        if prev and req.forward_totalizer < float(prev.get("forward_totalizer", 0)) - 1e-6:
+        edit_forward_kl = float(req.forward_totalizer)
+        if prev and edit_forward_kl < _totaliser_to_kl(prev.get("forward_totalizer", 0), prev.get("measurement_timestamp") or prev.get("timestamp")) - 1e-6:
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -481,7 +488,7 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
                     f"Totalisers must be monotonically non-decreasing."
                 ),
             )
-        if nxt and req.forward_totalizer > float(nxt.get("forward_totalizer", 0)) + 1e-6:
+        if nxt and edit_forward_kl > _totaliser_to_kl(nxt.get("forward_totalizer", 0), nxt.get("measurement_timestamp") or nxt.get("timestamp")) + 1e-6:
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -491,22 +498,28 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
                 ),
             )
 
-    # Same check for reverse totaliser
+    # Same canonical-KL validation for reverse totaliser.
+    edit_reverse_raw = None
     if req.reverse_totalizer is not None:
+        edit_reverse_raw = float(req.reverse_totalizer) * (1000.0 if new_ts >= TOTALISER_LITRE_CUTOFF else 1.0)
         prev = await _chronological_neighbor(hardware_id, new_ts, "previous", obj_id)
         nxt = await _chronological_neighbor(hardware_id, new_ts, "next", obj_id)
-        if prev and req.reverse_totalizer < float(prev.get("reverse_totalizer", 0)) - 1e-6:
+        if prev and float(req.reverse_totalizer) < _totaliser_to_kl(prev.get("reverse_totalizer", 0), prev.get("measurement_timestamp") or prev.get("timestamp")) - 1e-6:
             raise HTTPException(
                 status_code=400,
                 detail="Reverse totaliser mismatch with previous reading.",
             )
-        if nxt and req.reverse_totalizer > float(nxt.get("reverse_totalizer", 0)) + 1e-6:
+        if nxt and float(req.reverse_totalizer) > _totaliser_to_kl(nxt.get("reverse_totalizer", 0), nxt.get("measurement_timestamp") or nxt.get("timestamp")) + 1e-6:
             raise HTTPException(
                 status_code=400,
                 detail="Reverse totaliser mismatch with next reading.",
             )
 
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if edit_forward_raw is not None:
+        updates["forward_totalizer"] = edit_forward_raw
+    if edit_reverse_raw is not None:
+        updates["reverse_totalizer"] = edit_reverse_raw
     if "timestamp" in updates:
         # The edited timestamp is the device measurement time. Keep the
         # explicit field synchronized so all downstream consumers use the
