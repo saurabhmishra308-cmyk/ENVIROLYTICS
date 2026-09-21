@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eff8ff"/><stop offset="1" stop-color="#dff5ff"/></linearGradient><linearGradient id="steel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e2e8f0"/><stop offset=".5" stop-color="#94a3b8"/><stop offset="1" stop-color="#475569"/></linearGradient></defs>
+<rect width="1200" height="420" rx="28" fill="url(#bg)"/>
+<circle cx="1050" cy="70" r="110" fill="#bae6fd" opacity=".35"/>
+<g transform="translate(95 70)">
+<rect x="0" y="95" width="440" height="145" rx="28" fill="url(#steel)" stroke="#334155" stroke-width="6"/>
+<rect x="42" y="118" width="160" height="100" rx="14" fill="#0f172a"/>
+<text x="122" y="157" text-anchor="middle" font-family="Arial" font-size="18" font-weight="700" fill="#67e8f9">FLOWMETER</text>
+<text x="122" y="192" text-anchor="middle" font-family="Arial" font-size="25" font-weight="800" fill="white">31.291 m³/h</text>
+<path d="M220 168h120" stroke="#0ea5e9" stroke-width="18" stroke-linecap="round"/>
+<path d="M350 132v72" stroke="#334155" stroke-width="8"/><path d="M385 132v72" stroke="#334155" stroke-width="8"/>
+<circle cx="410" cy="168" r="28" fill="#0ea5e9"/><circle cx="410" cy="168" r="10" fill="white"/>
+</g>
+<text x="620" y="125" font-family="Arial" font-size="22" font-weight="700" letter-spacing="4" fill="#0f3b64">ENVIROLYTICS</text>
+<text x="620" y="180" font-family="Arial" font-size="42" font-weight="800" fill="#0f172a">Accurate Flow Monitoring</text>
+<text x="620" y="220" font-family="Arial" font-size="19" fill="#475569">Reliable data • Real-time monitoring • Sustainable water management</text>
+<g font-family="Arial" font-size="16" fill="#0f3b64"><circle cx="632" cy="270" r="7" fill="#10b981"/><text x="650" y="276">Continuous groundwater abstraction monitoring</text><circle cx="632" cy="310" r="7" fill="#0ea5e9"/><text x="650" y="316">Canonical flow and totaliser reporting</text><circle cx="632" cy="350" r="7" fill="#22c55e"/><text x="650" y="356">Actionable data for compliance decisions</text></g>
+</svg>
