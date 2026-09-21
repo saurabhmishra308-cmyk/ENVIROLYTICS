@@ -490,6 +490,7 @@ class MQTTFlowmeterService:
                 "timestamp": ts_iso,
                 "measurement_timestamp": ts_iso,
                 "received_at": now_iso,
+                "source_timestamp_raw": str(data.get("TIME") or "").strip() or None,
             }
             # Down-sample: only persist to history if enough time has elapsed
             # since the last stored reading, per registry.data_frequency_minutes.
@@ -570,6 +571,7 @@ class MQTTFlowmeterService:
                 "signal_strength": int(float(data.get("SIGNAL", 0) or 0)),
                 "timestamp": timestamp_iso,
                 "measurement_timestamp": timestamp_iso,
+                "source_timestamp_raw": raw_time or None,
                 # Canonical unit — every downstream consumer reads this.
                 "flow_rate_m3h": flow_m3h,
                 # Legacy fields kept for backward-compat with older reports
