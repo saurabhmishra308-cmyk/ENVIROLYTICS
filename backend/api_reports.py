@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from auth import get_current_user
+import api_instrument_registry
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,50 @@ def _bucket_daily(ts_iso: str) -> str:
 def _kl(litres: float) -> float:
     return round((litres or 0.0) / 1000.0, 3)
 
+def _measurement_range(start: datetime, end: datetime) -> dict:
+    """Measurement-time-authoritative range with legacy timestamp fallback."""
+    lo, hi = start.isoformat(), end.isoformat()
+    return {
+        "$or": [
+            {"measurement_timestamp": {"$gte": lo, "$lte": hi}},
+            {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": lo, "$lte": hi}},
+        ]
+    }
+
+
+def _measurement_since(start: datetime) -> dict:
+    lo = start.isoformat()
+    return {
+        "$or": [
+            {"measurement_timestamp": {"$gte": lo}},
+            {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gte": lo}},
+        ]
+    }
+
+
+def _effective_timestamp(row: dict) -> str:
+    return str(row.get("measurement_timestamp") or row.get("timestamp") or "")
+
+
+async def _visible_ids(user: dict, instrument_type: Optional[str] = None):
+    visible = await api_instrument_registry.visible_hardware_ids(user)
+    query = {}
+    if visible is not None:
+        query["hardware_id"] = {"$in": list(visible)}
+    if instrument_type:
+        query["instrument_type"] = instrument_type
+    return {
+        d["hardware_id"]
+        async for d in db.instrument_registry.find(query, {"_id": 0, "hardware_id": 1})
+    }
+
+
+async def _assert_visible(hardware_id: str, user: dict, instrument_type: Optional[str] = None):
+    ids = await _visible_ids(user, instrument_type)
+    if hardware_id not in ids:
+        raise HTTPException(status_code=403, detail="Not authorised to view this device")
+
+
 
 # --------------------------------------------------------------------------- flow vs level
 @router.get("/flow-vs-level")
@@ -85,21 +130,29 @@ async def flow_vs_level(
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
 
-    # Resolve a DWLR if not provided — pick the first one with data.
-    if not dwlr_id:
-        dwlr_latest = await db.instrument_latest.find_one({"instrument_type": "dwlr"})
+    await _assert_visible(hardware_id, user, "flowmeter")
+
+    # Resolve a DWLR only from the caller's visible registry devices.
+    visible_dwlr_ids = await _visible_ids(user, "dwlr")
+    if dwlr_id:
+        if dwlr_id not in visible_dwlr_ids:
+            raise HTTPException(status_code=403, detail="Not authorised to view this device")
+    else:
+        dwlr_latest = await db.instrument_latest.find_one(
+            {"instrument_type": "dwlr", "hardware_id": {"$in": list(visible_dwlr_ids)}},
+            sort=[("measurement_timestamp", -1), ("timestamp", -1)],
+        ) if visible_dwlr_ids else None
         if dwlr_latest:
             dwlr_id = dwlr_latest.get("hardware_id")
 
     # Flowmeter readings (hourly averaged flow)
     flow_buckets = {}
     fm_cursor = db.flowmeter_readings.find(
-        {"hardware_id": hardware_id, "timestamp": {"$gte": start.isoformat()},
-         "_dummy": {"$ne": True}},
-        {"_id": 0, "timestamp": 1, "flow_rate_lph": 1, "flow_rate_m3h": 1},
+        {"hardware_id": hardware_id, **_measurement_since(start), "_dummy": {"$ne": True}},
+        {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "flow_rate_lph": 1, "flow_rate_m3h": 1},
     ).limit(10000)
     async for r in fm_cursor:
-        b = _bucket_hourly(r["timestamp"])
+        b = _bucket_hourly(_effective_timestamp(r))
         agg = flow_buckets.setdefault(b, {"sum": 0.0, "n": 0})
         # Prefer canonical m³/h when present, fall back to L/H ÷ 1000 for
         # legacy readings ingested before the unit normalisation.
@@ -114,9 +167,8 @@ async def flow_vs_level(
     if dwlr_id:
         dw_cursor = db.instrument_readings.find(
             {"instrument_type": "dwlr", "hardware_id": dwlr_id,
-             "timestamp": {"$gte": start.isoformat()},
-             "_dummy": {"$ne": True}},
-            {"_id": 0, "timestamp": 1, "values": 1},
+             **_measurement_since(start), "_dummy": {"$ne": True}},
+            {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "values": 1},
         ).limit(10000)
         async for r in dw_cursor:
             v = r.get("values", {}) or {}
@@ -187,9 +239,15 @@ async def level_vs_rainfall(
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
 
-    # Choose DWLR if not provided
-    if not hardware_id:
-        dwlr_latest = await db.instrument_latest.find_one({"instrument_type": "dwlr"})
+    visible_dwlr_ids = await _visible_ids(user, "dwlr")
+    if hardware_id:
+        if hardware_id not in visible_dwlr_ids:
+            raise HTTPException(status_code=403, detail="Not authorised to view this device")
+    else:
+        dwlr_latest = await db.instrument_latest.find_one(
+            {"instrument_type": "dwlr", "hardware_id": {"$in": list(visible_dwlr_ids)}},
+            sort=[("measurement_timestamp", -1), ("timestamp", -1)],
+        ) if visible_dwlr_ids else None
         if dwlr_latest:
             hardware_id = dwlr_latest.get("hardware_id")
     if not hardware_id:
@@ -199,9 +257,8 @@ async def level_vs_rainfall(
     level_buckets = {}
     dw_cursor = db.instrument_readings.find(
         {"instrument_type": "dwlr", "hardware_id": hardware_id,
-         "timestamp": {"$gte": start.isoformat()},
-         "_dummy": {"$ne": True}},
-        {"_id": 0, "timestamp": 1, "values": 1},
+         **_measurement_since(start), "_dummy": {"$ne": True}},
+        {"_id": 0, "timestamp": 1, "measurement_timestamp": 1, "values": 1},
     )
     async for r in dw_cursor:
         v = r.get("values", {}) or {}
@@ -243,18 +300,18 @@ async def level_vs_rainfall(
 
 # --------------------------------------------------------------------------- multi-borewell consumption
 async def _consumption_kl(hardware_id: str, start: datetime, end: datetime) -> float:
-    """Forward-totalizer delta between first reading >= start and last <= end."""
+    """Forward-totalizer delta using the device measurement timestamp."""
     first_doc = await db.flowmeter_readings.find_one(
-        {"hardware_id": hardware_id, "timestamp": {"$gte": start.isoformat()},
-         "_dummy": {"$ne": True}},
-        sort=[("timestamp", 1)],
+        {"hardware_id": hardware_id, **_measurement_since(start), "_dummy": {"$ne": True}},
+        sort=[("measurement_timestamp", 1), ("timestamp", 1)],
     )
     if not first_doc:
         return 0.0
     last_doc = await db.flowmeter_readings.find_one(
-        {"hardware_id": hardware_id, "timestamp": {"$lte": end.isoformat()},
+        {"hardware_id": hardware_id,
+         **_measurement_range(start, end),
          "_dummy": {"$ne": True}},
-        sort=[("timestamp", -1)],
+        sort=[("measurement_timestamp", -1), ("timestamp", -1)],
     )
     if not last_doc:
         return 0.0
@@ -262,17 +319,18 @@ async def _consumption_kl(hardware_id: str, start: datetime, end: datetime) -> f
     return _kl(delta_l)
 
 
-async def _list_groundwater_borewells() -> List[dict]:
-    """All flowmeters categorised as groundwater_abstraction (default is also groundwater)."""
+async def _list_groundwater_borewells(user: dict) -> List[dict]:
+    """Caller-visible flowmeters categorised as groundwater_abstraction."""
+    visible_ids = await _visible_ids(user, "flowmeter")
     out = []
     seen = set()
     # 1) explicitly categorised
-    async for c in db.flowmeter_categories.find({"category": "groundwater_abstraction"}, {"_id": 0}):
+    async for c in db.flowmeter_categories.find({"category": "groundwater_abstraction", "hardware_id": {"$in": list(visible_ids)}}, {"_id": 0}):
         if c.get("hardware_id") and c["hardware_id"] not in seen:
             out.append({"hardware_id": c["hardware_id"], "label": c.get("label")})
             seen.add(c["hardware_id"])
     # 2) latest collection — any flowmeter not explicitly categorised stp_*
-    async for r in db.flowmeter_latest.find({}, {"_id": 0, "hardware_id": 1}):
+    async for r in db.flowmeter_latest.find({"hardware_id": {"$in": list(visible_ids)}}, {"_id": 0, "hardware_id": 1}):
         hw = r.get("hardware_id")
         if not hw or hw in seen:
             continue
@@ -299,7 +357,7 @@ async def borewell_consumption(
     if end_dt.tzinfo is None:
         end_dt = end_dt.replace(tzinfo=timezone.utc)
 
-    borewells = await _list_groundwater_borewells()
+    borewells = await _list_groundwater_borewells(user)
     rows = []
     total_kl = 0.0
     for b in borewells:
@@ -375,7 +433,7 @@ async def rainfall_impact(
             level = v.get("LEVEL") if isinstance(v.get("LEVEL"), (int, float)) else v.get("level")
             if level is None:
                 continue
-            d = _bucket_daily(r["timestamp"])
+            d = _bucket_daily(_effective_timestamp(r))
             agg = level_buckets.setdefault(d, {"sum": 0.0, "n": 0})
             agg["sum"] += float(level)
             agg["n"] += 1
