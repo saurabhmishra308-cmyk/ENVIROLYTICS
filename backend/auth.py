@@ -75,6 +75,11 @@ async def get_current_user(request: Request) -> Dict:
     user = await db.users.find_one({"id": payload["sub"]})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Tokens remain cryptographically valid until expiry, but account state is
+    # authoritative. A deactivated user must lose API access immediately even
+    # if they still possess an unexpired JWT.
+    if not user.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Account is deactivated")
     user.pop("password_hash", None)
     user.pop("_id", None)
     # Normalise permissions so the frontend always sees a complete map.
