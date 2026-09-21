@@ -87,70 +87,86 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.AZURE_VM_HOST }}
-          username: ${{ secrets.AZURE_VM_USER }}
-          key: ${{ secrets.AZURE_VM_SSH_KEY }}
-          port: ${{ secrets.AZURE_VM_PORT || 22 }}
-          command_timeout: 15m
-          script: |
-            set -euo pipefail
-            cd /opt/envirolytics/src
-            echo "→ pulling latest"
-            sudo -u envirolytics -H git fetch --all --prune
-            sudo -u envirolytics -H git reset --hard origin/main
+        env:
+          AZURE_VM_HOST: ${{ secrets.AZURE_VM_HOST }}
+          AZURE_VM_USER: ${{ secrets.AZURE_VM_USER }}
+          AZURE_VM_SSH_KEY: ${{ secrets.AZURE_VM_SSH_KEY }}
+          AZURE_VM_PORT: ${{ secrets.AZURE_VM_PORT }}
+        run: |
+          set -euo pipefail
+          KEY_FILE="$RUNNER_TEMP/envirolytics_deploy_key"
 
-            echo "→ syncing backend"
-            sudo rsync -a --delete \
-              --exclude ".env" \
-              --exclude "uploads/" \
-              backend/ /opt/envirolytics/backend/
-            sudo chown -R envirolytics:envirolytics /opt/envirolytics/backend
+          # Materialize the repository secret as a PEM/OpenSSH private-key file.
+          # Remove CR characters so a Windows-copied key cannot be rejected due
+          # to CRLF line endings. The key never gets printed to the Actions log.
+          printf '%s\n' "$AZURE_VM_SSH_KEY" | tr -d '\r' > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
 
-            echo "→ installing any new Python deps"
-            sudo -u envirolytics -H /opt/envirolytics/venv/bin/pip install -r /opt/envirolytics/backend/requirements.txt
+          echo "→ validating deploy key"
+          ssh-keygen -y -f "$KEY_FILE" > /dev/null
 
-            echo "→ syncing frontend + rebuilding"
-            sudo rsync -a --delete \
-              --exclude ".env" \
-              --exclude "build/" \
-              --exclude "node_modules/" \
-              frontend/ /opt/envirolytics/frontend/
-            sudo chown -R envirolytics:envirolytics /opt/envirolytics/frontend
-            # Guarantee the frontend .env exists on the VM BEFORE yarn build.
-            # If REACT_APP_BACKEND_URL is missing during the build, every raw
-            # fetch() falls back to same-origin (nginx proxies /api/* to :8001),
-            # but we prefer an explicit URL so tools like WebSocket clients also
-            # resolve correctly. An empty file works too — the frontend's
-            # apiUrl() helper will emit relative /api/... paths.
-            if [ ! -f /opt/envirolytics/frontend/.env ]; then
-              echo "→ frontend/.env missing — creating with same-origin default"
-              echo "REACT_APP_BACKEND_URL=" | sudo -u envirolytics tee /opt/envirolytics/frontend/.env > /dev/null
+          echo "→ connecting to Azure VM"
+          ssh \
+            -i "$KEY_FILE" \
+            -p "${AZURE_VM_PORT:-22}" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=30 \
+            "$AZURE_VM_USER@$AZURE_VM_HOST" 'bash -s' <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          cd /opt/envirolytics/src
+          echo "→ pulling latest"
+          sudo -u envirolytics -H git fetch --all --prune
+          sudo -u envirolytics -H git reset --hard origin/main
+
+          echo "→ syncing backend"
+          sudo rsync -a --delete \
+            --exclude ".env" \
+            --exclude "uploads/" \
+            backend/ /opt/envirolytics/backend/
+          sudo chown -R envirolytics:envirolytics /opt/envirolytics/backend
+
+          echo "→ installing any new Python deps"
+          sudo -u envirolytics -H /opt/envirolytics/venv/bin/pip install -r /opt/envirolytics/backend/requirements.txt
+
+          echo "→ syncing frontend + rebuilding"
+          sudo rsync -a --delete \
+            --exclude ".env" \
+            --exclude "build/" \
+            --exclude "node_modules/" \
+            frontend/ /opt/envirolytics/frontend/
+          sudo chown -R envirolytics:envirolytics /opt/envirolytics/frontend
+          # Guarantee the frontend .env exists on the VM BEFORE yarn build.
+          if [ ! -f /opt/envirolytics/frontend/.env ]; then
+            echo "→ frontend/.env missing — creating with same-origin default"
+            echo "REACT_APP_BACKEND_URL=" | sudo -u envirolytics tee /opt/envirolytics/frontend/.env > /dev/null
+          fi
+          cd /opt/envirolytics/frontend
+          sudo -u envirolytics -H yarn install --frozen-lockfile
+          sudo -u envirolytics -H yarn build
+
+          echo "→ syncing deploy artefacts (nginx/systemd)"
+          sudo rsync -a /opt/envirolytics/src/deploy/azure-vm/nginx.conf \
+            /etc/nginx/sites-available/envirolytics
+          sudo rsync -a /opt/envirolytics/src/deploy/azure-vm/envirolytics-backend.service \
+            /etc/systemd/system/envirolytics-backend.service
+          sudo systemctl daemon-reload
+
+          echo "→ restarting services"
+          sudo systemctl restart envirolytics-backend
+          sudo nginx -t && sudo systemctl reload nginx
+
+          echo "→ waiting for health check"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sf http://127.0.0.1:8001/api/health > /dev/null; then
+              echo "✔ healthy"
+              exit 0
             fi
-            cd /opt/envirolytics/frontend
-            sudo -u envirolytics -H yarn install --frozen-lockfile
-            sudo -u envirolytics -H yarn build
+            sleep 2
+          done
+          echo "✘ backend failed to become healthy"
+          sudo journalctl -u envirolytics-backend -n 80 --no-pager
+          exit 1
+          REMOTE_SCRIPT
 
-            echo "→ syncing deploy artefacts (nginx/systemd)"
-            sudo rsync -a /opt/envirolytics/src/deploy/azure-vm/nginx.conf \
-              /etc/nginx/sites-available/envirolytics
-            sudo rsync -a /opt/envirolytics/src/deploy/azure-vm/envirolytics-backend.service \
-              /etc/systemd/system/envirolytics-backend.service
-            sudo systemctl daemon-reload
-
-            echo "→ restarting services"
-            sudo systemctl restart envirolytics-backend
-            sudo nginx -t && sudo systemctl reload nginx
-
-            echo "→ waiting for health check"
-            for i in 1 2 3 4 5 6 7 8 9 10; do
-              if curl -sf http://127.0.0.1:8001/api/health > /dev/null; then
-                echo "✔ healthy"
-                exit 0
-              fi
-              sleep 2
-            done
-            echo "✘ backend failed to become healthy"
-            sudo journalctl -u envirolytics-backend -n 80 --no-pager
-            exit 1
+          rm -f "$KEY_FILE"
