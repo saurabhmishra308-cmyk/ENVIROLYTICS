@@ -567,11 +567,23 @@ class MQTTFlowmeterService:
             except (TypeError, ValueError):
                 unit_code = 3  # L/H — most common default
             unit_name = get_unit_name(unit_code)
-            # Normalise EVERY flow reading to canonical m³/h at persist
-            # time so downstream code (UI, reports, alerts) reads one
-            # consistent unit. The original raw value + unit stay on
-            # the doc for audit but must never be used for reports.
-            flow_m3h = convert_flow_to_m3h(raw_flow, unit_code)
+            # From 27-Aug-2026 onward this fleet's FLOW field is L/h.
+            # Device UNT/UNIT metadata may be stale, so the date cutoff is
+            # authoritative for this transition.
+            raw_time_for_unit = str(data.get("TIME") or "").strip()
+            try:
+                unit_ts = parse_timestamp(raw_time_for_unit)
+                if unit_ts.tzinfo is None:
+                    unit_ts = unit_ts.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                unit_ts = datetime.now(timezone.utc)
+            flow_litre_cutoff = datetime(2026, 8, 27, tzinfo=timezone.utc)
+            if unit_ts >= flow_litre_cutoff:
+                flow_m3h = round(raw_flow / 1000.0, 4)
+                flow_normalization_source = "post_cutoff_lph"
+            else:
+                flow_m3h = convert_flow_to_m3h(raw_flow, unit_code)
+                flow_normalization_source = "device_unit"
             flow_lph = m3h_to_lph(flow_m3h)
             flow_lpm = convert_flow_to_lpm(flow_lph)
 
@@ -622,6 +634,8 @@ class MQTTFlowmeterService:
                 "unit_code": unit_code,
                 "unit_name": unit_name,
                 "canonical_unit": "m3/h",
+                "flow_rate_normalization_version": 2,
+                "flow_rate_normalization_source": flow_normalization_source,
                 "power_status": int(float(data.get("POW", 0) or 0)),
                 "temperature": float(data.get("TEMPER", 0) or 0),
                 "firmware_version": data.get("VER", ""),
