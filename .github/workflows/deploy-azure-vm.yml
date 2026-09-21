@@ -169,6 +169,9 @@ jobs:
           cd /home/envirolytics/ENVIROLYTICS/backend
           /home/envirolytics/ENVIROLYTICS/backend/venv/bin/python scripts/rebuild_flowmeter_totaliser_chain.py
 
+          echo "→ normalizing historical Flowmeter flow rates to canonical m³/h"
+          /home/envirolytics/ENVIROLYTICS/backend/venv/bin/python scripts/rebuild_flowmeter_flow_rate.py
+
           echo "→ syncing frontend + rebuilding"
           rsync -a --delete \
             --exclude ".env" \
@@ -247,14 +250,9 @@ jobs:
               'cat /tmp/envirolytics_deploy.log 2>/dev/null || echo NO_REMOTE_DEPLOY_LOG' \
               > "$RUNNER_TEMP/envirolytics_deploy.log" || true
             if [ -f "$RUNNER_TEMP/envirolytics_deploy.log" ]; then
+              echo "===== REMOTE DEPLOYMENT LOG ====="
               cat "$RUNNER_TEMP/envirolytics_deploy.log"
-              cp "$RUNNER_TEMP/envirolytics_deploy.log" docs/last_azure_deploy_failure.log
-              git config user.name "github-actions[bot]"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git add docs/last_azure_deploy_failure.log
-              git commit -m "ci: record Azure deployment failure"
-              git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-              git push origin HEAD:main || true
+              echo "===== END REMOTE DEPLOYMENT LOG ====="
             fi
           fi
 
