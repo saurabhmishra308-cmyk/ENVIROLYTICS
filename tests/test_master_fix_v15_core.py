@@ -114,6 +114,12 @@ def test_flowmeter_ui_prefers_measurement_timestamp():
     assert "current.measurement_timestamp || current.timestamp || current.received_at" in src
 
 
+def test_flowmeter_ui_labels_totalisers_as_litres_not_flow_rate_unit():
+    src = read("frontend/src/pages/Flowmeter.jsx")
+    assert '<p className="text-xs text-gray-500">L</p>' in src
+    assert '<span className="text-3xl font-semibold text-gray-600">L</span>' in src
+
+
 def test_dwlr_ui_separates_measurement_and_receipt_timestamps():
     src = read("frontend/src/pages/WaterLevelRecorder.jsx")
     assert "measurement_timestamp: lt?.measurement_timestamp || lt?.timestamp || lt?.received_at || null" in src
