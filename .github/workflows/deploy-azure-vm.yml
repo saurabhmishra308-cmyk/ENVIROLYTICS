@@ -73,29 +73,8 @@ jobs:
           python -m pytest -q tests/test_client_mobile_visibility.py
 
       - name: Regression tests — V15 core
-        id: v15
-        continue-on-error: true
         run: |
-          set +e
-          python -m pytest -q tests/test_master_fix_v15_core.py > /tmp/v15_pytest.log 2>&1
-          rc=$?
-          cat /tmp/v15_pytest.log
-          if [ "$rc" -ne 0 ]; then
-            cp /tmp/v15_pytest.log docs/last_v15_pytest_failure.txt
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add docs/last_v15_pytest_failure.txt
-            git commit -m "ci: record V15 regression failure"
-            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            git push origin HEAD:main
-          fi
-          exit "$rc"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Fail deployment on V15 regression failure
-        if: steps.v15.outcome == 'failure'
-        run: exit 1
+          python -m pytest -q tests/test_master_fix_v15_core.py
 
       - name: Set up Node 20
         uses: actions/setup-node@v7
