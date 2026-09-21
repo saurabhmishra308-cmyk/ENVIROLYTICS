@@ -639,7 +639,7 @@ const Reports = () => {
           <TabsContent value={section === 'charts' ? '__hide__' : section} className="mt-4 space-y-5">
             <Card className="overflow-hidden border-0 bg-white shadow-sm ring-1 ring-slate-200">
               <CardContent className="p-0">
-                <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_460px]">
+                <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_520px]">
                   <div className="p-5 md:p-6">
                     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
@@ -676,18 +676,18 @@ const Reports = () => {
                       <Button onClick={() => { const needsBounds=['weekly','monthly','quarterly','yearly'].includes(frequency); if (needsBounds && (!startDate || !endDate)) { toast.error(`${frequency.charAt(0).toUpperCase()+frequency.slice(1)} reports require both a start date and an end date`); return; } fetchReadings(); }} className="h-11 min-w-40 rounded-xl bg-blue-600 px-6 shadow-sm hover:bg-blue-700" disabled={!hardwareId || loading} data-testid="apply-filters-btn">{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Filter className="mr-2 h-4 w-4" />} Apply Filter</Button>
                     </div>
                   </div>
-                  <div className="relative hidden h-full min-h-[280px] overflow-hidden rounded-r-xl bg-sky-50 lg:flex lg:items-center lg:justify-center">
+                  <div className="relative hidden aspect-[1794/877] w-full overflow-hidden rounded-2xl border border-sky-100 bg-sky-50 shadow-sm lg:flex lg:items-center lg:justify-center">
               <img
                 src={section === 'dwlr' ? '/dwlr-banner.webp' : '/flowmeter-banner.webp'}
-                alt={section === 'dwlr' ? 'Envirolytics DWLR groundwater monitoring' : 'Envirolytics flowmeter'}
-                className="h-full w-full object-contain p-2"
+                alt={section === 'dwlr' ? 'Envirolytics Digital Water Level Recorder — Continuous Groundwater Monitoring' : 'Envirolytics flowmeter'}
+                className="h-full w-full object-contain p-0"
                 loading="eager"
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/75 to-transparent px-5 pb-4 pt-16">
-                <div className="text-sm font-semibold text-white">{section === 'dwlr' ? 'Groundwater Level Monitoring' : 'Accurate Flow Monitoring'}</div>
-                <div className="text-xs text-slate-200">{section === 'dwlr' ? 'Continuous water-level data • Reliable groundwater insights' : 'Reliable data • Real-time monitoring • Sustainable water management'}</div>
-              </div>
+              {section !== 'dwlr' && <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/75 to-transparent px-5 pb-4 pt-16">
+                <div className="text-sm font-semibold text-white">Accurate Flow Monitoring</div>
+                <div className="text-xs text-slate-200">Reliable data • Real-time monitoring • Sustainable water management</div>
+              </div>}
             </div>
                 </div>
               </CardContent>
