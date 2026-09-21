@@ -95,6 +95,12 @@ def test_mqtt_flowmeter_totaliser_previous_reading_uses_measurement_time():
     assert '"forward_totalizer": 1, "measurement_timestamp": 1, "timestamp": 1' in src
 
 
+def test_flowmeter_aggregate_exposes_measurement_time_and_separate_receipt_time():
+    src = read("backend/api_flowmeter_mgmt.py")
+    assert '"last_reading_at": (latest.get("measurement_timestamp") or latest.get("timestamp")) if latest else None' in src
+    assert '"last_received_at": latest.get("received_at") if latest else None' in src
+
+
 def test_flowmeter_admin_ingest_persists_measurement_timestamp():
     src = read("backend/api_flowmeter_mgmt.py")
     assert '"timestamp": now_iso,' in src
