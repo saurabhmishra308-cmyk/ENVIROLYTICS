@@ -268,7 +268,9 @@ Audit and verify:
 
 ## 12. Data integrity and historical consistency
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** the telemetry chain is being hardened around registry-authoritative devices, measurement-time ordering, monotonic latest caches, duplicate timestamp protection, ownership-scoped reports, and measurement-time-authoritative history/report queries. Generic manual ingestion now rejects unknown or mismatched registry devices and will not move a latest cache backward. Full device→ingestion→database→latest→history→Web→Mobile verification remains outstanding.
 
 Verify representative devices end-to-end:
 
