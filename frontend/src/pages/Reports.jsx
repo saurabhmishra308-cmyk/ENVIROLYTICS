@@ -697,7 +697,7 @@ const Reports = () => {
               <img
                 src={section === 'dwlr' ? '/dwlr-banner.webp' : '/flowmeter-banner.svg'}
                 alt={section === 'dwlr' ? 'Envirolytics Digital Water Level Recorder — Continuous Groundwater Monitoring' : 'Envirolytics flowmeter'}
-                className="h-full w-full object-contain p-0"
+                className="h-full w-full object-cover"
                 loading="eager"
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
