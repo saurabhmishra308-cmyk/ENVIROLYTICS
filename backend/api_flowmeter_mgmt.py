@@ -313,9 +313,9 @@ async def _abstraction_between(hardware_id: str, start_dt: datetime, end_dt: dat
             continue
         total_kl_reading = _totaliser_to_kl(row.get("forward_totalizer", 0), ts)
         if prev_total_kl is not None:
-            delta_kl = total_kl_reading - prev_total_kl
-            if delta_kl >= 0:
-                total_kl += delta_kl
+            delta = total_kl_reading - prev_total_kl
+            if delta >= 0:
+                total_kl += delta
             # A decrease is a meter reset/rollover; start a new chain at
             # the new normalized final reading instead of fabricating usage.
         prev_ts = ts
