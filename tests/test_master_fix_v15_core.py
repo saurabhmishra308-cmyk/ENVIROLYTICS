@@ -406,3 +406,36 @@ def test_dwlr_daily_deduplicates_measurement_timestamps():
     assert "seen_measurement_ts = set()" in block
     assert "if ts in seen_measurement_ts:" in block
     assert "seen_measurement_ts.add(ts)" in block
+
+def test_do_saturation_uses_benson_krause_engineering_formula():
+    src = read("backend/espl_poller.py")
+    start = src.index("def _calculate_do_saturation")
+    end = src.index("async def _persist_reading", start)
+    block = src[start:end]
+    assert "1.575701e5 / T" in block
+    assert "6.642308e7 / (T ** 2)" in block
+    assert "1.243800e10 / (T ** 3)" in block
+    assert "8.621949e11 / (T ** 4)" in block
+    assert "0.017674 - 10.754 / T + 2140.7 / (T ** 2)" in block
+    assert "saturation_pct" in block
+    assert "0.0 <= t_c <= 40.0" in block
+    assert "0.0 <= sal <= 40.0" in block
+    assert "0.5 <= p_atm <= 1.1" in block
+
+
+def test_do_saturation_preserves_vendor_value_and_uses_calculated_value():
+    src = read("backend/espl_poller.py")
+    start = src.index("async def _persist_reading")
+    end = src.index("async def poll_device", start)
+    block = src[start:end]
+    assert 'values["DO_SATURATION_VENDOR"] = vendor_sat' in block
+    assert 'values["DO_SATURATION"] = calc["saturation_pct"]' in block
+    assert 'values["DO_SATURATION_CALCULATED"] = calc["saturation_pct"]' in block
+    assert 'values["DO_SATURATION_MG_L"] = calc["saturation_mg_l"]' in block
+
+
+def test_do_saturation_ui_shows_calculated_and_vendor_values():
+    src = read("frontend/src/components/wq/WQWidgets.jsx")
+    assert "saturationVendorPct" in src
+    assert "Sat Calc" in src
+    assert "Vendor" in src
