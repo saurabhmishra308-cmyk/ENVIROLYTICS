@@ -6,7 +6,7 @@ import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Textarea } from '../components/ui/textarea';
 import {
-  Building2, Upload, Save, RefreshCw, Loader2, ShieldCheck, CalendarClock, MapPin, Users, Droplets, Cpu, FileBadge, Mail, Phone, User,
+  Building2, Upload, Save, RefreshCw, Loader2, ShieldCheck, CalendarClock, MapPin, Users, Droplets, Cpu, FileBadge, Mail, Phone, User, Leaf, Factory, CloudRain, Landmark, CheckCircle2, Activity,
 } from 'lucide-react';
 import api, { formatApiError } from '../lib/api';
 import { isAdmin, getCurrentUser } from '../mockData';
@@ -27,25 +27,29 @@ const emptyForm = {
 
 const fmtDate = (s) => (s ? new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
-const Section = ({ title, icon: Icon, children, hidden }) => (
+const Section = ({ title, icon: Icon, children, hidden, tone = 'blue', action }) => (
   hidden ? null : (
-  <Card>
-    <CardHeader className="pb-3">
-      <CardTitle className="flex items-center gap-2 text-base">
-        {Icon && <Icon className="h-4 w-4 text-slate-500" />} {title}
-      </CardTitle>
-    </CardHeader>
-    <CardContent>{children}</CardContent>
-  </Card>
+    <Card className="overflow-hidden border-slate-200/80 bg-white/95 shadow-[0_8px_28px_rgba(15,23,42,0.06)] transition-shadow hover:shadow-[0_12px_34px_rgba(15,23,42,0.09)]">
+      <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80 pb-3">
+        <CardTitle className="flex items-center justify-between gap-3 text-[15px] text-slate-900">
+          <span className="flex items-center gap-2.5">
+            {Icon && <span className={`flex h-9 w-9 items-center justify-center rounded-xl bg-${tone}-50 ring-1 ring-${tone}-100`}><Icon className={`h-4 w-4 text-${tone}-600`} /></span>}
+            <span>{title}</span>
+          </span>
+          {action}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-4">{children}</CardContent>
+    </Card>
   )
 );
 
 const Field = ({ label, value, unit }) => (
-  <div className="flex items-baseline justify-between gap-3 py-1.5 border-b border-dashed border-gray-100 last:border-0">
-    <span className="text-xs uppercase tracking-wide text-gray-500">{label}</span>
-    <span className="text-sm font-medium text-gray-800 text-right">
-      {value ?? <span className="italic text-gray-400">—</span>}
-      {unit && value != null ? <span className="ml-1 text-xs text-gray-500">{unit}</span> : null}
+  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.55fr)] items-baseline gap-4 border-b border-dashed border-slate-100 py-2 last:border-0">
+    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">{label}</span>
+    <span className="text-[12px] font-semibold leading-5 text-slate-700 text-right">
+      {value ?? <span className="italic font-normal text-slate-300">Not provided</span>}
+      {unit && value != null ? <span className="ml-1 text-[10px] font-medium text-slate-400">{unit}</span> : null}
     </span>
   </div>
 );
@@ -244,47 +248,60 @@ const CustomerProfile = () => {
   };
 
   return (
-    <div className="p-6 space-y-6" data-testid="customer-profile-page">
-      {/* Header */}
-      <Card>
-        <CardContent className="flex flex-wrap items-center gap-6 py-6">
-          <div className="h-24 w-24 rounded-lg bg-gray-100 border flex items-center justify-center overflow-hidden shrink-0">
-            {logoBlobUrl ? (
-              <img src={logoBlobUrl} alt="Company logo" className="h-full w-full object-contain" />
-            ) : (
-              <Building2 className="h-10 w-10 text-gray-400" />
-            )}
-          </div>
-          <div className="flex-1 min-w-[240px]">
-            <h1 className="text-2xl font-bold text-gray-900">{profile.customer_name || profile.full_name || profile.email}</h1>
-            <div className="text-sm text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-              {profile.site_name && <span>{profile.site_name}</span>}
-              {profile.unit_name && <><span className="text-gray-300">·</span><span>{profile.unit_name}</span></>}
-              {profile.role && <><span className="text-gray-300">·</span><Badge variant="outline" className="capitalize">{profile.role}</Badge></>}
+    <div className="min-h-full bg-[radial-gradient(circle_at_80%_0%,rgba(219,243,255,0.75),transparent_32%),linear-gradient(180deg,#f8fbff_0%,#f5f8fc_100%)] p-4 md:p-5 xl:p-6 space-y-5" data-testid="customer-profile-page">
+      <Card className="overflow-hidden border-slate-200/80 bg-white shadow-[0_10px_34px_rgba(15,23,42,0.08)]">
+        <CardContent className="p-0">
+          <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(430px,0.95fr)]">
+            <div className="flex min-w-0 items-center gap-4 p-5">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-slate-50 shadow-sm">
+                {logoBlobUrl ? <img src={logoBlobUrl} alt="Company logo" className="h-full w-full object-contain p-2" /> : <Building2 className="h-8 w-8 text-blue-500" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-xl font-bold tracking-tight text-slate-900 md:text-2xl">{profile.customer_name || profile.full_name || profile.email}</h1>
+                  <Badge className="border-0 bg-emerald-50 text-emerald-700 hover:bg-emerald-50"><CheckCircle2 className="mr-1 h-3 w-3" /> Client</Badge>
+                </div>
+                <p className="mt-1 text-xs font-medium text-slate-500">{profile.site_name || 'Customer site'}{profile.unit_name ? `  •  ${profile.unit_name}` : ''}</p>
+                {profile.address && <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-4 text-slate-500"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" /> {profile.address}</p>}
+              </div>
             </div>
-            {profile.address && <p className="text-xs text-gray-500 mt-1 flex items-start gap-1"><MapPin className="h-3 w-3 mt-0.5 shrink-0" /> {profile.address}</p>}
+            <div className="relative min-h-[150px] overflow-hidden bg-gradient-to-r from-sky-50 via-white to-emerald-50 p-5">
+              <div className="absolute inset-0 opacity-70" style={{backgroundImage:'radial-gradient(circle at 15% 35%, rgba(59,130,246,.12) 0 2px, transparent 3px), radial-gradient(circle at 78% 22%, rgba(16,185,129,.13) 0 3px, transparent 4px)', backgroundSize:'32px 32px,46px 46px'}} />
+              <div className="relative flex h-full flex-col justify-between">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-blue-600">ENVIRONMENTAL MONITORING</p>
+                  <h2 className="mt-1 text-xl font-bold leading-tight text-slate-900">Monitoring Today<br /><span className="text-emerald-600">for a Sustainable Tomorrow</span></h2>
+                  <p className="mt-2 text-[11px] text-slate-500">Reliable data • Regulatory visibility • Resource conservation</p>
+                </div>
+                <div className="flex items-center gap-4 text-[10px] font-semibold text-slate-600">
+                  <span className="flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-blue-600" /> Compliance</span>
+                  <span className="flex items-center gap-1.5"><Leaf className="h-4 w-4 text-emerald-600" /> Conservation</span>
+                  <span className="flex items-center gap-1.5"><Activity className="h-4 w-4 text-violet-600" /> Sustainable Growth</span>
+                </div>
+              </div>
+            </div>
           </div>
           {admin && (
-            <div className="flex flex-wrap items-center gap-3">
-              <select
-                className="border rounded px-3 py-2 text-sm"
-                value={selectedId || ''}
-                onChange={(e) => { setSelectedId(e.target.value); setEditing(false); }}
-                data-testid="cp-user-picker"
-              >
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.role === 'admin' && u.id === me?.id ? '⚙️ My profile — ' : ''}
-                    {u.customer_name || u.full_name || u.email}{u.unit_name ? ` — ${u.unit_name}` : ''}
-                    {u.role === 'admin' && u.id === me?.id ? ' (Admin)' : ''}
-                  </option>
-                ))}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-3">
+              <select className="min-w-[280px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm outline-none focus:border-blue-400" value={selectedId || ''} onChange={(e) => { setSelectedId(e.target.value); setEditing(false); }} data-testid="cp-user-picker">
+                {users.map((u) => <option key={u.id} value={u.id}>{u.role === 'admin' && u.id === me?.id ? '⚙️ My profile — ' : ''}{u.customer_name || u.full_name || u.email}{u.unit_name ? ` — ${u.unit_name}` : ''}{u.role === 'admin' && u.id === me?.id ? ' (Admin)' : ''}</option>)}
               </select>
-              <Button variant="outline" onClick={() => logoFileRef.current?.click()} disabled={uploadingLogo} data-testid="cp-logo-upload-btn">
-                {uploadingLogo ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Uploading…</> : <><Upload className="h-4 w-4 mr-2" /> Upload logo (JPEG)</>}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" className="rounded-xl border-slate-200 bg-white" onClick={() => logoFileRef.current?.click()} disabled={uploadingLogo} data-testid="cp-logo-upload-btn">
+                  {uploadingLogo ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading…</> : <><Upload className="mr-2 h-4 w-4" /> Upload logo (JPEG)</>}
+                </Button>
+                {!editing ? <Button className="rounded-xl bg-slate-900 hover:bg-slate-800" onClick={() => setEditing(true)} data-testid="cp-edit-btn">Edit profile</Button> : <>
+                  <Button variant="outline" className="rounded-xl" onClick={() => { setEditing(false); loadProfile(profile.id); }} disabled={saving}>Cancel</Button>
+                  <Button className="rounded-xl bg-blue-600 hover:bg-blue-700" onClick={handleSave} disabled={saving} data-testid="cp-save-btn">{saving ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" /> Saving…</> : <><Save className="mr-2 h-4 w-4" /> Save changes</>}</Button>
+                </>}
+              </div>
               <input ref={logoFileRef} type="file" accept="image/jpeg,.jpg,.jpeg" className="hidden" onChange={handleLogoUpload} />
-              {!editing ? (
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {!editing ? (
                 <Button onClick={() => setEditing(true)} data-testid="cp-edit-btn">Edit profile</Button>
               ) : (
                 <>
@@ -310,117 +327,56 @@ const CustomerProfile = () => {
 
 // -------------------- Read-only presentation --------------------------
 const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability }) => (
-  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+  <div className="space-y-5">
     {!applicability.showGroundwater && !applicability.isAdminOwnProfile && (
-      <div className="xl:col-span-2 border border-sky-200 bg-sky-50 text-sky-900 text-sm rounded p-3">
-        <strong>Note:</strong> No flowmeter or piezometer is linked to this customer, so Groundwater NOC and borewell permission sections are not applicable. Only water-quality / OCEMS compliance is tracked below.
+      <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-xs text-sky-800 shadow-sm">
+        <strong>Monitoring scope:</strong> Groundwater NOC and borewell permissions are hidden because this customer has no flowmeter or piezometer linked.
       </div>
     )}
-    <Section title="Customer details" icon={Building2}>
-      <Field label="Customer name (per CTO / NOC)" value={profile.customer_name} />
-      <Field label="Site name" value={profile.site_name} />
-      <Field label="Unit name" value={profile.unit_name} />
-      <Field label="Full address" value={profile.address} />
-    </Section>
 
-    <Section title="Representative" icon={User}>
-      <Field label="Name" value={profile.representative_name} />
-      <Field label="Designation" value={profile.representative_designation} />
-      <Field label="Email" value={profile.representative_email ? <a className="text-blue-600 underline" href={`mailto:${profile.representative_email}`}><Mail className="h-3 w-3 inline mr-1" />{profile.representative_email}</a> : null} />
-      <Field label="Contact number" value={profile.representative_phone ? <a className="text-blue-600 underline" href={`tel:${profile.representative_phone}`}><Phone className="h-3 w-3 inline mr-1" />{profile.representative_phone}</a> : null} />
-    </Section>
-
-    <Section title="Groundwater NOC" icon={ShieldCheck} hidden={!applicability.showGroundwater}>
-      <Field label="NOC mode" value={profile.noc_mode === 'per_borewell' ? 'One NOC per borewell' : 'Single NOC covers all borewells'} />
-      {profile.noc_mode !== 'per_borewell' && (
-        <>
-          <Field label="NOC number" value={profile.noc_number} />
-          <Field label="Issue date" value={profile.noc_issue_date ? fmtDate(profile.noc_issue_date) : null} />
-          <Field label="Validity (years)" value={profile.noc_validity_years} />
-          <Field label="Expiry date" value={profile.noc_expiry_date ? fmtDate(profile.noc_expiry_date) : null} />
-          <Field label="Certificate" value={profile.noc_file_name ? <NocDownloadLink filename={profile.noc_file_name} label="Download" /> : null} />
-        </>
-      )}
-      {profile.noc_mode === 'per_borewell' && (
-        <div className="mt-2">
-          {(!borewellNocs || borewellNocs.length === 0) ? (
-            <p className="italic text-xs text-gray-500">No per-borewell NOCs recorded yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b bg-gray-50">
-                    <th className="text-left p-2">Borewell</th>
-                    <th className="text-left p-2">NOC number</th>
-                    <th className="text-left p-2">Issue date</th>
-                    <th className="text-left p-2">Expiry date</th>
-                    <th className="text-left p-2">Certificate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {borewellNocs.map((r, i) => (
-                    <tr key={i} className="border-b">
-                      <td className="p-2 font-medium">{r.borewell_name || r.borewell_id || `#${i + 1}`}</td>
-                      <td className="p-2 font-mono">{r.noc_number || '—'}</td>
-                      <td className="p-2">{r.issue_date ? fmtDate(r.issue_date) : '—'}</td>
-                      <td className="p-2">{r.expiry_date ? fmtDate(r.expiry_date) : '—'}</td>
-                      <td className="p-2">{r.noc_file_name ? <NocDownloadLink filename={r.noc_file_name} label="Download" small /> : <span className="italic text-gray-400">—</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-    </Section>
-
-    <Section title="Consent to Operate (CTO)" icon={FileBadge} hidden={!applicability.showCTO}>
-      <Field label="CTO number" value={profile.cto_number} />
-      <Field label="Issue date" value={profile.cto_issue_date ? fmtDate(profile.cto_issue_date) : null} />
-      <Field label="Expiry date" value={profile.cto_expiry_date ? fmtDate(profile.cto_expiry_date) : null} />
-    </Section>
-
-    <Section title="Groundwater usage permissions" icon={Droplets} hidden={!applicability.showGroundwater}>
-      <Field label="NOC mode" value={profile.noc_mode === 'per_borewell' ? 'One NOC per borewell (e.g. Uttar Pradesh)' : 'Single NOC covers all borewells (e.g. Rajasthan)'} />
-      <Field label="Borewell permitted" value={profile.boreholes_permitted} />
-      <Field label="Abstraction borewells" value={profile.abstraction_borewells_count} />
-      <Field label="Permitted daily withdrawal" value={profile.permitted_daily_kl} unit="KLD" />
-      <Field label="Permitted yearly withdrawal" value={profile.permitted_yearly_kl} unit="KL/year" />
-      <Field label="Piezometers installed" value={profile.piezometers_count} />
-    </Section>
-
-    <Section title="Rainwater harvesting" icon={CalendarClock} hidden={!applicability.showRWH}>
-      <Field label="Number of structures" value={profile.rwh_structure_count} />
-      <Field label="Total catchment area" value={profile.rwh_catchment_area_sqm} unit="m²" />
-      <Field label="Runoff coefficient" value={profile.rwh_runoff_coefficient} />
-    </Section>
-
-    <Section title="Instruments installed" icon={Cpu} hidden={!applicability.showInstruments}>
-      <p className="text-sm text-gray-700 mb-2">
-        Total installed: <span className="font-semibold">{profile.instruments_installed_count || 0}</span>
-      </p>
-      {Object.keys(instrumentsByType).length === 0 ? (
-        <p className="italic text-xs text-gray-500">None registered yet.</p>
-      ) : (
-        <div className="space-y-2">
-          {Object.entries(instrumentsByType).map(([t, arr]) => (
-            <div key={t} className="text-sm">
-              <p className="font-medium text-gray-800 capitalize">{t.replace(/_/g, ' ')} <span className="text-xs text-gray-500 font-normal">({arr.length})</span></p>
-              <ul className="text-xs text-gray-600 ml-4 list-disc">
-                {arr.map((i) => <li key={i.hardware_id}>{i.label || i.hardware_id} <span className="text-gray-400">({i.hardware_id})</span></li>)}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
-    </Section>
-
-    {profile.notes && (
-      <Section title="Notes">
-        <p className="text-sm whitespace-pre-wrap text-gray-700">{profile.notes}</p>
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <Section title="Customer Details" icon={Building2} tone="blue">
+        <Field label="Customer name" value={profile.customer_name} /><Field label="Site name" value={profile.site_name} /><Field label="Unit name" value={profile.unit_name} /><Field label="Full address" value={profile.address} />
       </Section>
-    )}
+      <Section title="Representative" icon={User} tone="emerald">
+        <Field label="Name" value={profile.representative_name} /><Field label="Designation" value={profile.representative_designation} /><Field label="Email" value={profile.representative_email ? <a className="text-blue-600 hover:underline" href={`mailto:${profile.representative_email}`}><Mail className="mr-1 inline h-3 w-3" />{profile.representative_email}</a> : null} /><Field label="Contact" value={profile.representative_phone ? <a className="text-blue-600 hover:underline" href={`tel:${profile.representative_phone}`}><Phone className="mr-1 inline h-3 w-3" />{profile.representative_phone}</a> : null} />
+      </Section>
+      <Section title="Organization" icon={Landmark} tone="violet">
+        <Field label="Role" value={profile.role === 'admin' ? 'Administrator' : 'Client'} /><Field label="Monitoring scope" value={Object.keys(instrumentsByType).length ? Object.keys(instrumentsByType).map((t) => t.replace(/_/g,' ')).join(' • ') : 'Profile information'} /><Field label="Status" value={<span className="inline-flex items-center gap-1.5 text-emerald-600"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Active</span>} />
+      </Section>
+    </div>
+
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <Section title="Groundwater NOC" icon={Droplets} tone="sky" hidden={!applicability.showGroundwater} action={profile.noc_file_name ? <NocDownloadLink filename={profile.noc_file_name} label="View document" /> : null}>
+        <Field label="NOC mode" value={profile.noc_mode === 'per_borewell' ? 'One NOC per borewell' : 'Single NOC covers all borewells'} /><Field label="NOC number" value={profile.noc_number} /><Field label="Issue date" value={profile.noc_issue_date ? fmtDate(profile.noc_issue_date) : null} /><Field label="Validity" value={profile.noc_validity_years} unit="years" /><Field label="Expiry" value={profile.noc_expiry_date ? fmtDate(profile.noc_expiry_date) : null} />
+        {profile.noc_mode === 'per_borewell' && <div className="mt-2 overflow-x-auto"><table className="w-full text-xs"><thead><tr className="border-b bg-slate-50"><th className="p-2 text-left">Borewell</th><th className="p-2 text-left">NOC</th><th className="p-2 text-left">Issue</th><th className="p-2 text-left">Expiry</th></tr></thead><tbody>{(borewellNocs || []).map((r,i)=><tr key={i} className="border-b border-slate-100"><td className="p-2 font-medium">{r.borewell_name || r.borewell_id || `#${i+1}`}</td><td className="p-2 font-mono">{r.noc_number || '—'}</td><td className="p-2">{r.issue_date ? fmtDate(r.issue_date) : '—'}</td><td className="p-2">{r.expiry_date ? fmtDate(r.expiry_date) : '—'}</td></tr>)}</tbody></table></div>}
+      </Section>
+      <Section title="Consent to Operate (CTO)" icon={Factory} tone="emerald" hidden={!applicability.showCTO}>
+        <Field label="CTO number" value={profile.cto_number} /><Field label="Issue date" value={profile.cto_issue_date ? fmtDate(profile.cto_issue_date) : null} /><Field label="Expiry date" value={profile.cto_expiry_date ? fmtDate(profile.cto_expiry_date) : null} /><Field label="Status" value={<span className="inline-flex items-center gap-1.5 text-slate-500"><span className="h-2 w-2 rounded-full bg-slate-400" /> {profile.cto_number ? 'Provided' : 'Not provided'}</span>} />
+      </Section>
+      <Section title="Rainwater Harvesting" icon={CloudRain} tone="blue" hidden={!applicability.showRWH}>
+        <Field label="Structures" value={profile.rwh_structure_count} /><Field label="Catchment area" value={profile.rwh_catchment_area_sqm} unit="m²" /><Field label="Runoff coefficient" value={profile.rwh_runoff_coefficient} /><Field label="Status" value={profile.rwh_structure_count ? <span className="text-emerald-600">Configured</span> : <span className="text-slate-500">Not provided</span>} />
+      </Section>
+    </div>
+
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <Section title="Groundwater Usage Permissions" icon={ShieldCheck} tone="emerald" hidden={!applicability.showGroundwater}>
+        <Field label="NOC mode" value={profile.noc_mode === 'per_borewell' ? 'Per borewell' : 'Single NOC'} /><Field label="Borewell permitted" value={profile.boreholes_permitted} /><Field label="Abstraction borewells" value={profile.abstraction_borewells_count} /><Field label="Daily withdrawal" value={profile.permitted_daily_kl} unit="KLD" /><Field label="Yearly withdrawal" value={profile.permitted_yearly_kl} unit="KL/year" /><Field label="Piezometers" value={profile.piezometers_count} />
+      </Section>
+      <Section title="Instruments Installed" icon={Cpu} tone="blue" hidden={!applicability.showInstruments} action={<Badge className="border-0 bg-blue-50 text-blue-700">{profile.instruments_installed_count || 0} installed</Badge>}>
+        {Object.keys(instrumentsByType).length === 0 ? <p className="italic text-xs text-slate-400">None registered yet.</p> : <div className="space-y-4">
+          {Object.entries(instrumentsByType).map(([t, arr]) => {
+            const isDwlr = t === 'dwlr'; const isFlow = t === 'flowmeter';
+            return <div key={t}><div className="mb-2 flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-wide text-slate-700">{t.replace(/_/g,' ')}</p><span className="text-[10px] font-semibold text-slate-400">{arr.length}</span></div><div className="grid grid-cols-[1fr_100px] items-center gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-2"><ul className="space-y-1.5 text-[11px] text-slate-600">{arr.map((i)=><li key={i.hardware_id} className="flex gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" /><span>{i.label || i.hardware_id} <span className="text-slate-400">({i.hardware_id})</span></span></li>)}</ul>{(isDwlr || isFlow) && <img src={isDwlr ? '/dwlr-banner.webp' : '/flowmeter-banner.webp'} alt={isDwlr ? 'Envirolytics Digital Water Level Recorder' : 'Envirolytics Flowmeter'} className="h-20 w-full object-contain" />}</div></div>;
+          })}
+        </div>}
+      </Section>
+      <div className="overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-sky-50 shadow-[0_8px_28px_rgba(15,23,42,0.06)]">
+        <div className="relative flex min-h-[270px] h-full flex-col justify-between p-5"><div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-emerald-200/30 blur-2xl" /><div className="relative"><Leaf className="h-8 w-8 text-emerald-600" /><p className="mt-3 text-lg font-bold leading-tight text-slate-900">Environmental Compliance Today<br /><span className="text-emerald-600">for a Better Tomorrow</span></p><p className="mt-2 text-[11px] leading-4 text-slate-500">Sustainable solutions • Smarter monitoring • Healthier planet</p></div><div className="relative grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-600"><span className="rounded-xl bg-white/80 p-2 ring-1 ring-emerald-100">Protect resources</span><span className="rounded-xl bg-white/80 p-2 ring-1 ring-emerald-100">Regulatory compliance</span><span className="rounded-xl bg-white/80 p-2 ring-1 ring-emerald-100">Data-driven decisions</span><span className="rounded-xl bg-white/80 p-2 ring-1 ring-emerald-100">Sustainable future</span></div></div>
+      </div>
+    </div>
+
+    {profile.notes && <Section title="Notes" icon={FileBadge} tone="slate"><p className="whitespace-pre-wrap text-sm leading-6 text-slate-600">{profile.notes}</p></Section>}
   </div>
 );
 
