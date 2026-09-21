@@ -88,7 +88,7 @@ Audit and verify:
 
 **Status: INVESTIGATING**
 
-**Current V15 evidence:** MQTT DWLR readings preserve device measurement time separately from receipt time, latest cache is monotonic by measurement time, history ordering is measurement-time-first, device-specific access is ownership-protected, and generic latest endpoints no longer have arbitrary 200/500-device caps. Direct/admin generic ingest now also stamps measurement time. Live production verification of representative DWLR devices remains outstanding.
+**Current V15 evidence:** MQTT DWLR readings preserve device measurement time separately from receipt time, latest cache is monotonic by measurement time, history ordering is measurement-time-first, device-specific access is ownership-protected, generic latest endpoints no longer have arbitrary 200/500-device caps, direct/admin generic ingest stamps measurement time, and the daily DWLR aggregation now applies both lower and upper bounds to authoritative measurement time without an arbitrary 20,000-row truncation. Live production verification of representative DWLR devices remains outstanding.
 
 Audit and verify:
 
