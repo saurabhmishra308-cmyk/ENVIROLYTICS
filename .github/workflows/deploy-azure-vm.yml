@@ -237,13 +237,15 @@ jobs:
 
           if [ "$DEPLOY_RC" -ne 0 ]; then
             echo "→ collecting remote deployment log"
-            scp \
+            ssh \
               -i "$KEY_FILE" \
-              -P "${AZURE_VM_PORT:-22}" \
+              -p "${AZURE_VM_PORT:-22}" \
               -o BatchMode=yes \
               -o StrictHostKeyChecking=accept-new \
-              "$AZURE_VM_USER@$AZURE_VM_HOST:/tmp/envirolytics_deploy.log" \
-              "$RUNNER_TEMP/envirolytics_deploy.log" || true
+              -o ConnectTimeout=30 \
+              "$AZURE_VM_USER@$AZURE_VM_HOST" \
+              'cat /tmp/envirolytics_deploy.log 2>/dev/null || echo NO_REMOTE_DEPLOY_LOG' \
+              > "$RUNNER_TEMP/envirolytics_deploy.log" || true
             if [ -f "$RUNNER_TEMP/envirolytics_deploy.log" ]; then
               cat "$RUNNER_TEMP/envirolytics_deploy.log"
               cp "$RUNNER_TEMP/envirolytics_deploy.log" docs/last_azure_deploy_failure.log
