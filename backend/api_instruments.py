@@ -101,6 +101,15 @@ def _validate_type(instrument_type: str) -> str:
 
 
 async def _store_reading(instrument_type: str, hardware_id: str, values: dict, location: Optional[str] = None):
+    registered = await db.instrument_registry.find_one(
+        {"hardware_id": hardware_id},
+        {"_id": 0, "hardware_id": 1, "instrument_type": 1},
+    )
+    if not registered:
+        raise HTTPException(status_code=404, detail="Instrument not registered")
+    if registered.get("instrument_type") != instrument_type:
+        raise HTTPException(status_code=400, detail="Instrument type does not match registry")
+
     now_iso = datetime.now(timezone.utc).isoformat()
     doc = {
         "instrument_type": instrument_type,
@@ -111,12 +120,31 @@ async def _store_reading(instrument_type: str, hardware_id: str, values: dict, l
         "measurement_timestamp": now_iso,
         "received_at": now_iso,
     }
-    await db.instrument_readings.insert_one(dict(doc))
-    await db.instrument_latest.update_one(
-        {"instrument_type": instrument_type, "hardware_id": hardware_id},
-        {"$set": doc},
-        upsert=True,
+
+    duplicate = await db.instrument_readings.find_one(
+        {"hardware_id": hardware_id, "measurement_timestamp": now_iso},
+        {"_id": 1},
     )
+    if duplicate:
+        return {**doc, "_duplicate": True}
+
+    await db.instrument_readings.insert_one(dict(doc))
+
+    current = await db.instrument_latest.find_one(
+        {"instrument_type": instrument_type, "hardware_id": hardware_id},
+        {"measurement_timestamp": 1, "timestamp": 1, "_id": 0},
+    )
+    current_ts = str(
+        (current or {}).get("measurement_timestamp")
+        or (current or {}).get("timestamp")
+        or ""
+    )
+    if not current_ts or now_iso >= current_ts:
+        await db.instrument_latest.update_one(
+            {"instrument_type": instrument_type, "hardware_id": hardware_id},
+            {"$set": doc},
+            upsert=True,
+        )
     return doc
 
 
