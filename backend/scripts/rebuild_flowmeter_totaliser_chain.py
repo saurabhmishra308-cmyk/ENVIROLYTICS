@@ -79,7 +79,7 @@ async def rebuild():
             previous_final = final_kl
             updated += 1
 
-    await client.close()
+    client.close()
     print(f"FLOWMETER_TOTALISER_BACKFILL_UPDATED={updated}")
 
 
