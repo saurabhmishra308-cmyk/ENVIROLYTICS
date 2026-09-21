@@ -197,7 +197,14 @@ async def _persist_reading(device: dict, payload: dict, values: Dict[str, float]
     if isinstance(ts, str) and "T" in ts and "+" not in ts and "Z" not in ts:
         ts = ts + "Z"
     measurement_dt = _parse_iso_utc(ts)
-    measurement_ts = measurement_dt.isoformat() if measurement_dt else str(ts)
+    # A missing/malformed vendor timestamp cannot be used as an authoritative
+    # measurement clock. Fall back to the server receipt time while preserving
+    # the original payload in raw for diagnostics.
+    if measurement_dt is None:
+        measurement_dt = datetime.now(timezone.utc)
+        measurement_ts = measurement_dt.isoformat()
+    else:
+        measurement_ts = measurement_dt.isoformat()
 
     # DO Analyzer: QESPL emits a generic DO value. Always keep the raw DO
     # and derive the current tank key from the registry assignment.
@@ -346,7 +353,10 @@ async def _http_devices() -> List[dict]:
         {"source": "http"},
         {"_id": 0, "hardware_id": 1, "instrument_type": 1, "imei": 1, "owner_user_id": 1, "turbidity_k": 1, "data_frequency_minutes": 1, "aeration_tank_number": 1},
     )
-    return await cursor.to_list(length=500)
+    items = []
+    async for row in cursor:
+        items.append(row)
+    return items
 
 
 # ---------------------------------------------------------------- probe / auto-suggest
