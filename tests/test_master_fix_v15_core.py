@@ -356,3 +356,12 @@ def test_measurement_time_indexes_exist_for_hot_history_queries():
     src = read("backend/server.py")
     assert 'create_index([("hardware_id", 1), ("measurement_timestamp", -1)])' in src
     assert 'create_index([("instrument_type", 1), ("hardware_id", 1), ("measurement_timestamp", -1)])' in src
+
+def test_legacy_status_and_site_status_endpoints_are_authenticated():
+    server = read("backend/server.py")
+    assert 'async def create_status_check(input: StatusCheckCreate, user: dict = Depends(auth_module.get_current_user))' in server
+    assert 'async def get_status_checks(user: dict = Depends(auth_module.get_current_user))' in server
+
+    admin = read("backend/api_admin.py")
+    assert 'async def check_site_status(user_id: str, caller: dict = Depends(get_current_user))' in admin
+    assert 'Not authorised to view this site status' in admin
