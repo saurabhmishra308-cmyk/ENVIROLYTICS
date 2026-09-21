@@ -53,11 +53,13 @@ async def subscribe_to_gateway(subscription: GatewaySubscription):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/latest/{hardware_id}")
-async def get_latest_reading(hardware_id: str):
+async def get_latest_reading(hardware_id: str, user: dict = Depends(get_current_user)):
     """Get the latest reading for a specific flowmeter."""
     if not mqtt_service:
         raise HTTPException(status_code=503, detail="MQTT service not available")
-    
+    visible = await api_instrument_registry.visible_hardware_ids(user)
+    if visible is not None and hardware_id not in visible:
+        raise HTTPException(status_code=403, detail="Not authorised to view this device")
     reading = await mqtt_service.get_latest_reading(hardware_id)
     if not reading:
         raise HTTPException(status_code=404, detail="No reading found for this flowmeter")
@@ -77,12 +79,15 @@ async def get_all_latest_readings(user: dict = Depends(get_current_user)):
     return {"flowmeters": readings, "count": len(readings)}
 
 @router.get("/history/{hardware_id}")
-async def get_flowmeter_history(hardware_id: str, limit: int = 5000):
+async def get_flowmeter_history(hardware_id: str, limit: int = 5000, user: dict = Depends(get_current_user)):
     """Get historical readings for a flowmeter, newest first."""
     if not mqtt_service:
         raise HTTPException(status_code=503, detail="MQTT service not available")
     if limit < 1 or limit > 20000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 20000")
+    visible = await api_instrument_registry.visible_hardware_ids(user)
+    if visible is not None and hardware_id not in visible:
+        raise HTTPException(status_code=403, detail="Not authorised to view this device")
     readings = await mqtt_service.get_readings_history(hardware_id, limit)
     return {"readings": readings, "count": len(readings)}
 
