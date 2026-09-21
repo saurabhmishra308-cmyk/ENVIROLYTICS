@@ -382,3 +382,9 @@ def test_legacy_status_and_site_status_endpoints_are_authenticated():
     admin = read("backend/api_admin.py")
     assert 'async def check_site_status(user_id: str, caller: dict = Depends(get_current_user))' in admin
     assert 'Not authorised to view this site status' in admin
+
+def test_espl_timestamp_traceability():
+    src = read("backend/espl_poller.py")
+    assert '"measurement_timestamp": measurement_ts' in src
+    assert '"source_timestamp_raw": str(ts).strip() if ts else None' in src
+    assert '"received_at": now_iso' in src
