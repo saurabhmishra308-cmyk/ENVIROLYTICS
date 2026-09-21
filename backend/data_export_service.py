@@ -74,9 +74,11 @@ class DataExportService:
             # twice after 27-Aug-2026.
             if "final_forward_totalizer_kl" in row:
                 row["totaliser_end_reading"] = row["final_forward_totalizer_kl"]
+                row["_totaliser_values_are_kl"] = True
                 row.pop("final_forward_totalizer_kl", None)
             if "initial_forward_totalizer_kl" in row:
                 row["totaliser_start_reading"] = row["initial_forward_totalizer_kl"]
+                row["_totaliser_values_are_kl"] = True
                 row.pop("initial_forward_totalizer_kl", None)
             # Column order: canonical fields first (always emitted, so
             # the CSV/PDF header stays consistent), then any device-specific
@@ -99,7 +101,9 @@ class DataExportService:
                 ts = row.get("measurement_timestamp") or row.get("timestamp") or row.get("received_at")
                 end_raw = row.get("totaliser_end_reading")
                 start_raw = row.get("totaliser_start_reading")
-                end_kl = None if end_raw in (None, "") else DataExportService._totaliser_to_kl(end_raw, ts)
+                end_kl = None if end_raw in (None, "") else (
+                    float(end_raw) if row.get("_totaliser_values_are_kl") else DataExportService._totaliser_to_kl(end_raw, ts)
+                )
                 if previous_end_kl is not None:
                     start_kl = previous_end_kl
                 elif start_raw not in (None, ""):
@@ -114,6 +118,7 @@ class DataExportService:
                 )
                 if end_kl is not None:
                     previous_end_kl = end_kl
+                row.pop("_totaliser_values_are_kl", None)
         return cleaned
 
     @staticmethod
