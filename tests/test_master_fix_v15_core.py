@@ -490,9 +490,9 @@ def test_flowmeter_totaliser_unit_transition_is_normalized_to_kl():
 
     assert "TOTALISER_LITRE_CUTOFF = Date.parse('2026-08-27T00:00:00Z')" in reports
     assert "return Number(value) / (Number.isFinite(ts) && ts >= TOTALISER_LITRE_CUTOFF ? 1000 : 1)" in reports
-    assert "'Initial Totaliser (KL)'" in reports
-    assert "'Final Totaliser (KL)'" in reports
-    assert "'Consumption (KL)'" in reports
+    assert '"Initial Totaliser (KL)"' in reports
+    assert '"Final Totaliser (KL)"' in reports
+    assert '"Consumption (KL)"' in reports
 
     assert 'TOTALISER_LITRE_CUTOFF = "2026-08-27T00:00:00+00:00"' in exports
     assert '"consumption_kl"' in exports
