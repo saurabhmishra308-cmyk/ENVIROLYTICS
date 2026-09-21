@@ -11,10 +11,10 @@ _____________ test_flowmeter_flow_rate_normalization_is_unit_aware _____________
         assert "6: 1.0" in src
         assert 'row.get("raw_flow") not in (None, "")' in migration
         assert 'flow_rate_normalization_version": 1' in migration
->       assert 'flow_rate_normalization_review": True' in migration
-E       assert 'flow_rate_normalization_review": True' in '"""Backfill Flowmeter instantaneous flow-rate values to canonical m³/h.\n\nThis migration is deliberately conservativ...UOUS={ambiguous}")\n    finally:\n        client.close()\n\n\nif __name__ == "__main__":\n    asyncio.run(rebuild())\n'
+>       assert '"flow_rate_normalization_review": True' in migration
+E       assert '"flow_rate_normalization_review": True' in '"""Backfill Flowmeter instantaneous flow-rate values to canonical m³/h.\n\nThis migration is deliberately conservativ...UOUS={ambiguous}")\n    finally:\n        client.close()\n\n\nif __name__ == "__main__":\n    asyncio.run(rebuild())\n'
 
 tests/test_master_fix_v15_core.py:559: AssertionError
 =========================== short test summary info ============================
-FAILED tests/test_master_fix_v15_core.py::test_flowmeter_flow_rate_normalization_is_unit_aware - assert 'flow_rate_normalization_review": True' in '"""Backfill Flowmeter instantaneous flow-rate values to canonical m³/h.\n\nThis migration is deliberately conservativ...UOUS={ambiguous}")\n    finally:\n        client.close()\n\n\nif __name__ == "__main__":\n    asyncio.run(rebuild())\n'
-1 failed, 61 passed in 0.19s
+FAILED tests/test_master_fix_v15_core.py::test_flowmeter_flow_rate_normalization_is_unit_aware - assert '"flow_rate_normalization_review": True' in '"""Backfill Flowmeter instantaneous flow-rate values to canonical m³/h.\n\nThis migration is deliberately conservativ...UOUS={ambiguous}")\n    finally:\n        client.close()\n\n\nif __name__ == "__main__":\n    asyncio.run(rebuild())\n'
+1 failed, 61 passed in 0.13s
