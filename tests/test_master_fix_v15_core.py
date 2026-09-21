@@ -545,3 +545,23 @@ def test_flowmeter_exports_prefer_canonical_kl_totalisers_without_double_convers
     assert 'row["_totaliser_values_are_kl"] = True' in src
     assert 'float(end_raw) if row.get("_totaliser_values_are_kl")' in src
     assert 'float(start_raw) if row.get("_totaliser_values_are_kl")' in src
+
+
+def test_flowmeter_flow_rate_normalization_is_unit_aware():
+    src = Path("backend/mqtt_utils.py").read_text()
+    migration = Path("backend/scripts/rebuild_flowmeter_flow_rate.py").read_text()
+    assert "1: 3.6" in src
+    assert "2: 0.06" in src
+    assert "3: 0.001" in src
+    assert "6: 1.0" in src
+    assert 'row.get("raw_flow") not in (None, "")' in migration
+    assert 'flow_rate_normalization_version": 1' in migration
+    assert 'flow_rate_normalization_review": True' in migration
+    assert '"flow_rate_m3h": value' in migration
+
+
+def test_flowmeter_reports_read_canonical_m3h_after_normalization():
+    src = Path("frontend/src/pages/Reports.jsx").read_text()
+    assert "pickNum(r, ['flow_rate_m3h'])" in src
+    assert "flow_rate_m3h_avg: avgFlow" in src
+    assert "'Flow rate (m³/h)'" in src
