@@ -17,6 +17,23 @@ import { cleanLabel } from '../utils/labels';
 const formatDate = (d) => (d ? d.toISOString().split('T')[0] : '');
 const fmt = (n, d = 2) => (n == null || isNaN(n) ? '—' : Number(n).toFixed(d));
 
+/**
+ * Customer-facing device label for Reports.
+ * The registry keeps hardware_id as the immutable technical identifier;
+ * the UI should show the assigned client/customer name and configured
+ * device label first, with hardware_id retained as a clear identifier.
+ */
+const reportDeviceLabel = (device) => {
+  if (!device) return '—';
+  const owner = cleanLabel(device.owner_name || device.company_name || '');
+  const label = cleanLabel(device.label || '');
+  const hardware = cleanLabel(device.hardware_id || '');
+  const genericTypes = new Set(['DWLR', 'DWLR DEVICE', 'FLOWMETER', 'FLOWMETER DEVICE', 'PH', 'TDS', 'CONDUCTIVITY']);
+  const usableLabel = label && !genericTypes.has(label.toUpperCase()) ? label : '';
+  const parts = [owner, usableLabel, hardware].filter(Boolean);
+  return parts.length ? parts.join(' • ') : hardware || '—';
+};
+
 // Parse report timestamps with device measurement time as the authoritative
 // reporting clock. received_at is transport/ingestion time and is only a
 // legacy fallback when a record has no measurement timestamp. This keeps
@@ -654,7 +671,7 @@ const Reports = () => {
                         <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-600">Device</Label>
                         <select className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" value={hardwareId} onChange={(e) => { const hw=e.target.value; setHardwareId(hw); setSelectedDevice(devices.find((d)=>d.hardware_id===hw)||null); setReadings([]); }} data-testid="filter-device-select">
                           <option value="">Select {section.toUpperCase()} device</option>
-                          {devices.map((d) => <option key={d.hardware_id} value={d.hardware_id}>{cleanLabel(d.label || d.hardware_id)}</option>)}
+                          {devices.map((d) => <option key={d.hardware_id} value={d.hardware_id}>{reportDeviceLabel(d)}</option>)}
                         </select>
                       </div>
                       <div>
@@ -711,7 +728,7 @@ const Reports = () => {
             <Card className="overflow-hidden border-0 bg-white shadow-sm ring-1 ring-slate-200">
               <CardHeader className="border-b border-slate-100 pb-4">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="flex items-start gap-3"><div className="rounded-xl bg-blue-50 p-2.5 text-blue-600"><Database className="h-5 w-5"/></div><div><CardTitle className="text-lg text-slate-900">{section === 'flowmeter' ? 'Flowmeter Historical Data' : `${section.toUpperCase()} Historical Data`} <span className="text-slate-400">({searchableRows.length})</span></CardTitle><CardDescription className="mt-1">Showing data for <span className="font-medium text-slate-700">{cleanLabel(selectedDevice?.label || hardwareId || 'Selected device')}</span></CardDescription></div></div>
+                  <div className="flex items-start gap-3"><div className="rounded-xl bg-blue-50 p-2.5 text-blue-600"><Database className="h-5 w-5"/></div><div><CardTitle className="text-lg text-slate-900">{section === 'flowmeter' ? 'Flowmeter Historical Data' : `${section.toUpperCase()} Historical Data`} <span className="text-slate-400">({searchableRows.length})</span></CardTitle><CardDescription className="mt-1">Showing data for <span className="font-medium text-slate-700">{selectedDevice ? reportDeviceLabel(selectedDevice) : 'Selected device'}</span></CardDescription></div></div>
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="relative w-full sm:w-72"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><Input value={tableSearch} onChange={(e)=>setTableSearch(e.target.value)} placeholder="Search date, value or keyword..." className="h-10 rounded-xl border-slate-200 pl-9"/></div>
                     <Button variant="outline" className="h-10 rounded-xl border-slate-200"><Columns3 className="mr-2 h-4 w-4"/> Columns</Button>
