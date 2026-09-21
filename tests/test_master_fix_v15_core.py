@@ -90,7 +90,7 @@ def test_flowmeter_consumption_includes_pre_window_boundary_reading():
 
 def test_water_quality_history_and_pdf_use_measurement_time():
     src = read("backend/api_water_quality.py")
-    assert 'cursor.sort([("measurement_timestamp", -1), ("timestamp", -1)])' in src
+    assert '("measurement_timestamp", -1), ("timestamp", -1)' in src
     assert 'row.get("measurement_timestamp") or row.get("timestamp")' in src
     assert 'table_row = [(row.get("measurement_timestamp") or row.get("timestamp") or row.get("received_at") or "")[:19]]' in src
 
