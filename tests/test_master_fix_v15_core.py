@@ -100,3 +100,17 @@ def test_flowmeter_admin_ingest_persists_measurement_timestamp():
     assert '"timestamp": now_iso,' in src
     assert '"measurement_timestamp": now_iso,' in src
     assert '{"hardware_id": req.hardware_id, "measurement_timestamp": now_iso}' in src
+
+
+def test_flowmeter_ui_prefers_measurement_timestamp():
+    src = read("frontend/src/pages/Flowmeter.jsx")
+    assert "r.measurement_timestamp || r.timestamp || r.received_at" in src
+    assert "current.measurement_timestamp || current.timestamp || current.received_at" in src
+
+
+def test_dwlr_ui_separates_measurement_and_receipt_timestamps():
+    src = read("frontend/src/pages/WaterLevelRecorder.jsx")
+    assert "measurement_timestamp: lt?.measurement_timestamp || lt?.timestamp || lt?.received_at || null" in src
+    assert "received_at: lt?.received_at || null" in src
+    assert "activeWell.measurement_timestamp" in src
+    assert "well.measurement_timestamp" in src
