@@ -90,16 +90,15 @@ jobs:
         env:
           AZURE_VM_HOST: ${{ secrets.AZURE_VM_HOST }}
           AZURE_VM_USER: ${{ secrets.AZURE_VM_USER }}
-          AZURE_VM_SSH_KEY: ${{ secrets.AZURE_VM_SSH_KEY }}
+          AZURE_VM_SSH_KEY_B64: ${{ secrets.AZURE_VM_SSH_KEY_B64 }}
           AZURE_VM_PORT: ${{ secrets.AZURE_VM_PORT }}
         run: |
           set -euo pipefail
           KEY_FILE="$RUNNER_TEMP/envirolytics_deploy_key"
 
-          # Materialize the repository secret as a PEM/OpenSSH private-key file.
-          # Remove CR characters so a Windows-copied key cannot be rejected due
-          # to CRLF line endings. The key never gets printed to the Actions log.
-          printf '%s\n' "$AZURE_VM_SSH_KEY" | tr -d '\r' > "$KEY_FILE"
+          # Decode the Base64-encoded private key into a temporary file.
+          # Base64 avoids multiline/CRLF secret formatting problems.
+          printf '%s' "$AZURE_VM_SSH_KEY_B64" | base64 --decode > "$KEY_FILE"
           chmod 600 "$KEY_FILE"
 
           echo "→ validating deploy key"
