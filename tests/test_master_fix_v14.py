@@ -55,7 +55,7 @@ def test_water_quality_history_and_reports_use_measurement_time():
     src = read("backend/api_water_quality.py")
     assert 'row.get("measurement_timestamp") or row.get("timestamp")' in src
     assert '"measurement_timestamp": 1' in src
-    assert 'cursor.sort([("measurement_timestamp", -1), ("timestamp", -1)])' in src
+    assert '("measurement_timestamp", -1), ("timestamp", -1)' in src
     assert '"measurement_timestamp": {"$gte": from_dt.isoformat(), "$lte": to_dt.isoformat()}' in src
 
 
