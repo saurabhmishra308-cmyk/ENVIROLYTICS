@@ -688,6 +688,7 @@ async def dwlr_daily(
     start = end - timedelta(days=days)
 
     buckets = {}
+    seen_measurement_ts = set()
     cursor = db.instrument_readings.find(
         {"instrument_type": "dwlr", "hardware_id": hardware_id,
          "$or": [
@@ -701,6 +702,9 @@ async def dwlr_daily(
         ts = r.get("measurement_timestamp") or r.get("timestamp")
         if not isinstance(ts, str):
             continue
+        if ts in seen_measurement_ts:
+            continue
+        seen_measurement_ts.add(ts)
         try:
             day = datetime.fromisoformat(ts.replace("Z", "+00:00")).date().isoformat()
         except ValueError:
