@@ -302,21 +302,6 @@ const CustomerProfile = () => {
       </Card>
 
       {!editing ? (
-                <Button onClick={() => setEditing(true)} data-testid="cp-edit-btn">Edit profile</Button>
-              ) : (
-                <>
-                  <Button variant="outline" onClick={() => { setEditing(false); loadProfile(profile.id); }} disabled={saving}>Cancel</Button>
-                  <Button onClick={handleSave} disabled={saving} data-testid="cp-save-btn">
-                    {saving ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Saving…</> : <><Save className="h-4 w-4 mr-2" /> Save</>}
-                  </Button>
-                </>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {!editing ? (
         <ReadOnlyView profile={profile} instrumentsByType={instrumentsByType} borewellNocs={borewellNocs} applicability={applicability} />
       ) : (
         <EditForm form={form} setForm={setForm} borewellNocs={borewellNocs} setBorewellNocs={setBorewellNocs} profile={profile} onNocUploaded={() => loadProfile(profile.id)} applicability={applicability} />
