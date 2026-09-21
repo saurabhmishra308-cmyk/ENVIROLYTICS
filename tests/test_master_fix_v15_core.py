@@ -282,3 +282,17 @@ def test_mqtt_flowmeter_malformed_timestamp_falls_back_to_receipt_time():
     assert 'raw_time = str(data.get("TIME") or "").strip()' in block
     assert "except (TypeError, ValueError):" in block
     assert "timestamp_iso = datetime.now(timezone.utc).isoformat()" in block
+
+def test_instrument_registry_has_no_arbitrary_2000_device_caps():
+    src = read("backend/api_instrument_registry.py")
+    start = src.index("async def list_instruments")
+    end = src.index("# ---------------------------------------------------------------- last-data snapshot", start)
+    block = src[start:end]
+    assert "to_list(length=2000)" not in block
+    assert "async for item in cursor:" in block
+
+    start = src.index("async def instrument_last_data")
+    end = src.index("# ----------------------------------------------------------------", start + 10)
+    block = src[start:end]
+    assert ".to_list(length=2000)" not in block
+    assert "async for item in registry_cursor:" in block
