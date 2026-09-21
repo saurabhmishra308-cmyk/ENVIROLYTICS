@@ -541,17 +541,24 @@ const Reports = () => {
     const rows = filteredReadings || [];
     const flows = rows.map((r) => Number(r.flow_rate_m3h_avg)).filter(Number.isFinite);
     const consumptions = rows.map((r) => Number(r.forward_consumption)).filter(Number.isFinite);
+    const levels = rows.map((r) => pickNum(r.values, ['LEVEL', 'LVL', 'level', 'WATER_LEVEL', 'RAW'])).filter(Number.isFinite);
+    const temps = rows.map((r) => selectedDevice?.manual_water_temp_c ?? pickNum(r.values, ['WTEMP'], { skipZero: true }) ?? pickNum(r.values, ['ATEMP', 'TEMPER', 'TEMP', 'temperature'])).filter(Number.isFinite);
     const totalConsumption = consumptions.reduce((a, b) => a + b, 0);
     const averageFlow = flows.length ? flows.reduce((a, b) => a + b, 0) / flows.length : null;
     const peakFlow = flows.length ? Math.max(...flows) : null;
     const latest = rows[0];
     const earliest = rows[rows.length - 1];
+    const latestLevel = levels.length ? levels[0] : null;
+    const averageLevel = levels.length ? levels.reduce((a, b) => a + b, 0) / levels.length : null;
+    const minLevel = levels.length ? Math.min(...levels) : null;
+    const maxLevel = levels.length ? Math.max(...levels) : null;
+    const averageTemp = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : null;
     const totaliserIncrease = latest && earliest &&
       Number.isFinite(Number(latest.final_forward_totalizer_kl)) &&
       Number.isFinite(Number(earliest.initial_forward_totalizer_kl))
       ? Math.max(0, Number(latest.final_forward_totalizer_kl) - Number(earliest.initial_forward_totalizer_kl))
       : null;
-    return { totalConsumption, averageFlow, peakFlow, totaliserIncrease };
+    return { totalConsumption, averageFlow, peakFlow, totaliserIncrease, latestLevel, averageLevel, minLevel, maxLevel, averageTemp };
   }, [filteredReadings]);
 
   const searchableRows = useMemo(() => {
@@ -653,10 +660,17 @@ const Reports = () => {
                       <Button onClick={() => { const needsBounds=['weekly','monthly','quarterly','yearly'].includes(frequency); if (needsBounds && (!startDate || !endDate)) { toast.error(`${frequency.charAt(0).toUpperCase()+frequency.slice(1)} reports require both a start date and an end date`); return; } fetchReadings(); }} className="h-11 min-w-40 rounded-xl bg-blue-600 px-6 shadow-sm hover:bg-blue-700" disabled={!hardwareId || loading} data-testid="apply-filters-btn">{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Filter className="mr-2 h-4 w-4" />} Apply Filter</Button>
                     </div>
                   </div>
-                  <div className="relative hidden overflow-hidden bg-sky-50 lg:block"><img src="/flowmeter-banner.webp" alt="Envirolytics flowmeter" className="h-full w-full object-cover" /><div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/70 to-transparent px-5 pb-4 pt-16"><div className="text-sm font-semibold text-white">Accurate Flow Monitoring</div><div className="text-xs text-slate-200">Reliable data • Real-time monitoring • Sustainable water management</div></div></div>
+                  <div className="relative hidden overflow-hidden bg-sky-50 lg:block"><img src={section === 'dwlr' ? '/dwlr-banner.svg' : '/flowmeter-banner.webp'} alt={section === 'dwlr' ? 'Envirolytics DWLR groundwater monitoring' : 'Envirolytics flowmeter'} className="h-full w-full object-cover" /><div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/70 to-transparent px-5 pb-4 pt-16"><div className="text-sm font-semibold text-white">{section === 'dwlr' ? 'Groundwater Level Monitoring' : 'Accurate Flow Monitoring'}</div><div className="text-xs text-slate-200">{section === 'dwlr' ? 'Continuous water-level data • Reliable groundwater insights' : 'Reliable data • Real-time monitoring • Sustainable water management'}</div></div></div>
                 </div>
               </CardContent>
             </Card>
+
+            {section === 'dwlr' && <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <Card className="border-0 bg-white shadow-sm ring-1 ring-sky-100"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="rounded-2xl bg-sky-50 p-3 text-sky-600"><Droplets className="h-6 w-6"/></div><div><p className="text-xs font-semibold uppercase tracking-wide text-sky-600">Current Water Level</p><p className="mt-1 text-2xl font-bold text-slate-900">{fmt(reportStats.latestLevel,2)} <span className="text-sm font-semibold text-slate-500">mWC</span></p><p className="mt-1 text-xs text-slate-400">Latest selected reading</p></div></div></CardContent></Card>
+              <Card className="border-0 bg-white shadow-sm ring-1 ring-emerald-100"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600"><Activity className="h-6 w-6"/></div><div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Average Level</p><p className="mt-1 text-2xl font-bold text-slate-900">{fmt(reportStats.averageLevel,2)} <span className="text-sm font-semibold text-slate-500">mWC</span></p><p className="mt-1 text-xs text-slate-400">Across displayed readings</p></div></div></CardContent></Card>
+              <Card className="border-0 bg-white shadow-sm ring-1 ring-violet-100"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="rounded-2xl bg-violet-50 p-3 text-violet-600"><Gauge className="h-6 w-6"/></div><div><p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Level Range</p><p className="mt-1 text-xl font-bold text-slate-900">{fmt(reportStats.minLevel,2)} – {fmt(reportStats.maxLevel,2)} <span className="text-sm font-semibold text-slate-500">mWC</span></p><p className="mt-1 text-xs text-slate-400">Minimum to maximum</p></div></div></CardContent></Card>
+              <Card className="border-0 bg-white shadow-sm ring-1 ring-orange-100"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="rounded-2xl bg-orange-50 p-3 text-orange-600"><BarChart3 className="h-6 w-6"/></div><div><p className="text-xs font-semibold uppercase tracking-wide text-orange-600">Average Temperature</p><p className="mt-1 text-2xl font-bold text-slate-900">{fmt(reportStats.averageTemp,1)} <span className="text-sm font-semibold text-slate-500">°C</span></p><p className="mt-1 text-xs text-slate-400">Selected period</p></div></div></CardContent></Card>
+            </div>}
 
             {section === 'flowmeter' && <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
               <Card className="border-0 bg-white shadow-sm ring-1 ring-blue-100"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="rounded-2xl bg-blue-50 p-3 text-blue-600"><Droplets className="h-6 w-6"/></div><div><p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Total Consumption</p><p className="mt-1 text-2xl font-bold text-slate-900">{fmt(reportStats.totalConsumption,3)} <span className="text-sm font-semibold text-slate-500">KL</span></p><p className="mt-1 text-xs text-slate-400">Selected period</p></div></div></CardContent></Card>
