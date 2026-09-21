@@ -429,6 +429,23 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
     hardware_id = existing["hardware_id"]
     new_ts = req.timestamp or existing.get("measurement_timestamp") or existing["timestamp"]
 
+    # Timestamp edits must preserve the one-reading-per-device-measurement
+    # invariant. Reject a second row with the same authoritative timestamp.
+    if req.timestamp is not None:
+        duplicate = await db.flowmeter_readings.find_one(
+            {
+                "hardware_id": hardware_id,
+                "measurement_timestamp": req.timestamp,
+                "_id": {"$ne": obj_id},
+            },
+            {"_id": 1},
+        )
+        if duplicate:
+            raise HTTPException(
+                status_code=409,
+                detail="A flowmeter reading already exists for this measurement timestamp",
+            )
+
     # Validate forward totaliser monotonicity (chronological neighbours by timestamp)
     if req.forward_totalizer is not None:
         prev = await _chronological_neighbor(hardware_id, new_ts, "previous", obj_id)
