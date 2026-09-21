@@ -695,10 +695,22 @@ class MQTTFlowmeterService:
         return reading
 
     async def get_all_latest_readings(self) -> List[Dict]:
-        cursor = self.db.flowmeter_latest.find({"_dummy": {"$ne": True}}).limit(100)
-        readings = await cursor.to_list(length=100)
-        for r in readings:
+        """Return every current flowmeter reading without an arbitrary device cap.
+
+        The latest collection is already one document per hardware_id, so an
+        arbitrary limit(100) could silently hide registered devices once the
+        fleet grows beyond 100 flowmeters. Keep the same measurement-time
+        authority used by history and latest-cache reconciliation.
+        """
+        cursor = self.db.flowmeter_latest.find(
+            {"_dummy": {"$ne": True}}
+        ).sort(
+            [("measurement_timestamp", -1), ("timestamp", -1), ("received_at", -1)]
+        )
+        readings = []
+        async for r in cursor:
             r["_id"] = str(r["_id"])
+            readings.append(r)
         return readings
 
     async def get_readings_history(self, hardware_id: str, limit: int = 100) -> List[Dict]:
