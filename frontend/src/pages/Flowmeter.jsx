@@ -199,7 +199,7 @@ const Flowmeter = () => {
                         <div className="p-4 bg-blue-50 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Forward Totalizer</p>
                           <p className="text-2xl font-bold text-gray-900" data-testid="flowmeter-forward-total">{Number(current?.forward_totalizer || 0).toFixed(2)}</p>
-                          <p className="text-xs text-gray-500">{current?.unit_name || 'L'}</p>
+                          <p className="text-xs text-gray-500">L</p>
                           <p className="text-[10px] text-gray-400 mt-1">(TOT2×65535)+TOT1</p>
                         </div>
                         <div className="p-4 bg-gray-50 rounded-lg">
@@ -220,14 +220,14 @@ const Flowmeter = () => {
                         <span className="text-7xl font-bold text-emerald-600" data-testid="flowmeter-reserve-total-value">
                           {Number(current?.reverse_totalizer || 0).toFixed(2)}
                         </span>
-                        <span className="text-3xl font-semibold text-gray-600">{current?.unit_name || 'L'}</span>
+                        <span className="text-3xl font-semibold text-gray-600">L</span>
                       </div>
                       <p className="text-sm text-gray-500 mb-6">Reverse Totalizer — cumulative reverse flow</p>
                       <div className="grid grid-cols-3 gap-4 mt-8">
                         <div className="p-4 bg-emerald-50 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Reserve Total</p>
                           <p className="text-2xl font-bold text-gray-900">{Number(current?.reverse_totalizer || 0).toFixed(2)}</p>
-                          <p className="text-xs text-gray-500">{current?.unit_name || 'L'}</p>
+                          <p className="text-xs text-gray-500">L</p>
                           <p className="text-[10px] text-gray-400 mt-1">(RTOT2×65535)+RTOT1</p>
                         </div>
                         <div className="p-4 bg-gray-50 rounded-lg">
