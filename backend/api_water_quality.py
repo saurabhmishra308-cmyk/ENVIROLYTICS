@@ -602,7 +602,7 @@ async def history(
     if range == "raw":
         rows: List[dict] = []
         rows_seen = set()
-        async for row in cursor.sort("timestamp", -1).limit(limit * 2):
+        async for row in cursor.sort([("measurement_timestamp", -1), ("timestamp", -1)]).limit(limit * 2):
             measurement_ts = row.get("measurement_timestamp") or row.get("timestamp")
             # Guard against duplicate historical rows from older ingestion paths.
             if measurement_ts in rows_seen:
@@ -719,7 +719,7 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
          ],
          "_dummy": {"$ne": True}},
         {"_id": 0, "values": 1, "measurement_timestamp": 1, "timestamp": 1, "received_at": 1},
-    ).sort("measurement_timestamp", 1)
+    ).sort([("measurement_timestamp", 1), ("timestamp", 1)])
 
     fmt = (req.format or "csv").lower()
     if fmt not in ("csv", "pdf"):
@@ -797,7 +797,7 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
     table_data = [header]
     for row in rows[:5000]:  # PDF row cap for performance
         vals = row.get("values") or {}
-        table_row = [row.get("received_at", "")[:19]]
+        table_row = [(row.get("measurement_timestamp") or row.get("timestamp") or row.get("received_at") or "")[:19]]
         for p in param_keys:
             v = vals.get(p)
             if v is None:
