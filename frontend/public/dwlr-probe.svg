@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 900">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f0fdf4"/><stop offset="1" stop-color="#e0f2fe"/></linearGradient></defs>
+<rect width="700" height="900" rx="32" fill="url(#bg)"/>
+<text x="350" y="85" text-anchor="middle" font-family="Arial" font-size="28" font-weight="800" fill="#0f172a">DWLR Level Sensor</text>
+<g transform="translate(280 125)">
+<rect x="70" y="0" width="60" height="540" rx="28" fill="#475569"/>
+<rect x="82" y="35" width="36" height="430" rx="18" fill="#cbd5e1"/>
+<path d="M100 540C45 610 40 690 100 735C160 690 155 610 100 540Z" fill="#0ea5e9" stroke="#075985" stroke-width="8"/>
+<circle cx="100" cy="640" r="25" fill="#e0f2fe" opacity=".8"/>
+<path d="M70 20h60M70 470h60" stroke="#0f172a" stroke-width="8"/>
+</g>
+<text x="350" y="790" text-anchor="middle" font-family="Arial" font-size="17" fill="#475569">Submersible sensing element • Continuous level measurement</text>
+<text x="350" y="835" text-anchor="middle" font-family="Arial" font-size="14" font-weight="700" fill="#0f766e">RELIABLE • CONTINUOUS • ACTIONABLE</text>
+</svg>
