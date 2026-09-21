@@ -69,6 +69,15 @@ class DataExportService:
                 row["totaliser_end_reading"] = row.pop("forward_totalizer")
             else:
                 row.pop("forward_totalizer", None)
+            # New ingestion stores canonical KL chain fields. Prefer them over
+            # raw device totalisers so exports never apply the litre conversion
+            # twice after 27-Aug-2026.
+            if "final_forward_totalizer_kl" in row:
+                row["totaliser_end_reading"] = row["final_forward_totalizer_kl"]
+                row.pop("final_forward_totalizer_kl", None)
+            if "initial_forward_totalizer_kl" in row:
+                row["totaliser_start_reading"] = row["initial_forward_totalizer_kl"]
+                row.pop("initial_forward_totalizer_kl", None)
             # Column order: canonical fields first (always emitted, so
             # the CSV/PDF header stays consistent), then any device-specific
             # fields tail-appended.
