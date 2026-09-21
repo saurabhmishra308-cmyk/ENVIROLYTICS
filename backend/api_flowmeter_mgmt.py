@@ -23,6 +23,23 @@ db = None
 
 VALID_CATEGORIES = {"groundwater_abstraction", "stp_inlet", "stp_outlet"}
 
+# Production unit transition: readings before 27-Aug-2026 stored cumulative
+# totalisers in m³; from 27-Aug-2026 the device reports cumulative totalisers
+# in litres. All user-facing cumulative volume and consumption values are KL.
+TOTALISER_LITRE_CUTOFF = "2026-08-27T00:00:00+00:00"
+
+
+def _totaliser_to_kl(value: Optional[float], measurement_timestamp: Optional[str]) -> float:
+    """Normalize a stored cumulative totaliser to KL across the unit change."""
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    ts = str(measurement_timestamp or "")
+    # Before the transition the numeric value is m³, which is numerically equal
+    # to KL. From the transition onward the numeric value is litres.
+    return v / 1000.0 if ts >= TOTALISER_LITRE_CUTOFF else v
+
 
 def set_db(database):
     global db
@@ -285,26 +302,23 @@ async def _abstraction_between(hardware_id: str, start_dt: datetime, end_dt: dat
 
     rows.sort(key=_effective_ts)
 
-    total_l = 0.0
+    total_kl = 0.0
     prev_ts = None
-    prev_total = None
+    prev_total_kl = None
     for row in rows:
         ts = _effective_ts(row)
-        try:
-            total = float(row.get("forward_totalizer", 0))
-        except (TypeError, ValueError):
-            continue
         if not ts or ts == prev_ts:
             continue
-        if prev_total is not None:
-            delta = total - prev_total
-            if delta >= 0:
-                total_l += delta
+        total_kl_reading = _totaliser_to_kl(row.get("forward_totalizer", 0), ts)
+        if prev_total_kl is not None:
+            delta_kl = total_kl_reading - prev_total_kl
+            if delta_kl >= 0:
+                total_kl += delta_kl
             # A decrease is a meter reset/rollover; start a new chain at
-            # the new final reading instead of fabricating negative usage.
+            # the new normalized final reading instead of fabricating usage.
         prev_ts = ts
-        prev_total = total
-    return _l_to_kl(total_l)
+        prev_total_kl = total_kl_reading
+    return round(total_kl, 9)
 
 
 @router.get("/{hardware_id}/aggregate")
@@ -328,8 +342,14 @@ async def aggregate_volume(hardware_id: str, user: dict = Depends(get_current_us
         "label": cat.get("label"),
         "flow_rate_m3h": round(_lph_to_m3h(flow_lph), 3),
         "flow_rate_lph": flow_lph,
-        "totaliser_forward_kl": _l_to_kl(latest.get("forward_totalizer", 0) if latest else 0),
-        "totaliser_reverse_kl": _l_to_kl(latest.get("reverse_totalizer", 0) if latest else 0),
+        "totaliser_forward_kl": _totaliser_to_kl(
+            latest.get("forward_totalizer", 0) if latest else 0,
+            (latest.get("measurement_timestamp") or latest.get("timestamp")) if latest else None,
+        ),
+        "totaliser_reverse_kl": _totaliser_to_kl(
+            latest.get("reverse_totalizer", 0) if latest else 0,
+            (latest.get("measurement_timestamp") or latest.get("timestamp")) if latest else None,
+        ),
         "consumption_kl": {
             "hourly": round(hourly, 3),
             "daily": round(daily, 3),
