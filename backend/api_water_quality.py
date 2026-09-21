@@ -62,6 +62,22 @@ def _convert(value: float, from_unit: str, to_unit: str) -> float:
     return round(float(value), 3)
 
 
+def _convert_wq_param_value(param_key: str, value: float, requested_unit: str) -> float:
+    """Convert only parameters whose native unit is concentration-based.
+
+    DO history/report responses contain heterogeneous units (mg/L, °C, %,
+    kPa, ‰). The report's generic unit selector must never relabel or
+    numerically reinterpret temperature, saturation percentage, pressure or
+    salinity as mg/L. Concentration parameters remain compatible with the
+    existing mg/L ↔ ppm passthrough.
+    """
+    meta = DO_PARAMS.get(param_key) or STP_PARAMS.get(param_key) or CHLORINE_PARAMS.get(param_key) or {}
+    native = meta.get("unit_default") or "mg/L"
+    if native.lower() in ("mg/l", "ppm"):
+        return _convert(float(value), native, requested_unit)
+    return round(float(value), 3)
+
+
 # STP water-quality parameter keys and their typical operating bands. Used
 # for the frontend gauge color-ranges when no admin-set limit is defined.
 STP_PARAMS = {
@@ -623,7 +639,7 @@ async def history(
                 v = vals.get(p)
                 if v is not None:
                     try:
-                        v = round(_convert(float(v), "mg/L", unit), 3)
+                        v = round(_convert_wq_param_value(p, float(v), unit), 3)
                     except (TypeError, ValueError):
                         pass
                 entry[p] = v
@@ -669,7 +685,7 @@ async def history(
             n = buckets[k][p]["n"]
             avg = buckets[k][p]["sum"] / n if n else None
             if avg is not None:
-                avg = _convert(avg, "mg/L", unit)
+                avg = _convert_wq_param_value(p, avg, unit)
             entry[p] = round(avg, 3) if avg is not None else None
             entry[f"{p}_samples"] = n
         series.append(entry)
@@ -764,7 +780,7 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
                     data_row.append("")
                 else:
                     try:
-                        data_row.append(_convert(float(v), "mg/L", req.unit))
+                        data_row.append(_convert_wq_param_value(p, float(v), req.unit))
                     except (TypeError, ValueError):
                         data_row.append(v)
             w.writerow(data_row)
@@ -827,7 +843,7 @@ async def report(req: ReportRequest, user: dict = Depends(get_current_user)):
                 table_row.append("—")
             else:
                 try:
-                    table_row.append(f"{_convert(float(v), 'mg/L', req.unit):.2f}")
+                    table_row.append(f"{_convert_wq_param_value(p, float(v), req.unit):.2f}")
                 except (TypeError, ValueError):
                     table_row.append(str(v))
         table_data.append(table_row)
