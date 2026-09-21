@@ -705,9 +705,6 @@ const Reports = () => {
           </TabsContent>
         </Tabs>
       </div>
-    </div>
-  );
-
       {/* Edit dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
