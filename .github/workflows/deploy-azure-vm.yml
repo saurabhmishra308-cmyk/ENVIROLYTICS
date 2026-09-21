@@ -127,6 +127,10 @@ jobs:
           echo "→ installing any new Python deps"
           /home/envirolytics/ENVIROLYTICS/backend/venv/bin/pip install -r /home/envirolytics/ENVIROLYTICS/backend/requirements.txt
 
+          echo "→ rebuilding historical Flowmeter totaliser chain"
+          cd /home/envirolytics/ENVIROLYTICS/backend
+          /home/envirolytics/ENVIROLYTICS/backend/venv/bin/python scripts/rebuild_flowmeter_totaliser_chain.py
+
           echo "→ syncing frontend + rebuilding"
           rsync -a --delete \
             --exclude ".env" \
