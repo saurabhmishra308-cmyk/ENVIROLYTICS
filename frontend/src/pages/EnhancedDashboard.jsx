@@ -149,27 +149,63 @@ const EnhancedDashboard = () => {
 
   const fetchLive = useCallback(async () => {
     try {
-      const [fmRes, instrRes, statusRes, catRes] = await Promise.all([
+      // /api/flowmeter/status is admin/staff-only. Keep it out of the
+      // client's critical request set so a 403 there cannot block live data.
+      const liveRequests = [
         api.get('/api/flowmeter/latest'),
         api.get('/api/instruments/all/latest'),
-        api.get('/api/flowmeter/status'),
         api.get('/api/flowmeter-mgmt/categories'),
-      ]);
-      // Pull aggregate for each flowmeter (parallel)
-      const flowmeters = fmRes.data.flowmeters || [];
+        api.get('/api/instrument-registry'),
+      ];
+      if (isAdmin()) {
+        liveRequests.push(api.get('/api/flowmeter/status'));
+      }
+      const [fmRes, instrRes, catRes, regRes, statusRes] = await Promise.all(liveRequests);
+
+      const latestFlowmeters = fmRes.data.flowmeters || [];
+      const registered = regRes.data.instruments || regRes.data.items || [];
+      const registeredFlowmeters = registered.filter((r) => r.instrument_type === 'flowmeter' && r.hardware_id);
       const cats = catRes.data.categories || [];
       setCategories(cats);
+
+      const deviceById = new Map();
+      registeredFlowmeters.forEach((r) => {
+        deviceById.set(r.hardware_id, { hardware_id: r.hardware_id, label: r.label || r.hardware_id });
+      });
+      latestFlowmeters.forEach((r) => {
+        if (r.hardware_id && !deviceById.has(r.hardware_id)) deviceById.set(r.hardware_id, r);
+      });
+      cats.forEach((c) => {
+        if (c.hardware_id && !deviceById.has(c.hardware_id)) {
+          deviceById.set(c.hardware_id, { hardware_id: c.hardware_id, label: c.label || c.hardware_id });
+        }
+      });
+
       const aggs = await Promise.all(
-        flowmeters.map((fm) => api.get(`/api/flowmeter-mgmt/${fm.hardware_id}/aggregate`).then((r) => r.data).catch(() => null))
+        [...deviceById.keys()].map((hardwareId) =>
+          api.get(`/api/flowmeter-mgmt/${encodeURIComponent(hardwareId)}/aggregate`)
+            .then((r) => r.data)
+            .catch(() => ({
+              hardware_id: hardwareId,
+              category: null,
+              label: deviceById.get(hardwareId)?.label || hardwareId,
+              flow_rate_m3h: 0,
+              totaliser_forward_kl: 0,
+              consumption_kl: { hourly: 0, weekly: 0, monthly: 0, yearly: 0 },
+            }))
+        )
       );
-      // Also pull aggregates for any *registered* hardware that has a category but no readings yet
-      const knownIds = new Set(flowmeters.map((f) => f.hardware_id));
-      const extraIds = cats.map((c) => c.hardware_id).filter((id) => !knownIds.has(id));
-      const extraAggs = await Promise.all(
-        extraIds.map((id) => api.get(`/api/flowmeter-mgmt/${id}/aggregate`).then((r) => r.data).catch(() => null))
-      );
+
+      const categoryByHw = Object.fromEntries(cats.map((c) => [c.hardware_id, c.category]));
       const aggMap = {};
-      [...aggs, ...extraAggs].forEach((a) => { if (a && a.hardware_id) aggMap[a.hardware_id] = a; });
+      aggs.forEach((a) => {
+        if (!a?.hardware_id) return;
+        aggMap[a.hardware_id] = {
+          ...a,
+          category: a.category || categoryByHw[a.hardware_id] || 'groundwater_abstraction',
+          label: a.label || deviceById.get(a.hardware_id)?.label || a.hardware_id,
+        };
+      });
       setAggregates(aggMap);
 
       const grouped = instrRes.data.by_type || {};
@@ -179,7 +215,7 @@ const EnhancedDashboard = () => {
         tds: grouped.tds || [],
         conductivity: grouped.conductivity || [],
       });
-      setMqttStatus(statusRes.data || { connected: false });
+      setMqttStatus(statusRes?.data || { connected: false });
       // Pull STP + DO latest snapshots for the compact tile rows.
       try {
         const wqRes = await api.get('/api/water-quality/latest');
