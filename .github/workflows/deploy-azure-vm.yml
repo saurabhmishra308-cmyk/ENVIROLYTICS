@@ -140,13 +140,18 @@ jobs:
             echo "REACT_APP_BACKEND_URL=" | sudo -u envirolytics tee /home/envirolytics/ENVIROLYTICS/frontend/.env > /dev/null
           fi
           cd /home/envirolytics/ENVIROLYTICS/frontend
-          sudo -u envirolytics -H yarn install --frozen-lockfile
+          sudo -u envirolytics -H yarn install --no-lockfile
           sudo -u envirolytics -H yarn build
 
-          echo "→ syncing deploy artefacts (nginx/systemd)"
-          sudo rsync -a /opt/envirolytics/src/deploy/azure-vm/nginx.conf \
-            /etc/nginx/sites-available/envirolytics
-          sudo rsync -a /opt/envirolytics/src/deploy/azure-vm/envirolytics-backend.service \
+          echo "→ publishing frontend build"
+          sudo mkdir -p /var/www/envirolytics
+          sudo rsync -a --delete \
+            /home/envirolytics/ENVIROLYTICS/frontend/build/ \
+            /var/www/envirolytics/
+          sudo chown -R envirolytics:envirolytics /var/www/envirolytics
+
+          echo "→ updating backend systemd unit"
+          sudo rsync -a /home/envirolytics/ENVIROLYTICS/deploy/azure-vm/envirolytics-backend.service \
             /etc/systemd/system/envirolytics-backend.service
           sudo systemctl daemon-reload
 
