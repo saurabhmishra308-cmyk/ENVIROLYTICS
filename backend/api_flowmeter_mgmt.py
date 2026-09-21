@@ -134,11 +134,12 @@ async def ingest_flowmeter(req: IngestFlowmeterReading, admin: dict = Depends(re
         "unit_name": "m3/h",
         "canonical_unit": "m3/h",
         "timestamp": now_iso,
+        "measurement_timestamp": now_iso,
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
     # Idempotent historical storage keyed by device measurement timestamp.
     duplicate = await db.flowmeter_readings.find_one(
-        {"hardware_id": req.hardware_id, "timestamp": now_iso},
+        {"hardware_id": req.hardware_id, "measurement_timestamp": now_iso},
         {"_id": 1},
     )
     if not duplicate:
@@ -146,9 +147,13 @@ async def ingest_flowmeter(req: IngestFlowmeterReading, admin: dict = Depends(re
 
     # Delayed manual/import records must not overwrite a newer live cache.
     latest = await db.flowmeter_latest.find_one(
-        {"hardware_id": req.hardware_id}, {"timestamp": 1, "_id": 0}
+        {"hardware_id": req.hardware_id}, {"measurement_timestamp": 1, "timestamp": 1, "_id": 0}
     )
-    latest_ts = str((latest or {}).get("timestamp") or "")
+    latest_ts = str(
+        (latest or {}).get("measurement_timestamp")
+        or (latest or {}).get("timestamp")
+        or ""
+    )
     if not latest_ts or now_iso >= latest_ts:
         await db.flowmeter_latest.update_one(
             {"hardware_id": req.hardware_id}, {"$set": doc}, upsert=True
@@ -376,17 +381,27 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
         raise HTTPException(status_code=404, detail="Reading not found")
 
     hardware_id = existing["hardware_id"]
-    new_ts = req.timestamp or existing["timestamp"]
+    new_ts = req.timestamp or existing.get("measurement_timestamp") or existing["timestamp"]
 
     # Validate forward totaliser monotonicity (chronological neighbours by timestamp)
     if req.forward_totalizer is not None:
         prev = await db.flowmeter_readings.find_one(
-            {"hardware_id": hardware_id, "timestamp": {"$lt": new_ts}, "_id": {"$ne": obj_id}},
-            sort=[("timestamp", -1)],
+            {"hardware_id": hardware_id,
+             "$or": [
+                 {"measurement_timestamp": {"$lt": new_ts}},
+                 {"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": new_ts}},
+             ],
+             "_id": {"$ne": obj_id}},
+            sort=[("measurement_timestamp", -1), ("timestamp", -1)],
         )
         nxt = await db.flowmeter_readings.find_one(
-            {"hardware_id": hardware_id, "timestamp": {"$gt": new_ts}, "_id": {"$ne": obj_id}},
-            sort=[("timestamp", 1)],
+            {"hardware_id": hardware_id,
+             "$or": [
+                 {"measurement_timestamp": {"$gt": new_ts}},
+                 {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gt": new_ts}},
+             ],
+             "_id": {"$ne": obj_id}},
+            sort=[("measurement_timestamp", 1), ("timestamp", 1)],
         )
         if prev and req.forward_totalizer < float(prev.get("forward_totalizer", 0)) - 1e-6:
             raise HTTPException(
@@ -410,12 +425,22 @@ async def edit_flowmeter_reading(reading_id: str, req: EditFlowmeterReading, adm
     # Same check for reverse totaliser
     if req.reverse_totalizer is not None:
         prev = await db.flowmeter_readings.find_one(
-            {"hardware_id": hardware_id, "timestamp": {"$lt": new_ts}, "_id": {"$ne": obj_id}},
-            sort=[("timestamp", -1)],
+            {"hardware_id": hardware_id,
+             "$or": [
+                 {"measurement_timestamp": {"$lt": new_ts}},
+                 {"measurement_timestamp": {"$exists": False}, "timestamp": {"$lt": new_ts}},
+             ],
+             "_id": {"$ne": obj_id}},
+            sort=[("measurement_timestamp", -1), ("timestamp", -1)],
         )
         nxt = await db.flowmeter_readings.find_one(
-            {"hardware_id": hardware_id, "timestamp": {"$gt": new_ts}, "_id": {"$ne": obj_id}},
-            sort=[("timestamp", 1)],
+            {"hardware_id": hardware_id,
+             "$or": [
+                 {"measurement_timestamp": {"$gt": new_ts}},
+                 {"measurement_timestamp": {"$exists": False}, "timestamp": {"$gt": new_ts}},
+             ],
+             "_id": {"$ne": obj_id}},
+            sort=[("measurement_timestamp", 1), ("timestamp", 1)],
         )
         if prev and req.reverse_totalizer < float(prev.get("reverse_totalizer", 0)) - 1e-6:
             raise HTTPException(
