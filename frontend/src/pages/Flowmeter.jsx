@@ -87,7 +87,7 @@ const Flowmeter = () => {
   const current = latest.find((r) => r.hardware_id === selected) || latest[0];
   const recentReadings = history.slice(0, 10).map((r, i) => ({
     id: r._id || `reading_${i}`,
-    time: new Date(r.timestamp || r.received_at).toLocaleTimeString(),
+    time: new Date(r.measurement_timestamp || r.timestamp || r.received_at).toLocaleTimeString(),
     flow: Number(r.flow_rate_m3h || 0).toFixed(3),
     volume: Number(r.forward_totalizer || 0).toFixed(2),
     status: 'Normal',
@@ -164,7 +164,7 @@ const Flowmeter = () => {
                     <span className="text-gray-900">Flow Overview — {current?.hardware_id}</span>
                     <Badge className="bg-green-500 text-white">LIVE</Badge>
                   </CardTitle>
-                  <CardDescription>Last updated: {current ? new Date(current.received_at || current.timestamp).toLocaleString() : '—'}</CardDescription>
+                  <CardDescription>Last updated: {current ? new Date(current.measurement_timestamp || current.timestamp || current.received_at).toLocaleString() : '—'}</CardDescription>
                   <div className="flex gap-2 mt-3 border-b" role="tablist">
                     <button
                       role="tab"
@@ -266,7 +266,7 @@ const Flowmeter = () => {
                   </div>
                   <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <Clock className="w-4 h-4 text-gray-600" />
-                    <span className="text-sm">{current ? new Date(current.received_at || current.timestamp).toLocaleTimeString() : '—'}</span>
+                    <span className="text-sm">{current ? new Date(current.measurement_timestamp || current.timestamp || current.received_at).toLocaleTimeString() : '—'}</span>
                   </div>
                   <Button className="w-full mt-2" style={{ backgroundColor: '#4a9fd8' }} onClick={() => navigate('/reports')} data-testid="flowmeter-export-btn">
                     <Download className="mr-2 h-4 w-4" />Export Report
