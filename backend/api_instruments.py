@@ -108,6 +108,7 @@ async def _store_reading(instrument_type: str, hardware_id: str, values: dict, l
         "values": values,
         "location": location,
         "timestamp": now_iso,
+        "measurement_timestamp": now_iso,
         "received_at": now_iso,
     }
     await db.instrument_readings.insert_one(dict(doc))
@@ -132,7 +133,9 @@ async def list_types():
 async def latest_all_types(user: dict = Depends(get_current_user)):
     """Latest reading per device across ALL instrument types (filtered by ownership for non-admin)."""
     cursor = db.instrument_latest.find({"_dummy": {"$ne": True}}, {"_id": 0})
-    items = await cursor.to_list(length=500)
+    items = []
+    async for row in cursor:
+        items.append(row)
     visible = await api_instrument_registry.visible_hardware_ids(user)
     if visible is not None:
         items = [r for r in items if r.get("hardware_id") in visible]
@@ -148,7 +151,9 @@ async def latest_for_type(instrument_type: str, user: dict = Depends(get_current
     """Latest reading per device for an instrument type (filtered by ownership for non-admin)."""
     t = _validate_type(instrument_type)
     cursor = db.instrument_latest.find({"instrument_type": t, "_dummy": {"$ne": True}}, {"_id": 0})
-    items = await cursor.to_list(length=200)
+    items = []
+    async for row in cursor:
+        items.append(row)
     visible = await api_instrument_registry.visible_hardware_ids(user)
     if visible is not None:
         items = [r for r in items if r.get("hardware_id") in visible]
