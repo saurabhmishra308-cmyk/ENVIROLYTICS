@@ -584,7 +584,7 @@ async def history(
          ],
          "_dummy": {"$ne": True}},
         {"_id": 0, "values": 1, "timestamp": 1, "measurement_timestamp": 1, "received_at": 1, "instrument_type": 1},
-    )
+    ).sort([("measurement_timestamp", -1), ("timestamp", -1), ("received_at", -1)])
 
     # Determine parameter keys based on the first row (or the registry type).
     reg = await db.instrument_registry.find_one(
@@ -602,7 +602,7 @@ async def history(
     if range == "raw":
         rows: List[dict] = []
         rows_seen = set()
-        async for row in cursor.sort([("measurement_timestamp", -1), ("timestamp", -1)]).limit(limit * 2):
+        async for row in cursor.limit(limit * 2):
             measurement_ts = row.get("measurement_timestamp") or row.get("timestamp")
             # Guard against duplicate historical rows from older ingestion paths.
             if measurement_ts in rows_seen:
@@ -635,9 +635,14 @@ async def history(
         }
 
     buckets: dict = {}
+    seen_measurement_ts = set()
     async for row in cursor:
+        measurement_ts = row.get("measurement_timestamp") or row.get("timestamp")
+        if measurement_ts in seen_measurement_ts:
+            continue
+        seen_measurement_ts.add(measurement_ts)
         try:
-            ts = _parse_dt(row.get("measurement_timestamp") or row.get("timestamp") or "")
+            ts = _parse_dt(measurement_ts or "")
         except (ValueError, TypeError):
             continue
         key = ts.strftime(bucket_fmt)
