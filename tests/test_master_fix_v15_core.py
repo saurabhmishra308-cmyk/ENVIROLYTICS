@@ -13,6 +13,14 @@ def read(path):
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def test_flowmeter_mqtt_control_endpoints_require_admin():
+    src = read("backend/api_flowmeter.py")
+    assert "from auth import get_current_user, require_admin" in src
+    assert "async def subscribe_to_flowmeter(subscription: FlowmeterSubscription, admin: dict = Depends(require_admin))" in src
+    assert "async def subscribe_to_gateway(subscription: GatewaySubscription, admin: dict = Depends(require_admin))" in src
+    assert "async def get_mqtt_status(admin: dict = Depends(require_admin))" in src
+
+
 def test_flowmeter_detail_apis_enforce_ownership():
     src = read("backend/api_flowmeter_mgmt.py")
     assert "async def _assert_flowmeter_visible" in src
