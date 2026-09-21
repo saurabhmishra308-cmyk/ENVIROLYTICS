@@ -464,7 +464,7 @@ def test_do_saturation_ui_exposes_single_historical_saturation_value():
     assert "saturationVendorPct=" not in src
     assert "DO Saturation" in widget
     assert "Sat Calc" not in widget
-    assert "DO Sat" not in widget
+    assert "DO Sat Calc" not in widget
     assert "Vendor" not in widget
 
 
