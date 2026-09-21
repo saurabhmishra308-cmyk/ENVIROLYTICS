@@ -76,7 +76,7 @@ const Analysis = () => {
       <div className="space-y-4">
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <img
-            src="/data-analysis-banner.png"
+            src="/data-analysis-banner.svg"
             alt="Envirolytics Data Analysis — Flowmeter and DWLR analytics"
             className="block h-auto w-full object-contain"
             loading="eager"
