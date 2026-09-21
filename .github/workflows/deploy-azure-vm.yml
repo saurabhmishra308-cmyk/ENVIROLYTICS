@@ -57,9 +57,21 @@ jobs:
           MONGO_URL="mongodb://127.0.0.1:27017" DB_NAME="envirolytics_ci" \
             python -c "import server, mqtt_utils, api_flowmeter_mgmt, api_water_quality, espl_poller, notification_service; print('OK')"
 
-      - name: Master Fix regression tests
+      - name: Regression tests — V12
         run: |
-          python -m pytest -q tests/test_master_fix_v12.py tests/test_master_fix_v14.py tests/test_client_mobile_visibility.py tests/test_master_fix_v15_core.py
+          python -m pytest -q tests/test_master_fix_v12.py
+
+      - name: Regression tests — V14
+        run: |
+          python -m pytest -q tests/test_master_fix_v14.py
+
+      - name: Regression tests — client/mobile visibility
+        run: |
+          python -m pytest -q tests/test_client_mobile_visibility.py
+
+      - name: Regression tests — V15 core
+        run: |
+          python -m pytest -q tests/test_master_fix_v15_core.py
 
       - name: Set up Node 20
         uses: actions/setup-node@v7
