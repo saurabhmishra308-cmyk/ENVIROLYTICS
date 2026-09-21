@@ -224,11 +224,22 @@ const GraphReport = () => {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Graph Reports</h1>
-        <p className="text-gray-600 mt-1">
-          Live flow + water-level trend and the daily rainfall vs water-level trend.
-        </p>
+      <div className="space-y-4">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <img
+            src="/graph-report-banner.jpg"
+            alt="Envirolytics — Monitoring Today for a Sustainable Tomorrow"
+            className="block h-auto w-full object-contain"
+            loading="eager"
+            decoding="async"
+          />
+        </div>
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Graph Reports</h1>
+          <p className="text-gray-600 mt-1">
+            Live flow + water-level trend and the daily rainfall vs water-level trend.
+          </p>
+        </div>
       </div>
 
       <LiveFlowLevelChart />
