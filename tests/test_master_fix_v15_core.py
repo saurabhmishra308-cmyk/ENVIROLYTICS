@@ -414,7 +414,7 @@ def test_do_saturation_history_and_reports_expose_engineering_traceability():
     assert '"DO_SATURATION_PRESSURE_KPA"' in src
     assert '"DO_SATURATION_SALINITY_PPT"' in src
     assert 'param_keys = list(DO_PARAMS.keys())' in src
-    assert 'data_row.append(_convert(float(v), "mg/L", req.unit))' in src
+    assert '_convert_wq_param_value(p, float(v), req.unit)' in src
 
 
 def test_do_saturation_ui_exposes_calculated_concentration():
