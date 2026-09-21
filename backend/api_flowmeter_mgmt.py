@@ -321,10 +321,11 @@ async def _abstraction_between(hardware_id: str, start_dt: datetime, end_dt: dat
             delta = total_kl_reading - prev_total_kl
             if delta >= 0:
                 total_kl += delta
-            # A decrease is a meter reset/rollover; start a new chain at
-            # the new normalized final reading instead of fabricating usage.
+                prev_total_kl = total_kl_reading
+            # A decrease is a meter reset/rollover. Ignore the reset value for
+            # the reporting chain so the next valid reading cannot fabricate a
+            # huge positive consumption jump.
         prev_ts = ts
-        prev_total_kl = total_kl_reading
     return round(total_kl, 9)
 
 
