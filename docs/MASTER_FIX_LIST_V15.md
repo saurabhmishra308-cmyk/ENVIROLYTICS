@@ -209,7 +209,9 @@ Audit and verify:
 
 ## 9. Reports and graphs
 
-**Status: PENDING**
+**Status: INVESTIGATING**
+
+**Current V15 evidence:** report timestamps are being made measurement-time authoritative, flowmeter/DWLR graph queries now use the same measurement-time window with legacy fallback, report graph device selection is registry/ownership scoped, and groundwater consumption is restricted to caller-visible flowmeters. Water Quality report deduplication and measurement-time guards are already covered. Live report/export verification across admin/client roles remains outstanding.
 
 Audit and verify:
 
