@@ -62,7 +62,14 @@ async def rebuild():
 
         previous_final = None
         for ts, row in rows:
-            final_kl = totaliser_kl(row.get("forward_totalizer"), ts)
+            raw_final_kl = totaliser_kl(row.get("forward_totalizer"), ts)
+            reset = previous_final is not None and raw_final_kl < previous_final - 1e-9
+            # A decreasing cumulative totaliser is a meter reset/corrupt
+            # reading, not consumption. Keep the user-facing canonical chain
+            # continuous: the reset row contributes zero and the next valid
+            # reading continues from the last valid final. Raw fields remain
+            # untouched for audit/debugging.
+            final_kl = previous_final if reset else raw_final_kl
             initial_kl = final_kl if previous_final is None else previous_final
             consumption_kl = max(0.0, final_kl - initial_kl)
             await coll.update_one(
@@ -73,10 +80,13 @@ async def rebuild():
                     "totaliser_start_reading": round(initial_kl, 6),
                     "totaliser_end_reading": round(final_kl, 6),
                     "consumption_kl": round(consumption_kl, 6),
-                    "totaliser_chain_version": 1,
+                    "totaliser_chain_version": 2,
+                    "totaliser_chain_reset_detected": bool(reset),
+                    "totaliser_raw_final_kl": round(raw_final_kl, 6),
                 }},
             )
-            previous_final = final_kl
+            if previous_final is None or not reset:
+                previous_final = final_kl
             updated += 1
 
     client.close()
