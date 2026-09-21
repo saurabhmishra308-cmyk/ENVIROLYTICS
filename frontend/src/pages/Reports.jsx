@@ -695,9 +695,9 @@ const Reports = () => {
                   </div>
                   <div className="relative hidden aspect-[1794/877] w-full overflow-hidden rounded-2xl border border-sky-100 bg-sky-50 shadow-sm lg:flex lg:items-center lg:justify-center">
               <img
-                src={section === 'dwlr' ? '/dwlr-banner.webp' : '/flowmeter-banner.svg'}
+                src={section === 'dwlr' ? '/dwlr-banner.webp' : '/flowmeter-banner-approved.webp'}
                 alt={section === 'dwlr' ? 'Envirolytics Digital Water Level Recorder — Continuous Groundwater Monitoring' : 'Envirolytics flowmeter'}
-                className="h-full w-full object-cover"
+                className="h-full w-full object-contain"
                 loading="eager"
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
