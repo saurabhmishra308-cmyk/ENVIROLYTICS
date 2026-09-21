@@ -130,8 +130,8 @@ def test_flowmeter_date_filters_do_not_fallback_to_legacy_timestamp_when_measure
 def test_mqtt_downsampling_uses_measurement_time_not_receipt_time():
     src = read("backend/mqtt_service.py")
     assert 'measurement_timestamp: Optional[str] = None' in src
-    assert 'current_ts <= last_ts' in src
-    assert '(current_ts - last_ts) >= timedelta(minutes=freq_minutes)' in src
+    assert 'current_ts <= previous_ts' in src
+    assert '(current_ts - previous_ts) >= timedelta(minutes=freq_minutes)' in src
     assert 'self._should_store_reading("flowmeter", hardware_id, timestamp_iso)' in src
     assert 'self._should_store_reading("instrument", hardware_id, ts_iso)' in src
 def test_mqtt_downsampling_preserves_late_measurements_in_chronological_history():
