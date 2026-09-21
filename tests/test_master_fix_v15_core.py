@@ -223,3 +223,22 @@ def test_espl_poller_keeps_five_minute_polling_and_measurement_time_authority():
     assert '"received_at": now_iso' in src
     assert '"measurement_timestamp": 1, "timestamp": 1' in src
     assert 'measurement_dt >= current_dt' in src
+
+def test_generic_instrument_ingest_stamps_measurement_time():
+    src = read("backend/api_instruments.py")
+    assert '"measurement_timestamp": now_iso' in src
+
+
+def test_generic_latest_endpoints_have_no_arbitrary_device_caps():
+    src = read("backend/api_instruments.py")
+    all_start = src.index('async def latest_all_types')
+    all_end = src.index('@router.get("/{instrument_type}/latest")', all_start)
+    all_block = src[all_start:all_end]
+    assert "to_list(length=500)" not in all_block
+    assert "async for row in cursor:" in all_block
+
+    type_start = src.index('async def latest_for_type')
+    type_end = src.index('@router.get("/{instrument_type}/{hardware_id}/latest")', type_start)
+    type_block = src[type_start:type_end]
+    assert "to_list(length=200)" not in type_block
+    assert "async for row in cursor:" in type_block
