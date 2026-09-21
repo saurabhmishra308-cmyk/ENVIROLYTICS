@@ -107,7 +107,7 @@ class DataExportService:
                 if previous_end_kl is not None:
                     start_kl = previous_end_kl
                 elif start_raw not in (None, ""):
-                    start_kl = DataExportService._totaliser_to_kl(start_raw, ts)
+                    start_kl = float(start_raw) if row.get("_totaliser_values_are_kl") else DataExportService._totaliser_to_kl(start_raw, ts)
                 else:
                     start_kl = end_kl
                 row["totaliser_start_reading"] = None if start_kl is None else round(start_kl, 6)
