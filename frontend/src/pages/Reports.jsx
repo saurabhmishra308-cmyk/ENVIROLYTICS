@@ -702,10 +702,6 @@ const Reports = () => {
                 fetchPriority="high"
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
-              {section !== 'dwlr' && <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/75 to-transparent px-5 pb-4 pt-16">
-                <div className="text-sm font-semibold text-white">Accurate Flow Monitoring</div>
-                <div className="text-xs text-slate-200">Reliable data • Real-time monitoring • Sustainable water management</div>
-              </div>}
             </div>
                 </div>
               </CardContent>
