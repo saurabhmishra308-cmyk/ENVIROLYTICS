@@ -83,10 +83,6 @@ const Analysis = () => {
             decoding="async"
           />
         </div>
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Data Analysis</h1>
-          <p className="text-gray-600 mt-1">Flowmeter (ground water abstraction) and DWLR (water level) analytics only.</p>
-        </div>
       </div>
 
       <HourlyPumpingLevelChart />
