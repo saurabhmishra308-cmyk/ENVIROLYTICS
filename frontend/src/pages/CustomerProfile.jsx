@@ -349,16 +349,13 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability 
             return <div key={t}><div className="mb-2 flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-wide text-slate-700">{t.replace(/_/g,' ')}</p><span className="text-[10px] font-semibold text-slate-400">{arr.length}</span></div><div className="grid grid-cols-[1fr_100px] items-center gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-2"><ul className="space-y-1.5 text-[11px] text-slate-600">{arr.map((i)=><li key={i.hardware_id} className="flex gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" /><span>{i.label || i.hardware_id} <span className="text-slate-400">({i.hardware_id})</span></span></li>)}</ul>{(isDwlr || isFlow) && (() => {
   const gallery = isFlow
     ? [
-        { src: '/banners/flowmeter-product.png', alt: 'Envirolytics Flowmeter — overview' },
-        { src: '/flowmeter-detail.svg', alt: 'Envirolytics Flowmeter — detail' },
+        { src: '/banners/flowmeter-product.png', alt: 'Envirolytics Flowmeter' },
       ]
     : [
-        { src: '/banners/dwlr-product.png', alt: 'Envirolytics Digital Water Level Recorder — overview' },
-        { src: '/dwlr-controller.svg', alt: 'Envirolytics Digital Water Level Recorder — controller view' },
-        { src: '/dwlr-probe.svg', alt: 'Envirolytics Digital Water Level Recorder — probe view' },
+        { src: '/banners/dwlr-product.png', alt: 'Envirolytics Digital Water Level Recorder' },
       ];
   return (
-    <div className={isFlow ? 'grid grid-cols-2 gap-1.5' : 'grid grid-cols-3 gap-1.5'}>
+    <div className="grid grid-cols-1 gap-1.5">
       {gallery.map((item, idx) => (
         <div key={idx} className="flex h-20 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-white p-1">
           <img
