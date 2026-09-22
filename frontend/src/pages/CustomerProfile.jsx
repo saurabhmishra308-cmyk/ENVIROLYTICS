@@ -376,11 +376,11 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability 
         </div>}
       </Section>
       <div className="overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-sky-50 shadow-[0_8px_28px_rgba(15,23,42,0.06)]">
-        <div className="relative h-full min-h-[270px] overflow-hidden">
+        <div className="relative w-full overflow-hidden">
             <img
               src="/banners/customer-compliance-banner.png"
               alt="Environmental Compliance Today for a Better Tomorrow"
-              className="h-full w-full object-contain"
+              className="block h-auto w-full"
               loading="lazy"
               decoding="async"
             />
