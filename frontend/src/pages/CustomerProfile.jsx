@@ -375,7 +375,7 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability 
       <div className="overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-sky-50 shadow-[0_8px_28px_rgba(15,23,42,0.06)]">
         <div className="relative w-full overflow-hidden">
             <img
-              src="/banners/customer-compliance-banner.png"
+              src="/banners/customer-compliance-banner-1040x474.png"
               alt="Environmental Compliance Today for a Better Tomorrow"
               className="block h-auto w-full"
               loading="lazy"
