@@ -265,20 +265,14 @@ const CustomerProfile = () => {
                 {profile.address && <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-4 text-slate-500"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" /> {profile.address}</p>}
               </div>
             </div>
-            <div className="relative min-h-[150px] overflow-hidden bg-gradient-to-r from-sky-50 via-white to-emerald-50 p-5">
-              <div className="absolute inset-0 opacity-70" style={{backgroundImage:'radial-gradient(circle at 15% 35%, rgba(59,130,246,.12) 0 2px, transparent 3px), radial-gradient(circle at 78% 22%, rgba(16,185,129,.13) 0 3px, transparent 4px)', backgroundSize:'32px 32px,46px 46px'}} />
-              <div className="relative flex h-full flex-col justify-between">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-blue-600">ENVIRONMENTAL MONITORING</p>
-                  <h2 className="mt-1 text-xl font-bold leading-tight text-slate-900">Monitoring Today<br /><span className="text-emerald-600">for a Sustainable Tomorrow</span></h2>
-                  <p className="mt-2 text-[11px] text-slate-500">Reliable data • Regulatory visibility • Resource conservation</p>
-                </div>
-                <div className="flex items-center gap-4 text-[10px] font-semibold text-slate-600">
-                  <span className="flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-blue-600" /> Compliance</span>
-                  <span className="flex items-center gap-1.5"><Leaf className="h-4 w-4 text-emerald-600" /> Conservation</span>
-                  <span className="flex items-center gap-1.5"><Activity className="h-4 w-4 text-violet-600" /> Sustainable Growth</span>
-                </div>
-              </div>
+            <div className="relative hidden min-h-[150px] overflow-hidden bg-white lg:block">
+              <img
+                src="/banners/customer-profile-banner.png"
+                alt="Envirolytics Environmental Monitoring Across Every Sector"
+                className="h-full w-full object-contain"
+                loading="eager"
+                decoding="async"
+              />
             </div>
           </div>
           {admin && (
