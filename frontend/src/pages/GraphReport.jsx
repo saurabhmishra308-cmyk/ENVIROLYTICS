@@ -227,7 +227,7 @@ const GraphReport = () => {
       <div className="space-y-4">
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <img
-            src="/graph-report-banner.svg"
+            src="/banners/banners/graph-report-banner.png"
             alt="Envirolytics — Monitoring Today for a Sustainable Tomorrow"
             className="block h-auto w-full object-contain"
             loading="eager"
