@@ -376,7 +376,15 @@ const ReadOnlyView = ({ profile, instrumentsByType, borewellNocs, applicability 
         </div>}
       </Section>
       <div className="overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-sky-50 shadow-[0_8px_28px_rgba(15,23,42,0.06)]">
-        <div className="relative flex min-h-[270px] h-full flex-col justify-between p-5"><div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-emerald-200/30 blur-2xl" /><div className="relative"><Leaf className="h-8 w-8 text-emerald-600" /><p className="mt-3 text-lg font-bold leading-tight text-slate-900">Environmental Compliance Today<br /><span className="text-emerald-600">for a Better Tomorrow</span></p><p className="mt-2 text-[11px] leading-4 text-slate-500">Sustainable solutions • Smarter monitoring • Healthier planet</p></div><div className="relative grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-600"><span className="rounded-xl bg-white/80 p-2 ring-1 ring-emerald-100">Protect resources</span><span className="rounded-xl bg-white/80 p-2 ring-1 ring-emerald-100">Regulatory compliance</span><span className="rounded-xl bg-white/80 p-2 ring-1 ring-emerald-100">Data-driven decisions</span><span className="rounded-xl bg-white/80 p-2 ring-1 ring-emerald-100">Sustainable future</span></div></div>
+        <div className="relative h-full min-h-[270px] overflow-hidden">
+            <img
+              src="/banners/customer-compliance-banner.png"
+              alt="Environmental Compliance Today for a Better Tomorrow"
+              className="h-full w-full object-contain"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
       </div>
     </div>
 
