@@ -234,12 +234,6 @@ const GraphReport = () => {
             decoding="async"
           />
         </div>
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Graph Reports</h1>
-          <p className="text-gray-600 mt-1">
-            Live flow + water-level trend and the daily rainfall vs water-level trend.
-          </p>
-        </div>
       </div>
 
       <LiveFlowLevelChart />
