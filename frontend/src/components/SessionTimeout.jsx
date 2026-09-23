@@ -179,41 +179,6 @@ export default function SessionTimeout() {
       }
     };
 
-    const onChannelMessage = (event) => {
-      const timestamp = Number(event?.data?.timestamp);
-      if (event?.data?.type === "user-activity" && Number.isFinite(timestamp)) {
-        acceptActivity(timestamp, false);
-      }
-    };
-
-    const storedActivity = readActivity();
-    lastActivityRef.current = storedActivity > 0 ? storedActivity : Date.now();
-    lastPublishedRef.current = lastActivityRef.current;
-    publishActivity(lastActivityRef.current);
-
-    if (typeof BroadcastChannel !== "undefined") {
-      try {
-        channelRef.current = new BroadcastChannel(CHANNEL_NAME);
-        channelRef.current.addEventListener("message", onChannelMessage);
-      } catch {
-        channelRef.current = null;
-      }
-    }
-
-    const publishChannelActivity = () => {
-      const timestamp = Date.now();
-      markUserActivity();
-
-      try {
-        channelRef.current?.postMessage({
-          type: "user-activity",
-          timestamp,
-        });
-      } catch {
-        // localStorage synchronization remains available.
-      }
-    };
-
     const activityEvents = [
       ["pointerdown", markUserActivity],
       ["keydown", markUserActivity],
@@ -242,11 +207,6 @@ export default function SessionTimeout() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("storage", onStorage);
 
-      if (channelRef.current) {
-        channelRef.current.removeEventListener("message", onChannelMessage);
-        channelRef.current.close();
-        channelRef.current = null;
-      }
     };
   }, [location.pathname, navigate]);
 
