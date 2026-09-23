@@ -1,12 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { toast } from "sonner";
 import { isAuthenticated, mockLogout } from "../mockData";
 
 export const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 const ACTIVITY_KEY = "envirolytics:last-user-activity";
 const TOKEN_KEY = "envirolytics_token";
-const CHANNEL_NAME = "envirolytics-session";
 const ACTIVITY_PUBLISH_INTERVAL_MS = 1000;
 
 const readActivity = () => {
@@ -55,7 +53,6 @@ export default function SessionTimeout() {
   const lastActivityRef = useRef(0);
   const hiddenAtRef = useRef(null);
   const lastPublishedRef = useRef(0);
-  const channelRef = useRef(null);
   const loggingOutRef = useRef(false);
 
   useEffect(() => {
@@ -222,7 +219,7 @@ export default function SessionTimeout() {
       ["keydown", markUserActivity],
       ["touchstart", markUserActivity],
       ["wheel", markUserActivity],
-      ["mousemove", publishChannelActivity],
+      ["mousemove", markUserActivity],
     ];
 
     activityEvents.forEach(([event, handler]) => {
