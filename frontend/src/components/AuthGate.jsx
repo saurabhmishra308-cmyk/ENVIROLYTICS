@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
+import SessionTimeout from "./SessionTimeout";
 
 /**
  * AuthGate listens for the `envirolytics:auth-expired` event that the axios
@@ -30,7 +31,12 @@ const AuthGate = ({ children }) => {
     return () => window.removeEventListener("envirolytics:auth-expired", handler);
   }, [navigate, location.pathname]);
 
-  return children;
+  return (
+    <>
+      <SessionTimeout />
+      {children}
+    </>
+  );
 };
 
 export default AuthGate;
