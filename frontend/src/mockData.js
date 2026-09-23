@@ -6,6 +6,7 @@ import { resetViewPermissions } from "./hooks/useViewPermissions";
 
 const TOKEN_KEY = "envirolytics_token";
 const USER_KEY = "envirolytics_user";
+const ACTIVITY_KEY = "envirolytics:last-user-activity";
 
 function safeGet(key) {
   try {
@@ -55,9 +56,8 @@ export async function loginWithEmail(email, password) {
   try {
     const { data } = await api.post("/api/auth/login", { email, password });
     safeSet(TOKEN_KEY, data.access_token);
-    safeSet(
-      USER_KEY,
-      JSON.stringify({
+    safeSet(ACTIVITY_KEY, String(Date.now()));
+    safeSet(USER_KEY, JSON.stringify({
         ...data.user,
         // Provide a `fullName` alias for legacy pages
         fullName: data.user.full_name,
@@ -85,6 +85,7 @@ export function mockLogin(username, password) {
 export function mockLogout() {
   safeRemove(TOKEN_KEY);
   safeRemove(USER_KEY);
+  safeRemove(ACTIVITY_KEY);
   resetViewPermissions();
 }
 
