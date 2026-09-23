@@ -189,7 +189,8 @@ export default function SessionTimeout() {
       }
     };
 
-    lastActivityRef.current = Math.max(Date.now(), readActivity());
+    const storedActivity = readActivity();
+    lastActivityRef.current = storedActivity > 0 ? storedActivity : Date.now();
     lastPublishedRef.current = lastActivityRef.current;
     publishActivity(lastActivityRef.current);
 
