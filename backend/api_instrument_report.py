@@ -213,6 +213,28 @@ async def instrument_events(
     start = datetime.now(timezone.utc) - timedelta(days=days)
     is_admin = user.get("role") == "admin"
 
+    # ------------------------------------------------------------
+    # Instrument Report permission enforcement
+    #
+    # Admin always has access.
+    # Clients/sub-users must have the admin-controlled `audit_log`
+    # view permission enabled. Missing keys default to True for
+    # backward compatibility with existing clients.
+    # ------------------------------------------------------------
+    if not is_admin:
+        fresh_user = await db.users.find_one(
+            {"id": user.get("id")},
+            {"_id": 0, "view_permissions": 1},
+        ) or {}
+
+        view_permissions = fresh_user.get("view_permissions") or {}
+
+        if not bool(view_permissions.get("audit_log", True)):
+            raise HTTPException(
+                status_code=403,
+                detail="Instrument Report access is disabled for this account",
+            )
+
     # Load registered instruments — admins see all, everyone else only their own.
     reg_query: Dict = {} if is_admin else {"owner_user_id": user.get("id")}
     registry: List[dict] = []

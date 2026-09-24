@@ -740,18 +740,6 @@ const EnhancedDashboard = () => {
           })}
         </div>
 
-        {!mqttStatus.connected && (
-          <Card className="border-amber-300 bg-amber-50">
-            <CardContent className="py-4 flex items-center gap-3">
-              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
-              <p className="text-sm text-amber-800">
-                <strong>MQTT broker offline.</strong> Activate HiveMQ Cloud credentials per <code>/app/IOT_DEVICE_CONFIGURATION_GUIDE.md</code>,
-                or use <code className="bg-amber-100 px-1 rounded">POST /api/flowmeter-mgmt/ingest</code> /
-                <code className="bg-amber-100 px-1 rounded">POST /api/instruments/ingest</code> to push demo readings.
-              </p>
-            </CardContent>
-          </Card>
-        )}
       </main>
 
       <footer className={`mt-12 py-4 ${isDarkMode ? 'bg-gray-800' : 'bg-[#1a2332]'}`}>
